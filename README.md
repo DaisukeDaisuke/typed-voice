@@ -1,7 +1,7 @@
 # typed-voice
 とある日曜劇場の真似事（AIで実装中）。現在のPoCは `kizuna-intelligence/tsukuyomichan-omnivoice-full-finetune` の実際の音質をブラウザ上で確認することを目的とします。別のOmniVoiceモデル、compressed/GPTQ版、Piper PlusなどをPoCの代替音声として使用しません。
 ## 現在のPoC境界
-`public/voice-manifest.json` はfull-finetune元重みの固定revisionを保持します。ただし、ブラウザ用split ONNXがまだ生成されていないため `installable:false` です。`C:\Users\owner\Downloads\model.safetensors` のcompressed/GPTQ重みをfull-finetuneの代用品にはしません。
+`public/voice-manifest.json` はfull-finetune元重みの固定revisionを保持します。ブラウザ用split ONNXがまだ生成されていないため `installable:false` ですが、これはエンジン初期化だけを止めます。`preparable:true` と固定hash付き `conversion-source` assetを持つため、dev画面からfull-finetune原本 `model.safetensors`（2,450,344,144 bytes）を実際に取得・ストリーミングSHA-256検証・Cache保存できます。`C:\Users\owner\Downloads\model.safetensors` のcompressed/GPTQ重みをfull-finetuneの代用品にはしません。
 ブラウザ実装は `audio_embeddings_encoder -> llm_decoder -> audio_heads_decoder -> iterative unmask -> Higgs decoder` のsplit構成を前提にしますが、PoCで実行可能にするモデル資産はfull-finetuneから生成したものだけです。音質確認前のINT4/INT8量子化も行いません。
 ## オフライン設計
 最初の明示的な「オフライン音声を準備」で、固定revision・固定SHA-256の資産を取得します。大容量ファイルは `ReadableStream` を二分し、Cache APIへの保存と増分SHA-256検証を並行します。検証済みメタデータだけをIndexedDBへ記録し、巨大な `ArrayBuffer` をIndexedDBへ複製しません。

@@ -9,7 +9,12 @@ async function readJson(relativePath) {
 
 test("full-finetune manifestは未変換の品質候補としてruntime取得を禁止する", async () => {
   const manifest = validateVoiceManifest(await readJson("../public/voice-manifest.json"));
+  assert.equal(manifest.preparable, true);
   assert.equal(manifest.installable, false);
   assert.equal(manifest.voice.source.repo, "kizuna-intelligence/tsukuyomichan-omnivoice-full-finetune");
-  assert.equal(manifest.assets.length, 0);
+  assert.equal(manifest.assets.length, 1);
+  assert.equal(manifest.assets[0].role, "conversion-source");
+  assert.equal(manifest.assets[0].source.path, "model.safetensors");
+  assert.equal(manifest.assets[0].sha256, manifest.voice.source.modelSha256);
+  assert.equal(manifest.assets[0].byteSize, manifest.voice.source.modelByteSize);
 });

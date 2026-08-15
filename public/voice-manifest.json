@@ -2,8 +2,9 @@
   "schemaVersion": 2,
   "id": "tsukuyomichan-omnivoice-full-finetune",
   "displayName": "つくよみちゃん OmniVoice Full Finetune",
+  "preparable": true,
   "installable": false,
-  "blockedReason": "full-finetune重みからブラウザ用split ONNXをまだ生成していません。compressed/GPTQ重みを代用品として使用しません。",
+  "blockedReason": "full-finetune原本は取得・検証できますが、ブラウザ用split ONNXをまだ生成していないためエンジンは起動できません。compressed/GPTQ重みを代用品として使用しません。",
   "voice": {
     "engine": "omnivoice",
     "source": {
@@ -31,5 +32,19 @@
     "voiceModelNotice": "THIRD_PARTY_NOTICES.md",
     "audioCodec": "Boson Higgs Audio 2 Community License Agreement"
   },
-  "assets": []
+  "assets": [
+    {
+      "id": "full-finetune-source-model",
+      "role": "conversion-source",
+      "localPath": "source/model.safetensors",
+      "byteSize": 2450344144,
+      "sha256": "9ebaa8dd3bf35ceb6217cd19142bdabe6d6c044cca40672d2ae163d1a90ab47e",
+      "source": {
+        "provider": "huggingface",
+        "repo": "kizuna-intelligence/tsukuyomichan-omnivoice-full-finetune",
+        "revision": "c1d7ff9477d0b21f220c58070da63355f69607e9",
+        "path": "model.safetensors"
+      }
+    }
+  ]
 }

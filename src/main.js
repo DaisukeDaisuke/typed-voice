@@ -21,10 +21,15 @@ await loadVoiceManifest();
 
 prepareButton.addEventListener("click", async () => {
   await runButtonTask(prepareButton, async () => {
-    engineStatus.textContent = "モデル資産を取得し、ストリーミングSHA-256検証後にオフラインCacheへ保存しています。";
+    engineStatus.textContent = "つくよみちゃんfull-finetune資産を取得し、ストリーミングSHA-256検証後にオフラインCacheへ保存しています。";
     const prepared = await client.prepare();
-    engineStatus.textContent = `オフライン準備完了: ${(prepared.totalBytes / 1024 / 1024).toFixed(1)} MiB`;
-    initializeButton.disabled = false;
+    if (manifest.installable === false) {
+      engineStatus.textContent = `full-finetune原本の取得・検証完了: ${(prepared.totalBytes / 1024 / 1024).toFixed(1)} MiB。${manifest.blockedReason}`;
+      initializeButton.disabled = true;
+    } else {
+      engineStatus.textContent = `オフライン準備完了: ${(prepared.totalBytes / 1024 / 1024).toFixed(1)} MiB`;
+      initializeButton.disabled = false;
+    }
   });
 });
 
@@ -80,10 +85,10 @@ async function loadVoiceManifest() {
   });
   manifest = await client.getManifest();
   voiceNotice.textContent = manifest.blockedReason || manifest.displayName;
-  prepareButton.disabled = manifest.installable === false;
+  prepareButton.disabled = manifest.preparable === false || !Array.isArray(manifest.assets) || manifest.assets.length === 0;
   initializeButton.disabled = manifest.installable === false;
   engineStatus.textContent = manifest.installable === false
-    ? `変換待ち: ${manifest.blockedReason}`
+    ? `full-finetune原本は取得できます。エンジン起動は変換待ちです: ${manifest.blockedReason}`
     : "最初に「オフライン音声を準備」を実行してください。";
 }
 
@@ -106,8 +111,13 @@ async function runButtonTask(button, task) {
   } catch (error) {
     engineStatus.textContent = error instanceof Error ? error.message : String(error);
   } finally {
-    if (button === prepareButton) button.disabled = manifest?.installable === false;
-    else button.disabled = false;
+    if (button === prepareButton) {
+      button.disabled = manifest?.preparable === false || !Array.isArray(manifest?.assets) || manifest.assets.length === 0;
+    } else if (button === initializeButton) {
+      button.disabled = manifest?.installable === false;
+    } else {
+      button.disabled = false;
+    }
   }
 }
 

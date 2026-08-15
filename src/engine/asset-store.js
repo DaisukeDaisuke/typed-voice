@@ -54,8 +54,8 @@ export function validateVoiceManifest(manifest) {
   if (!manifest.voice || manifest.voice.engine !== "omnivoice") throw new Error("This PoC requires voice.engine=omnivoice");
   if (!manifest.voice.source?.repo || !manifest.voice.source?.revision) throw new Error("Voice source repo/revision are required");
   if (["main", "master"].includes(manifest.voice.source.revision)) throw new Error("Voice source revision must be immutable");
-  if (manifest.installable === false) return manifest;
-  if (!Array.isArray(manifest.assets) || manifest.assets.length === 0) throw new Error("Installable manifest requires assets");
+  if (!Array.isArray(manifest.assets)) throw new Error("Manifest assets must be an array");
+  if (manifest.installable !== false && manifest.assets.length === 0) throw new Error("Installable manifest requires assets");
   const ids = new Set();
   const paths = new Set();
   for (const asset of manifest.assets) {
@@ -162,7 +162,8 @@ async function downloadAndVerifyAsset({ fetchImpl, cache, db, manifest, asset, v
 
 export async function prepareVoiceAssets(manifest, options = {}) {
   validateVoiceManifest(manifest);
-  if (manifest.installable === false) throw new Error(manifest.blockedReason || "Converted runtime assets are not available yet");
+  if (manifest.preparable === false) throw new Error("Manifest preparation is disabled");
+  if (manifest.assets.length === 0) throw new Error("Manifest has no assets to prepare");
   const fetchImpl = options.fetchImpl ?? fetch;
   const cachesImpl = options.cachesImpl ?? caches;
   const db = options.db ?? (await openDatabase(options.indexedDBImpl));

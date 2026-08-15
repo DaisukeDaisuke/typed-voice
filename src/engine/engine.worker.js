@@ -38,7 +38,6 @@ async function dispatch(message) {
     }
     case "prepare": {
       ensureManifest();
-      if (manifest.installable === false) throw new Error(manifest.blockedReason || "This voice cannot be installed yet");
       const appBaseUrl = new URL("./", manifestUrl).href;
       const prepared = await prepareVoiceAssets(manifest, {
         baseUrl: appBaseUrl,
