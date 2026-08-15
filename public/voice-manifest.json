@@ -1,30 +1,38 @@
 {
-  "schemaVersion": 1,
-  "id": "tsukuyomi-chan-6lang-mb-istft-fp16",
-  "provider": "huggingface",
-  "repo": "ayousanz/piper-plus-tsukuyomi-chan",
-  "revision": "36b59c825c36bd386b8960cf3f604382f52f2a87",
-  "runtime": {
-    "name": "piper-plus",
-    "commit": "d2140faaa86ca3042a8c12c3dc4d2275ed4c5a23",
-    "onnxruntimeWeb": "1.24.3"
-  },
-  "files": {
-    "model": {
-      "path": "tsukuyomi-chan-6lang-fp16.onnx",
-      "sha256": "5289e9b6eaf21080803b7fe1c4dc85b5491d4c216121207a41df18dd5f68e5d7",
-      "byteSize": 39652717,
-      "precision": "float16",
-      "licenseId": "tsukuyomi-chan-corpus"
-    },
-    "config": {
-      "path": "config.json",
-      "licenseId": "tsukuyomi-chan-corpus"
+  "schemaVersion": 2,
+  "id": "tsukuyomichan-omnivoice-full-finetune",
+  "displayName": "つくよみちゃん OmniVoice Full Finetune",
+  "installable": false,
+  "blockedReason": "full-finetune重みからブラウザ用split ONNXをまだ生成していません。compressed/GPTQ重みを代用品として使用しません。",
+  "voice": {
+    "engine": "omnivoice",
+    "source": {
+      "provider": "huggingface",
+      "repo": "kizuna-intelligence/tsukuyomichan-omnivoice-full-finetune",
+      "revision": "c1d7ff9477d0b21f220c58070da63355f69607e9",
+      "modelPath": "model.safetensors",
+      "modelSha256": "9ebaa8dd3bf35ceb6217cd19142bdabe6d6c044cca40672d2ae163d1a90ab47e",
+      "modelByteSize": 2450344144
     }
   },
-  "inference": {
-    "language": "ja",
-    "noiseScale": 0.667,
-    "lengthScale": 1.5
-  }
+  "conversion": {
+    "sourceFormat": "safetensors",
+    "targetProfile": "split-onnx-int4-backbone-fp16-higgs",
+    "requiredTensors": [
+      "audio_embeddings.weight",
+      "audio_heads.weight",
+      "codebook_layer_offsets"
+    ],
+    "referenceImplementation": {
+      "repo": "onnx-community/OmniVoice-Onnx",
+      "revision": "a7be7c65cc118137683f49eff0f80fdf9d5b5dbf"
+    }
+  },
+  "licenses": {
+    "projectCode": "Apache-2.0",
+    "voiceModel": "other",
+    "voiceModelNotice": "THIRD_PARTY_NOTICES.md",
+    "audioCodec": "Boson Higgs Audio 2 Community License Agreement"
+  },
+  "assets": []
 }

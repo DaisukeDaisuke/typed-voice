@@ -1,0 +1,14 @@
+typed-voice
+Copyright 2026 DaisukeDaisuke
+
+Portions of the browser OmniVoice inference design are adapted from VocoLoco,
+licensed under the Apache License, Version 2.0.
+
+Meta Llama 3 is licensed under the Meta Llama 3 Community License,
+Copyright © Meta Platforms, Inc. All Rights Reserved.
+
+Boson Higgs Audio 2 is licensed under the Boson Community License,
+Copyright © Boson AI USA, Inc. All Rights Reserved.
+
+Model weights, voice corpora and audio-codec assets are not licensed by the
+top-level Apache-2.0 license. See THIRD_PARTY_NOTICES.md and licenses/.

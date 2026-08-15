@@ -20,6 +20,11 @@ export class EngineClient {
     return this.request("prepare", { preferredThreadCount });
   }
 
+  async getManifest() {
+    const configured = await this.configured;
+    return configured.manifest;
+  }
+
   async initialize(preferredThreadCount = 0) {
     await this.configured;
     return this.request("initialize", { preferredThreadCount });

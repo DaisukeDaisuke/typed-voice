@@ -23,7 +23,8 @@ body {
 }
 
 button,
-textarea {
+textarea,
+select {
   font: inherit;
 }
 
@@ -39,6 +40,25 @@ textarea {
   margin: 8px 0 16px;
   padding: 12px;
   resize: vertical;
+}
+
+select {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 8px 0 12px;
+  padding: 10px;
+}
+
+.notice,
+.license-notice {
+  line-height: 1.6;
+}
+
+.license-notice {
+  margin-top: 32px;
+  padding-top: 16px;
+  border-top: 1px solid #cfcfcf;
+  font-size: 0.9rem;
 }
 
 .status {

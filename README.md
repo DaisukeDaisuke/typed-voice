@@ -1,68 +1,32 @@
 # typed-voice
-とある日曜劇場の真似事（AIで実装中）
+とある日曜劇場の真似事（AIで実装中）。現在のPoCは、つくよみちゃん向け音声エンジンの第一候補として `kizuna-intelligence/tsukuyomichan-omnivoice-full-finetune` を扱い、Piper Plusはfallback/regression経路として残しています。
+## 現在のPoC境界
+`public/voice-manifest.json` はfull-finetune元重みの固定revisionを保持します。ただし、ブラウザ用split ONNXがまだ生成されていないため `installable:false` です。`C:\Users\owner\Downloads\model.safetensors` のcompressed/GPTQ重みをfull-finetuneの代用品にはしません。
+`public/omnivoice-reference-manifest.json` は `onnx-community/OmniVoice-Onnx` の固定revisionを使うランタイム検証用セットです。これは声質候補の置き換えではありません。ブラウザ実装は `audio_embeddings_encoder -> llm_decoder -> audio_heads_decoder -> iterative unmask -> Higgs decoder` のsplit構成を前提にしています。
+## オフライン設計
+最初の明示的な「オフライン音声を準備」で、固定revision・固定SHA-256の資産を取得します。大容量ファイルは `ReadableStream` を二分し、Cache APIへの保存と増分SHA-256検証を並行します。検証済みメタデータだけをIndexedDBへ記録し、巨大な `ArrayBuffer` をIndexedDBへ複製しません。
+Service Workerは1個だけ使用し、アプリshell、ONNX Runtime WebのWASM runtime、manifestのオフライン化とCOOP/COEP付与を担当します。app base配下の `__typed_voice_assets/` は準備済みCache以外へネットワークfallbackしません。
+## 音声生成
+Dedicated Worker内でOmniVoice推論を行います。UIとの境界はFloat32 PCMです。待機列はlatest-winsで有限長とし、実行中生成もiterative unmaskのstep間でgenerationを確認して古い要求を中断します。WebGPUはsession生成と実forwardのwarmupが成功した場合のみ使用し、失敗時はWASMへfallbackします。WASM multi-threadはCross-Origin Isolation、SharedArrayBuffer、secure contextが揃う場合だけ有効です。
 ## Build
-このプロジェクトは、GitHub Codespaces または GitHub Actions 上でビルドすることを前提としています。ローカルPCへRust、`wasm-pack` などのビルド環境を直接導入する運用は想定していません。
-ビルドはnpmスクリプト経由で実行します。`npm run build` は内部でPiper PlusのG2P WASMをビルドした後、Viteによる本番ビルドを行います。
-### GitHub Codespaces
-リポジトリをCodespacesで開き、サブモジュールを取得します。
-```bash
-git submodule update --init --recursive
-```
-CodespaceにRustが入っていない場合はRustを準備し、`wasm-pack` をインストールします。
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-source "$HOME/.cargo/env"
-cargo install wasm-pack --locked
-```
 Node.js依存関係をインストールします。
 ```bash
 npm install
 ```
-本番ビルドを実行します。
-```bash
-npm run build
-```
-生成物は `dist/` に出力されます。
-開発サーバーを起動する場合もnpmスクリプト経由で実行します。
+通常の開発・本番buildではPiper PlusのRust/WASM buildを要求しません。ONNX Runtime WebのWASM runtimeとライセンス/NOTICEを `public/` へコピーします。
 ```bash
 npm run dev
+npm run build
 ```
-`npm run dev` でも起動前にPiper PlusのG2P WASMが再ビルドされます。
-### GitHub Actions
-Actionsでは、checkout時にサブモジュールを取得し、Rust、`wasm-pack`、Node.jsを準備した後に `npm install` と `npm run build` を実行します。
-```yaml
-name: Build
-on:
-  push:
-  pull_request:
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install wasm-pack
-        run: cargo install wasm-pack --locked
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Install dependencies
-        run: npm install
-      - name: Build
-        run: npm run build
-      - uses: actions/upload-artifact@v4
-        with:
-          name: typed-voice-dist
-          path: dist/
+Piper Plus fallbackを含むG2P WASMを再構築する場合だけ、Rustと`wasm-pack`を準備して明示的に実行します。
+```bash
+npm run build:with-piper
 ```
-`package-lock.json` をコミットした後は、Actionsの依存関係インストールを `npm install` から `npm ci` に変更できます。
-## npm scripts
-| Command | Description |
-| --- | --- |
-| `npm run build:piper-wasm` | Piper PlusのG2P WASMをビルドし、ONNX Runtime WebのWASMファイルを `public/` へ配置します。 |
-| `npm run build` | `build:piper-wasm` を実行した後、Viteで本番用 `dist/` を生成します。 |
-| `npm run dev` | `build:piper-wasm` を実行した後、Vite開発サーバーを起動します。 |
-| `npm run preview` | ビルド済みの `dist/` をViteでプレビューします。 |
-| `npm test` | Node.jsのテストを実行します。 |
+## Tests
+通常のNode.jsテストは次です。
+```bash
+npm test
+```
+ローカルMCPのオフラインMJS runnerで依存不要のPoCテストだけを実行する場合は `scripts/offline-poc-tests.mjs` を実行します。増分SHA-256境界、manifest固定revision、latest-wins queue、OmniVoice iterative unmask、step間cancel、ORT thread fallbackを挙動で検証します。
+## License
+プロジェクト自身のコードはApache License 2.0です。モデル、コーパス、Higgs Audio 2、Meta Llama 3、Piper Plusなどの第三者資産はトップレベルApache-2.0へ再ライセンスされません。詳細は `NOTICE`、`THIRD_PARTY_NOTICES.md`、`licenses/` を参照してください。
