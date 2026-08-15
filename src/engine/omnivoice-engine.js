@@ -1,5 +1,5 @@
 import * as ort from "onnxruntime-web/all";
-import { AutoTokenizer, env as transformersEnv } from "@huggingface/transformers";
+import { Tokenizer } from "@huggingface/tokenizers";
 import { buildVirtualAssetUrl } from "./asset-store.js";
 import { configureOrtWasm } from "./threading.js";
 import { generateOmniVoiceCodes, prepareOmniVoiceInputs } from "./omnivoice-generation.js";
@@ -66,14 +66,8 @@ export class OmniVoiceEngine {
     });
 
     const assetRoot = buildVirtualAssetUrl(manifest.id, "", appBaseUrl);
-    transformersEnv.allowLocalModels = true;
-    transformersEnv.allowRemoteModels = false;
-    transformersEnv.localModelPath = assetRoot;
-    transformersEnv.useBrowserCache = false;
     onStatus({ phase: "tokenizer" });
-    this.tokenizer = await AutoTokenizer.from_pretrained(this.runtime.tokenizerDirectory || "tokenizer", {
-      local_files_only: true,
-    });
+    this.tokenizer = await loadTokenizer(assetRoot, this.runtime.tokenizerDirectory || "tokenizer");
 
     const candidates = globalThis.navigator?.gpu && this.runtime.preferWebGpu !== false ? ["webgpu", "wasm"] : ["wasm"];
     let lastError;
@@ -89,9 +83,7 @@ export class OmniVoiceEngine {
         await this.dispose();
         this.manifest = manifest;
         this.runtime = manifest.runtime;
-        this.tokenizer = await AutoTokenizer.from_pretrained(this.runtime.tokenizerDirectory || "tokenizer", {
-          local_files_only: true,
-        });
+        this.tokenizer = await loadTokenizer(assetRoot, this.runtime.tokenizerDirectory || "tokenizer");
         onStatus({ phase: "backend-failed", backend, message: error.message });
       }
     }
@@ -194,4 +186,23 @@ export class OmniVoiceEngine {
     this.backend = null;
     this.tokenizer = null;
   }
+}
+
+async function loadTokenizer(assetRoot, tokenizerDirectory) {
+  const base = new URL(`${tokenizerDirectory.replace(/\/$/, "")}/`, assetRoot);
+  const [tokenizerResponse, configResponse] = await Promise.all([
+    fetch(new URL("tokenizer.json", base)),
+    fetch(new URL("tokenizer_config.json", base)),
+  ]);
+  if (!tokenizerResponse.ok) {
+    throw new Error(`Tokenizer model is unavailable offline: ${tokenizerResponse.status}`);
+  }
+  if (!configResponse.ok) {
+    throw new Error(`Tokenizer config is unavailable offline: ${configResponse.status}`);
+  }
+  const [tokenizerJson, tokenizerConfig] = await Promise.all([
+    tokenizerResponse.json(),
+    configResponse.json(),
+  ]);
+  return new Tokenizer(tokenizerJson, tokenizerConfig);
 }

@@ -3,7 +3,6 @@ import { EngineClient } from "./engine/engine-client.js";
 
 const isolationStatus = document.querySelector("#isolation-status");
 const engineStatus = document.querySelector("#engine-status");
-const voiceManifestSelect = document.querySelector("#voice-manifest");
 const voiceNotice = document.querySelector("#voice-notice");
 const prepareButton = document.querySelector("#prepare-button");
 const initializeButton = document.querySelector("#initialize-button");
@@ -18,11 +17,7 @@ isolationStatus.textContent = globalThis.crossOriginIsolated
   ? "Cross-Origin Isolation: 有効。WASMマルチスレッドを利用できます。"
   : "Cross-Origin Isolation: 無効。WASMは1スレッドへフォールバックします。";
 
-await selectManifest(voiceManifestSelect.value);
-
-voiceManifestSelect.addEventListener("change", async () => {
-  await runUiTask(async () => selectManifest(voiceManifestSelect.value));
-});
+await loadVoiceManifest();
 
 prepareButton.addEventListener("click", async () => {
   await runButtonTask(prepareButton, async () => {
@@ -62,12 +57,12 @@ speakButton.addEventListener("click", async () => {
   });
 });
 
-async function selectManifest(fileName) {
+async function loadVoiceManifest() {
   speakButton.disabled = true;
   initializeButton.disabled = true;
   prepareButton.disabled = true;
   if (client) await client.dispose();
-  const manifestUrl = new URL(`${import.meta.env.BASE_URL}${fileName}`, document.baseURI).href;
+  const manifestUrl = new URL(`${import.meta.env.BASE_URL}voice-manifest.json`, document.baseURI).href;
   client = new EngineClient({
     manifestUrl,
     onProgress(message) {
@@ -84,12 +79,12 @@ async function selectManifest(fileName) {
     },
   });
   manifest = await client.getManifest();
-  voiceNotice.textContent = manifest.warning || manifest.blockedReason || manifest.displayName;
+  voiceNotice.textContent = manifest.blockedReason || manifest.displayName;
   prepareButton.disabled = manifest.installable === false;
   initializeButton.disabled = manifest.installable === false;
   engineStatus.textContent = manifest.installable === false
     ? `変換待ち: ${manifest.blockedReason}`
-    : "この参照セットはランタイム検証用です。最初に「オフライン音声を準備」を実行してください。";
+    : "最初に「オフライン音声を準備」を実行してください。";
 }
 
 async function playFloat32(audioContext, samples, sampleRate) {
@@ -102,14 +97,6 @@ async function playFloat32(audioContext, samples, sampleRate) {
     source.addEventListener("ended", resolve, { once: true });
     source.start();
   });
-}
-
-async function runUiTask(task) {
-  try {
-    await task();
-  } catch (error) {
-    engineStatus.textContent = error instanceof Error ? error.message : String(error);
-  }
 }
 
 async function runButtonTask(button, task) {

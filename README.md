@@ -1,13 +1,15 @@
 # typed-voice
-とある日曜劇場の真似事（AIで実装中）。現在のPoCは、つくよみちゃん向け音声エンジンの第一候補として `kizuna-intelligence/tsukuyomichan-omnivoice-full-finetune` を扱い、Piper Plusはfallback/regression経路として残しています。
+とある日曜劇場の真似事（AIで実装中）。現在のPoCは `kizuna-intelligence/tsukuyomichan-omnivoice-full-finetune` の実際の音質をブラウザ上で確認することを目的とします。別のOmniVoiceモデル、compressed/GPTQ版、Piper PlusなどをPoCの代替音声として使用しません。
 ## 現在のPoC境界
 `public/voice-manifest.json` はfull-finetune元重みの固定revisionを保持します。ただし、ブラウザ用split ONNXがまだ生成されていないため `installable:false` です。`C:\Users\owner\Downloads\model.safetensors` のcompressed/GPTQ重みをfull-finetuneの代用品にはしません。
-`public/omnivoice-reference-manifest.json` は `onnx-community/OmniVoice-Onnx` の固定revisionを使うランタイム検証用セットです。これは声質候補の置き換えではありません。ブラウザ実装は `audio_embeddings_encoder -> llm_decoder -> audio_heads_decoder -> iterative unmask -> Higgs decoder` のsplit構成を前提にしています。
+ブラウザ実装は `audio_embeddings_encoder -> llm_decoder -> audio_heads_decoder -> iterative unmask -> Higgs decoder` のsplit構成を前提にしますが、PoCで実行可能にするモデル資産はfull-finetuneから生成したものだけです。音質確認前のINT4/INT8量子化も行いません。
 ## オフライン設計
 最初の明示的な「オフライン音声を準備」で、固定revision・固定SHA-256の資産を取得します。大容量ファイルは `ReadableStream` を二分し、Cache APIへの保存と増分SHA-256検証を並行します。検証済みメタデータだけをIndexedDBへ記録し、巨大な `ArrayBuffer` をIndexedDBへ複製しません。
 Service Workerは1個だけ使用し、アプリshell、ONNX Runtime WebのWASM runtime、manifestのオフライン化とCOOP/COEP付与を担当します。app base配下の `__typed_voice_assets/` は準備済みCache以外へネットワークfallbackしません。
 ## 音声生成
 Dedicated Worker内でOmniVoice推論を行います。UIとの境界はFloat32 PCMです。待機列はlatest-winsで有限長とし、実行中生成もiterative unmaskのstep間でgenerationを確認して古い要求を中断します。WebGPUはsession生成と実forwardのwarmupが成功した場合のみ使用し、失敗時はWASMへfallbackします。WASM multi-threadはCross-Origin Isolation、SharedArrayBuffer、secure contextが揃う場合だけ有効です。
+## npm依存のセキュリティ
+PoCのtokenizer読込だけに `@huggingface/transformers` を使用すると、ブラウザでは不要な `onnxruntime-node`、`adm-zip`、`sharp` がnpm依存へ入り、2026-08-16時点の `npm audit` でhigh severityが報告されます。そのためTransformers.js全体への依存を削除し、`@huggingface/tokenizers` だけを使用してCache済み `tokenizer.json` / `tokenizer_config.json` を直接読みます。lockfile更新後にCodespace側で `npm audit` を再実行して解消を確認してください。
 ## Build
 Node.js依存関係をインストールします。
 ```bash
@@ -18,7 +20,7 @@ npm install
 npm run dev
 npm run build
 ```
-Piper Plus fallbackを含むG2P WASMを再構築する場合だけ、Rustと`wasm-pack`を準備して明示的に実行します。
+PoCとは別に既存Piper Plus資産を再構築する場合だけ、Rustと`wasm-pack`を準備して明示的に実行します。これはつくよみちゃんfull-finetuneの音質確認経路には入りません。
 ```bash
 npm run build:with-piper
 ```

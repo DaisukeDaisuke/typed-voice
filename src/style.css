@@ -23,8 +23,7 @@ body {
 }
 
 button,
-textarea,
-select {
+textarea {
   font: inherit;
 }
 
@@ -40,13 +39,6 @@ textarea {
   margin: 8px 0 16px;
   padding: 12px;
   resize: vertical;
-}
-
-select {
-  box-sizing: border-box;
-  width: 100%;
-  margin: 8px 0 12px;
-  padding: 10px;
 }
 
 .notice,

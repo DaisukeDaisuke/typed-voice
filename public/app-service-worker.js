@@ -11,7 +11,6 @@ const SHELL = [
   "./",
   "./index.html",
   "./voice-manifest.json",
-  "./omnivoice-reference-manifest.json",
   "./LICENSE.txt",
   "./NOTICE.txt",
   "./THIRD_PARTY_NOTICES.md",

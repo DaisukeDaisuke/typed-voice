@@ -17,16 +17,13 @@
   },
   "conversion": {
     "sourceFormat": "safetensors",
-    "targetProfile": "split-onnx-int4-backbone-fp16-higgs",
+    "targetProfile": "split-onnx-unquantized-quality-baseline",
+    "qualityRule": "PoCではfull-finetune重みを量子化・別モデル置換せず、まず元モデル相当の音質を確認する。軽量化は音質確認後の別工程とする。",
     "requiredTensors": [
       "audio_embeddings.weight",
       "audio_heads.weight",
       "codebook_layer_offsets"
-    ],
-    "referenceImplementation": {
-      "repo": "onnx-community/OmniVoice-Onnx",
-      "revision": "a7be7c65cc118137683f49eff0f80fdf9d5b5dbf"
-    }
+    ]
   },
   "licenses": {
     "projectCode": "Apache-2.0",

@@ -87,11 +87,11 @@ export async function prepareOmniVoiceInputs(text, tokenizer, config, options = 
   const styleText = `<|denoise|><|lang_start|>${language}<|lang_end|><|instruct_start|>${instruction}<|instruct_end|>`;
   const wrappedText = `<|text_start|>${normalizedText}<|text_end|>`;
   const [styleEncoded, textEncoded] = await Promise.all([
-    tokenizer(styleText, { add_special_tokens: false }),
-    tokenizer(wrappedText, { add_special_tokens: false }),
+    tokenizer.encode(styleText),
+    tokenizer.encode(wrappedText),
   ]);
-  const styleIds = Array.from(styleEncoded.input_ids.data, Number);
-  const textIds = Array.from(textEncoded.input_ids.data, Number);
+  const styleIds = Array.from(styleEncoded.ids, Number);
+  const textIds = Array.from(textEncoded.ids, Number);
   const targetLength = Math.min(
     options.maxTargetTokens ?? 700,
     options.targetTokens ?? estimateTargetTokens(normalizedText, { speed: options.speed ?? 1 })
