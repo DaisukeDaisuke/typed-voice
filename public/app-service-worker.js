@@ -4,7 +4,7 @@
  * Copyright (c) Guido Zuidhof and contributors, MIT License.
  */
 
-const CACHE_NAME = "typed-voice-engine-poc-v1";
+const CACHE_NAME = "typed-voice-engine-poc-v2";
 const SHELL = ["./", "./index.html", "./voice-manifest.json"];
 
 self.addEventListener("install", (event) => {

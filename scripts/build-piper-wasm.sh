@@ -15,8 +15,9 @@ cd "$PIPER_WASM_DIR"
 wasm-pack build \
   --target web \
   --release \
-  --features multilingual \
-  --out-dir "$OUT_DIR"
+  --out-dir "$OUT_DIR" \
+  -- \
+  --features multilingual
 
 ORT_DIST_DIR="$ROOT_DIR/node_modules/onnxruntime-web/dist"
 if [[ ! -d "$ORT_DIST_DIR" ]]; then
@@ -25,4 +26,4 @@ if [[ ! -d "$ORT_DIST_DIR" ]]; then
 fi
 
 mkdir -p "$ROOT_DIR/public"
-cp "$ORT_DIST_DIR"/*.wasm "$ROOT_DIR/public/"
+cp "$ORT_DIST_DIR"/ort-wasm*.wasm "$ORT_DIST_DIR"/ort-wasm*.mjs "$ROOT_DIR/public/"

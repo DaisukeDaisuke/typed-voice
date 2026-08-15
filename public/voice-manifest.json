@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "id": "tsukuyomi-chan-6lang-unquantized",
+  "id": "tsukuyomi-chan-6lang-mb-istft-fp16",
   "provider": "huggingface",
   "repo": "ayousanz/piper-plus-tsukuyomi-chan",
-  "revision": "3117d93b7c503bc4a5bb2b57f9c95d08fd2f5dc0",
+  "revision": "36b59c825c36bd386b8960cf3f604382f52f2a87",
   "runtime": {
     "name": "piper-plus",
     "commit": "d2140faaa86ca3042a8c12c3dc4d2275ed4c5a23",
@@ -11,10 +11,10 @@
   },
   "files": {
     "model": {
-      "path": "tsukuyomi-6lang-v2-fixed.onnx",
-      "sha256": "b04da31f85d956b1919a270e274a432379cce78eaffa75a6fd297ac040cfcdd4",
-      "byteSize": 77406878,
-      "precision": "float32",
+      "path": "tsukuyomi-chan-6lang-fp16.onnx",
+      "sha256": "5289e9b6eaf21080803b7fe1c4dc85b5491d4c216121207a41df18dd5f68e5d7",
+      "byteSize": 39652717,
+      "precision": "float16",
       "licenseId": "tsukuyomi-chan-corpus"
     },
     "config": {
@@ -25,6 +25,6 @@
   "inference": {
     "language": "ja",
     "noiseScale": 0.667,
-    "lengthScale": 1.0
+    "lengthScale": 1.5
   }
 }
