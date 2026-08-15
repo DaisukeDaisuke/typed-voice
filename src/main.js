@@ -123,6 +123,25 @@ async function runButtonTask(button, task) {
 
 async function registerServiceWorkerForIsolation() {
   if (!("serviceWorker" in navigator)) return;
+  if (import.meta.env.DEV) {
+    const registration = await navigator.serviceWorker.getRegistration(import.meta.env.BASE_URL);
+    if (registration) await registration.unregister();
+    if ("caches" in globalThis) {
+      const cacheNames = await caches.keys();
+      await Promise.all(
+        cacheNames
+          .filter((name) => name.startsWith("typed-voice-shell-"))
+          .map((name) => caches.delete(name))
+      );
+    }
+    if (navigator.serviceWorker.controller && sessionStorage.getItem("typed-voice-dev-sw-cleared") !== "1") {
+      sessionStorage.setItem("typed-voice-dev-sw-cleared", "1");
+      location.reload();
+      await new Promise(() => {});
+    }
+    sessionStorage.removeItem("typed-voice-coi-reloaded");
+    return;
+  }
   const serviceWorkerUrl = new URL(`${import.meta.env.BASE_URL}app-service-worker.js`, document.baseURI);
   await navigator.serviceWorker.register(serviceWorkerUrl, { scope: import.meta.env.BASE_URL });
   if (navigator.serviceWorker.controller || globalThis.crossOriginIsolated) return;

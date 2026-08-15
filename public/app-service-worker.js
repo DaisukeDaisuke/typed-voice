@@ -4,7 +4,7 @@
  * Copyright (c) Guido Zuidhof and contributors, MIT License.
  */
 
-const SHELL_CACHE = "typed-voice-shell-v3";
+const SHELL_CACHE = "typed-voice-shell-v4";
 const MODEL_CACHE = "typed-voice-model-assets-v2";
 const MODEL_PREFIX = new URL("__typed_voice_assets/", self.registration.scope).pathname;
 const SHELL = [
@@ -72,20 +72,21 @@ async function readPreparedModelAsset(request) {
 }
 
 async function readShellAsset(request) {
-  let response = await caches.match(request);
-  if (!response) {
-    try {
-      response = await fetch(request);
-      if (response.ok) {
-        const cache = await caches.open(SHELL_CACHE);
-        await cache.put(request, response.clone());
-      }
-    } catch (error) {
-      if (request.mode === "navigate") response = await caches.match("./index.html");
-      if (!response) throw error;
+  try {
+    const response = await fetch(request);
+    if (response.ok) {
+      const cache = await caches.open(SHELL_CACHE);
+      await cache.put(request, response.clone());
     }
+    return isolatedResponse(response);
+  } catch (error) {
+    let response = await caches.match(request);
+    if (!response && request.mode === "navigate") {
+      response = await caches.match(new URL("./index.html", self.registration.scope).href);
+    }
+    if (!response) throw error;
+    return isolatedResponse(response);
   }
-  return isolatedResponse(response);
 }
 
 function isolatedResponse(response) {
