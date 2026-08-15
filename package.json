@@ -1,0 +1,20 @@
+{
+  "name": "typed-voice",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:piper-wasm": "bash scripts/build-piper-wasm.sh",
+    "dev": "npm run build:piper-wasm && vite",
+    "build": "npm run build:piper-wasm && vite build",
+    "preview": "vite preview",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@piper-plus/g2p": "file:third_party/piper-plus/src/wasm/g2p",
+    "onnxruntime-web": "1.24.3"
+  },
+  "devDependencies": {
+    "vite": "7.1.5"
+  }
+}
