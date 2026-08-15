@@ -1,0 +1,10 @@
+[submodule "third_party/piper-plus"]
+	path = third_party/piper-plus
+	url = https://github.com/ayutaz/piper-plus.git
+	branch = dev
+	shallow = true
+[submodule "third_party/coi-serviceworker"]
+	path = third_party/coi-serviceworker
+	url = https://github.com/gzuidhof/coi-serviceworker.git
+	branch = master
+	shallow = true
