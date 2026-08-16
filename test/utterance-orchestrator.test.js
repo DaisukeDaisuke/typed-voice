@@ -111,6 +111,66 @@ test("修正前generationの遅い合成結果は破棄し、修正版だけ確�
   assert.equal(messages[0].text, "修正版");
 });
 
+test("訂正開始中は旧deadlineと旧合成結果が完了してもpendingを確定しない", async () => {
+  const { repository, session } = await createRepository();
+  const oldReasoning = deferred();
+  const oldSynthesis = deferred();
+  const newReasoning = deferred();
+  const newSynthesis = deferred();
+  let generationCount = 0;
+  const cancelled = [];
+  const orchestrator = new UtteranceOrchestrator({
+    repository,
+    waitUntil() {
+      generationCount += 1;
+      return generationCount === 1 ? oldReasoning.promise : newReasoning.promise;
+    },
+    speech: {
+      synthesize({ generation }) {
+        return generation === 1 ? oldSynthesis.promise : newSynthesis.promise;
+      },
+      async cancel(id, generation) {
+        cancelled.push([id, generation]);
+      },
+    },
+  });
+
+  const pending = await orchestrator.submit({ sessionId: session.id, text: "訂正前", reasoningSeconds: 2 });
+  await orchestrator.beginEdit(pending.id);
+  assert.deepEqual(cancelled, [[pending.id, 1]]);
+  assert.equal(orchestrator.jobs.get(pending.id).state, "editing");
+
+  oldReasoning.resolve();
+  oldSynthesis.resolve({ skipped: true });
+  await flush();
+  assert.equal((await repository.listMessages(session.id)).length, 0);
+  assert.equal((await repository.listPending(session.id)).length, 1);
+
+  await orchestrator.edit(pending.id, "訂正後", 2);
+  newReasoning.resolve();
+  newSynthesis.resolve({ skipped: true });
+  await flush();
+  const messages = await repository.listMessages(session.id);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].text, "訂正後");
+});
+
+test("今すぐ読み上げはreasoning deadlineを待たずに正式messageへ進める", async () => {
+  const { repository, session } = await createRepository();
+  const never = new Promise(() => {});
+  const orchestrator = new UtteranceOrchestrator({
+    repository,
+    waitUntil: () => never,
+  });
+
+  const pending = await orchestrator.submit({ sessionId: session.id, text: "強制読み上げ", reasoningSeconds: 30 });
+  await orchestrator.forceReady(pending.id);
+  await flush();
+  const messages = await repository.listMessages(session.id);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].text, "強制読み上げ");
+});
+
 test("取り消したpendingは古いreasoning/合成が完了しても復活しない", async () => {
   const { repository, session } = await createRepository();
   const reasoning = deferred();

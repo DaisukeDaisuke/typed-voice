@@ -7,6 +7,13 @@
   <title>typed-voice 音声エンジン PoC</title>
 </head>
 <body>
+  <div id="service-worker-required" class="service-worker-required" role="alertdialog" aria-modal="true" aria-labelledby="service-worker-required-title" hidden>
+    <div class="service-worker-required-card">
+      <h1 id="service-worker-required-title">サービスワーカの登録を許可してください。このページでは必須です</h1>
+      <p>ブラウザの設定でService Workerを利用できるようにしてから、このページを再読み込みしてください。</p>
+      <button type="button" onclick="location.reload()">再試行</button>
+    </div>
+  </div>
   <main class="poc">
     <h1>音声エンジン PoC</h1>
     <p id="isolation-status" class="status">実行環境を確認しています。</p>

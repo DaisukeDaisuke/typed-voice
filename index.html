@@ -7,10 +7,18 @@
   <title>typed-voice</title>
 </head>
 <body>
+  <div id="service-worker-required" class="service-worker-required" role="alertdialog" aria-modal="true" aria-labelledby="service-worker-required-title" hidden>
+    <div class="service-worker-required-card">
+      <h1 id="service-worker-required-title">サービスワーカの登録を許可してください。このページでは必須です</h1>
+      <p>ブラウザの設定でService Workerを利用できるようにしてから、このページを再読み込みしてください。</p>
+      <button type="button" class="primary-button" onclick="location.reload()">再試行</button>
+    </div>
+  </div>
   <header class="topbar">
     <strong class="brand">typed-voice</strong>
     <nav class="topbar-actions" aria-label="アプリメニュー">
-      <button id="history-toggle" class="quiet-button mobile-only" type="button" aria-controls="history-panel" aria-expanded="false">履歴</button>
+      <button id="timeline-view" class="quiet-button" type="button" aria-pressed="true">履歴</button>
+      <button id="conversation-view" class="quiet-button" type="button" aria-pressed="false">会話一覧</button>
       <a class="quiet-link" href="./poc.html">音声テスト</a>
       <a class="quiet-link" href="./THIRD_PARTY_NOTICES.md">ライセンス</a>
     </nav>
@@ -23,27 +31,59 @@
           <p class="eyebrow">現在の会話</p>
           <h1 id="conversation-title">新しい会話</h1>
         </div>
-        <button id="focus-composer" class="quiet-button" type="button">入力する</button>
+        <div class="heading-actions">
+          <button id="voice-enable" class="quiet-button" type="button">音声を有効化</button>
+          <button id="focus-composer" class="quiet-button" type="button">入力する</button>
+        </div>
       </div>
 
       <div class="stats-grid" aria-label="統計">
         <article><strong id="stat-messages">0</strong><span>メッセージ</span></article>
         <article><strong id="stat-conversations">0</strong><span>会話</span></article>
         <article><strong id="stat-typed">0</strong><span>入力文字</span></article>
-        <article><strong id="stat-days">0</strong><span>利用日数</span></article>
       </div>
 
       <div class="composer-wrap">
         <label for="composer">読み上げる文章</label>
-        <textarea id="composer" rows="5" autocomplete="off" enterkeyhint="send" placeholder="ここに入力"></textarea>
+        <div class="composer-primary-actions" aria-label="現在の文章の操作">
+          <button id="correction-button" class="primary-button massive" type="button" disabled>現在の文章で訂正する</button>
+          <button id="force-speak-button" class="quiet-button massive" type="button" disabled>今すぐ読み上げ</button>
+          <button id="cancel-current-button" class="danger-button massive" type="button" disabled>取り消す</button>
+        </div>
+        <textarea id="composer" rows="12" autocomplete="off" placeholder="ここに入力"></textarea>
         <div class="composer-controls">
           <label class="wait-setting" for="reasoning-seconds">
             <span>読み上げ待ち時間</span>
             <span><input id="reasoning-seconds" type="number" min="0" max="30" step="0.5" value="2"> 秒</span>
           </label>
-          <button id="submit-button" class="primary-button" type="button">送信</button>
+          <label class="wait-setting" for="speech-speed">
+            <span>読み上げ速度</span>
+            <span><input id="speech-speed" type="number" min="0.5" max="2" step="0.1" value="1"> 倍</span>
+          </label>
+          <button id="submit-button" class="primary-button" type="button">提出</button>
         </div>
-        <p class="keyboard-hint">Enterで送信・Shift+Enterで改行。送信後も入力欄を開いたままにします。</p>
+        <p class="keyboard-hint">Enterで改行した瞬間に直前の行を読み上げ待ちへ送ります。改行はそのまま残り、訂正用に直近2行を保持します。</p>
+
+        <section class="voice-terms" aria-label="つくよみちゃん利用条件">
+          <pre>本ソフトウェアの音声合成には、フリー素材キャラクター「つくよみちゃん」（© Rei Yumesaki）が無料公開している音声データを使用しています。
+
+■つくよみちゃんコーパス（CV.夢前黎）
+https://tyc.rei-yumesaki.net/material/corpus/
+
+■イラスト：○○様←つくよみちゃんのキャラクターデザインを使用していない場合は不要
+URL（配布されている素材を使用した場合）
+
+■つくよみちゃん公式サイト←同上
+https://tyc.rei-yumesaki.net
+
+つくよみちゃんの声質を使用する場合は、出力した音声を次の目的で使用することを禁止します。
+
+【禁止事項】
+■人を批判・攻撃すること。（「批判・攻撃」の定義は、つくよみちゃんキャラクターライセンスに準じます）
+■特定の政治的立場・宗教・思想への賛同または反対を呼びかけること。
+■刺激の強い表現をゾーニングなしで公開すること。
+■他者に対して二次利用（素材としての利用）を許可する形で公開すること。</pre>
+        </section>
       </div>
 
       <section class="pending-section" aria-labelledby="pending-heading">
@@ -55,29 +95,33 @@
       </section>
 
       <p id="app-status" class="app-status" aria-live="polite">会話を準備しています。</p>
+      <p id="voice-status" class="voice-status" aria-live="polite">音声は未有効です。会話機能はこのまま利用できます。</p>
+      <p class="minor-stat">利用日数 <strong id="stat-days">0</strong>日</p>
     </section>
 
-    <section class="timeline-panel" aria-labelledby="timeline-heading">
-      <div class="section-heading sticky-heading">
-        <div>
-          <p class="eyebrow">この会話</p>
-          <h2 id="timeline-heading">読み上げ履歴</h2>
+    <section class="secondary-panel" aria-label="履歴と会話一覧">
+      <section id="timeline-panel" class="timeline-panel" aria-labelledby="timeline-heading">
+        <div class="section-heading sticky-heading">
+          <div>
+            <p class="eyebrow">この会話</p>
+            <h2 id="timeline-heading">読み上げ履歴</h2>
+          </div>
         </div>
-      </div>
-      <div id="message-list" class="message-list"></div>
-      <div id="empty-timeline" class="empty-state">
-        <strong>まだメッセージはありません</strong>
-        <span>左の入力欄から送信すると、ここへ順番に残ります。</span>
-      </div>
-    </section>
+        <div id="message-list" class="message-list"></div>
+        <div id="empty-timeline" class="empty-state">
+          <strong>まだメッセージはありません</strong>
+          <span>左の入力欄から提出すると、ここへ順番に残ります。</span>
+        </div>
+      </section>
 
-    <aside id="history-panel" class="history-panel" aria-labelledby="history-heading">
-      <div class="section-heading sticky-heading history-heading">
-        <h2 id="history-heading">履歴</h2>
-        <button id="new-conversation" class="primary-button small" type="button">新しい会話</button>
-      </div>
-      <div id="conversation-list" class="conversation-list"></div>
-    </aside>
+      <section id="conversation-panel" class="conversation-panel" aria-labelledby="conversation-list-heading" hidden>
+        <div class="section-heading sticky-heading history-heading">
+          <h2 id="conversation-list-heading">会話一覧</h2>
+          <button id="new-conversation" class="primary-button small" type="button">新しい会話</button>
+        </div>
+        <div id="conversation-list" class="conversation-list"></div>
+      </section>
+    </section>
   </main>
 
   <!-- handled by src/app/ui-orchestrator.js -->
@@ -103,10 +147,9 @@
         <span class="pending-state">読み上げ待ち</span>
         <span class="pending-timer"></span>
       </div>
-      <textarea class="pending-editor" rows="3"></textarea>
+      <p class="pending-text"></p>
       <p class="pending-error" hidden></p>
       <div class="pending-actions">
-        <button class="pending-save quiet-button" type="button">修正を反映</button>
         <button class="pending-cancel danger-button" type="button">取り消し</button>
       </div>
     </article>

@@ -29,6 +29,7 @@ export class UtteranceOrchestrator {
     this.onChange = onChange;
     this.maxRevisionable = maxRevisionable;
     this.jobs = new Map();
+    this.reasoningSignals = new Map();
   }
 
   async submit({ sessionId, text, reasoningSeconds }) {
@@ -55,7 +56,23 @@ export class UtteranceOrchestrator {
   async resume(pending) {
     if (this.jobs.has(pending.id)) return;
     this.jobs.set(pending.id, structuredClone(pending));
+    if (pending.state === "editing") return;
     void this.#runGeneration(pending.id, pending.generation);
+  }
+
+  async beginEdit(id) {
+    const job = this.jobs.get(id);
+    if (!job) throw new Error("訂正対象の読み上げ待ちが見つかりません。");
+    if (!this.isRevisionable(id)) throw new Error("訂正できるのは直近2件の読み上げ待ちです。");
+    const previousGeneration = job.generation;
+    job.generation += 1;
+    job.state = "editing";
+    job.error = null;
+    this.#releaseReasoningSignal(job.id, previousGeneration);
+    await this.speech?.cancel?.(job.id, previousGeneration);
+    await this.repository.savePending(job);
+    this.onChange({ type: "pending-edit-started", pending: structuredClone(job) });
+    return structuredClone(job);
   }
 
   async edit(id, text, reasoningSeconds) {
@@ -64,9 +81,11 @@ export class UtteranceOrchestrator {
     if (!this.isRevisionable(id)) throw new Error("修正できるのは直近2件の読み上げ待ちです。");
     const trimmed = text.trim();
     if (!trimmed) throw new Error("空の文章には修正できません。");
-    const previousGeneration = job.generation;
-    await this.speech?.cancel?.(job.id, previousGeneration);
-    job.generation += 1;
+    if (job.state !== "editing") {
+      const previousGeneration = job.generation;
+      await this.speech?.cancel?.(job.id, previousGeneration);
+      job.generation += 1;
+    }
     job.text = trimmed;
     job.reasoningDeadline = this.now() + Math.max(0, Number(reasoningSeconds) || 0) * 1000;
     job.state = "reasoning";
@@ -82,6 +101,7 @@ export class UtteranceOrchestrator {
     if (!job) return false;
     const generation = job.generation;
     job.generation += 1;
+    this.#releaseReasoningSignal(job.id, generation);
     await this.speech?.cancel?.(job.id, generation);
     this.jobs.delete(id);
     await this.repository.deletePending(id);
@@ -98,10 +118,20 @@ export class UtteranceOrchestrator {
     return newest.includes(id);
   }
 
+  async forceReady(id) {
+    const job = this.jobs.get(id);
+    if (!job) throw new Error("読み上げ待ちが見つかりません。");
+    if (job.state === "editing") throw new Error("訂正中の文章は先に訂正を反映してください。");
+    job.reasoningDeadline = this.now();
+    await this.repository.savePending(job);
+    this.#releaseReasoningSignal(job.id, job.generation);
+    this.onChange({ type: "pending-forced", pending: structuredClone(job) });
+  }
+
   async #runGeneration(id, generation) {
     const job = this.jobs.get(id);
     if (!job || job.generation !== generation) return;
-    const reasoning = this.waitUntil(job.reasoningDeadline);
+    const reasoning = this.#waitForReasoning(job, generation);
     let synthesized = { skipped: true, durationMs: 0 };
     try {
       synthesized = this.speech
@@ -150,5 +180,21 @@ export class UtteranceOrchestrator {
     latest.state = "committed";
     this.jobs.delete(id);
     this.onChange({ type: "message-committed", message });
+  }
+
+  #waitForReasoning(job, generation) {
+    const key = `${job.id}:${generation}`;
+    let release;
+    const forced = new Promise((resolve) => {
+      release = resolve;
+    });
+    this.reasoningSignals.set(key, release);
+    return Promise.race([this.waitUntil(job.reasoningDeadline), forced]).finally(() => {
+      if (this.reasoningSignals.get(key) === release) this.reasoningSignals.delete(key);
+    });
+  }
+
+  #releaseReasoningSignal(id, generation) {
+    this.reasoningSignals.get(`${id}:${generation}`)?.();
   }
 }

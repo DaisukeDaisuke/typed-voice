@@ -1,5 +1,10 @@
 import { IndexedDbConversationRepository, openConversationDatabase } from "./storage.js";
 import { UtteranceOrchestrator } from "./utterance-orchestrator.js";
+import {
+  getCompletedLineFromLineBreak,
+  retainRecentSubmittedLines,
+} from "./composer-policy.js";
+import { planComposerRevisions } from "./revision-target.js";
 
 const DEFAULT_REASONING_SECONDS = 2;
 const CONVERSATION_PARAM = "conversation";
@@ -23,8 +28,9 @@ function isInteractiveTarget(target) {
 }
 
 export class UiOrchestrator {
-  constructor(documentRef = document) {
+  constructor(documentRef = document, { voiceRuntime = null } = {}) {
     this.document = documentRef;
+    this.voiceRuntime = voiceRuntime;
     this.repository = null;
     this.utterances = null;
     this.currentSession = null;
@@ -40,12 +46,18 @@ export class UiOrchestrator {
     this.repository = new IndexedDbConversationRepository(db);
     this.utterances = new UtteranceOrchestrator({
       repository: this.repository,
+      speech: this.voiceRuntime,
+      playback: this.voiceRuntime,
       onChange: () => void this.refreshAll(),
     });
     this.#bindEvents();
 
     const storedWait = Number(await this.repository.getSetting("reasoningSeconds", DEFAULT_REASONING_SECONDS));
     this.elements.reasoningSeconds.value = Number.isFinite(storedWait) ? String(storedWait) : String(DEFAULT_REASONING_SECONDS);
+    const storedSpeed = Number(await this.repository.getSetting("speechSpeed", 1));
+    const speed = Number.isFinite(storedSpeed) ? Math.min(2, Math.max(0.5, storedSpeed)) : 1;
+    this.elements.speechSpeed.value = String(speed);
+    this.voiceRuntime?.setSpeed(speed);
 
     const requestedId = new URL(location.href).searchParams.get(CONVERSATION_PARAM);
     const session = requestedId ? await this.repository.getSession(requestedId) : null;
@@ -79,33 +91,72 @@ export class UiOrchestrator {
       this.refreshConversationList(),
       this.refreshStatistics(),
     ]);
-    this.elements.historyPanel.classList.remove("open");
-    this.elements.historyToggle.setAttribute("aria-expanded", "false");
+    this.#showSecondaryView("timeline");
     this.focusComposer();
   }
 
   async submitComposer() {
-    const text = this.elements.composer.value;
-    if (!text.trim() || !this.currentSession) return;
-    const reasoningSeconds = this.#reasoningSeconds();
-    const typingMs = this.typingStartedAt == null ? 0 : Math.max(0, performance.now() - this.typingStartedAt);
-    await this.repository.recordInputStatistics({
-      typedChars: text.length,
-      deletedChars: this.deletedChars,
-      typingMs,
-    });
-    await this.utterances.submit({ sessionId: this.currentSession.id, text, reasoningSeconds });
-    this.elements.composer.value = "";
-    this.elements.composer.setSelectionRange(0, 0);
-    this.typingStartedAt = null;
-    this.deletedChars = 0;
-    this.focusComposer();
-    await this.refreshAll();
-    this.#broadcast();
+    if (!this.currentSession) return;
+    const composer = this.elements.composer;
+    const line = getComposerLineAtCaret(composer.value, composer.selectionStart);
+    if (!line.trim()) return;
+    const pending = await this.repository.listPending(this.currentSession.id);
+    if (pending.some((item) => item.text.trim() === line.trim())) {
+      throw new Error("この行はすでに読み上げ待ちです。訂正する場合は上の訂正ボタンを使ってください。");
+    }
+    const lineEnd = composer.value.indexOf("\n", composer.selectionStart);
+    const insertAt = lineEnd === -1 ? composer.value.length : lineEnd;
+    composer.setRangeText("\n", insertAt, insertAt, "end");
+    await this.#finalizeComposerLineBreak();
   }
 
   focusComposer() {
     this.elements.composer.focus({ preventScroll: true });
+  }
+
+  async applyCorrectionFromComposer() {
+    if (!this.currentSession) return;
+    const text = this.elements.composer.value;
+    if (!text.trim()) throw new Error("訂正する文章を入力してください。");
+    const pending = await this.repository.listPending(this.currentSession.id);
+    const revisions = planComposerRevisions(
+      text,
+      pending,
+      (id) => this.utterances.isRevisionable(id)
+    );
+    if (revisions.length === 0) throw new Error("訂正差分がありません。");
+    for (const revision of revisions) {
+      await this.utterances.beginEdit(revision.pending.id);
+      await this.utterances.edit(revision.pending.id, revision.text, this.#reasoningSeconds());
+    }
+    this.elements.status.textContent = `${revisions.length}件の読み上げ待ちを訂正しました。`;
+    await this.refreshAll();
+    this.#broadcast();
+    this.focusComposer();
+  }
+
+  async forceQueueHead() {
+    if (!this.currentSession) return;
+    const pending = await this.repository.listPending(this.currentSession.id);
+    const target = [...pending]
+      .filter((item) => this.utterances.jobs.has(item.id))
+      .sort((left, right) => left.createdAt - right.createdAt)[0];
+    if (!target) throw new Error("今すぐ読み上げできる文章がありません。");
+    await this.utterances.forceReady(target.id);
+    this.elements.status.textContent = "読み上げ待ち時間を終了しました。";
+    await this.refreshAll();
+  }
+
+  async cancelCurrentPending() {
+    if (!this.currentSession) return;
+    const pending = await this.repository.listPending(this.currentSession.id);
+    const target = [...pending].sort((left, right) => right.createdAt - left.createdAt)[0];
+    if (!target) throw new Error("取り消せる読み上げ待ちがありません。");
+    await this.utterances.cancel(target.id);
+    this.elements.status.textContent = "読み上げ待ちを取り消しました。";
+    await this.refreshAll();
+    this.#broadcast();
+    this.focusComposer();
   }
 
   async refreshAll() {
@@ -172,27 +223,13 @@ export class UiOrchestrator {
     for (const item of pending) {
       const node = this.elements.pendingTemplate.content.firstElementChild.cloneNode(true);
       node.dataset.pendingId = item.id;
-      const editor = node.querySelector(".pending-editor");
-      const save = node.querySelector(".pending-save");
       const cancel = node.querySelector(".pending-cancel");
       const error = node.querySelector(".pending-error");
-      editor.value = item.text;
-      const revisionable = this.utterances.isRevisionable(item.id);
-      editor.disabled = !revisionable;
-      save.disabled = !revisionable;
+      node.querySelector(".pending-text").textContent = item.text;
       if (item.error) {
         error.hidden = false;
         error.textContent = item.error;
       }
-      save.addEventListener("click", async () => {
-        try {
-          await this.utterances.edit(item.id, editor.value, this.#reasoningSeconds());
-          await this.refreshAll();
-          this.#broadcast();
-        } catch (editError) {
-          this.elements.status.textContent = editError instanceof Error ? editError.message : String(editError);
-        }
-      });
       cancel.addEventListener("click", async () => {
         await this.utterances.cancel(item.id);
         await this.refreshAll();
@@ -203,6 +240,10 @@ export class UiOrchestrator {
     }
     this.elements.pendingList.replaceChildren(fragment);
     this.elements.pendingCount.textContent = String(pending.length);
+    const hasRevisionable = pending.some((item) => this.utterances.isRevisionable(item.id));
+    this.elements.correctionButton.disabled = !hasRevisionable;
+    this.elements.cancelCurrentButton.disabled = pending.length === 0;
+    this.elements.forceSpeakButton.disabled = pending.length === 0;
     this.#updatePendingTimers();
   }
 
@@ -213,32 +254,57 @@ export class UiOrchestrator {
       if (!job) continue;
       const remaining = Math.max(0, job.reasoningDeadline - currentTime) / 1000;
       node.querySelector(".pending-timer").textContent = remaining > 0 ? `${remaining.toFixed(1)}秒` : "確定待ち";
-      node.querySelector(".pending-state").textContent = job.state === "voice-error" ? "音声エラー" : "読み上げ待ち";
+      if (job.state === "editing") {
+        node.querySelector(".pending-state").textContent = "訂正中";
+        node.querySelector(".pending-timer").textContent = "入力待ち";
+      } else {
+        node.querySelector(".pending-state").textContent = job.state === "voice-error" ? "音声エラー" : "読み上げ待ち";
+      }
     }
   }
 
   #bindEvents() {
     this.elements.submitButton.addEventListener("click", () => void this.#runUiTask(() => this.submitComposer()));
+    this.elements.correctionButton.addEventListener("click", () => void this.#runUiTask(() => this.applyCorrectionFromComposer()));
+    this.elements.cancelCurrentButton.addEventListener("click", () => void this.#runUiTask(() => this.cancelCurrentPending()));
+    this.elements.forceSpeakButton.addEventListener("click", () => void this.#runUiTask(() => this.forceQueueHead()));
     this.elements.newConversation.addEventListener("click", () => void this.#runUiTask(() => this.createConversation()));
     this.elements.focusComposer.addEventListener("click", () => this.focusComposer());
-    this.elements.historyToggle.addEventListener("click", () => {
-      const open = this.elements.historyPanel.classList.toggle("open");
-      this.elements.historyToggle.setAttribute("aria-expanded", String(open));
-    });
+    this.elements.timelineView.addEventListener("click", () => this.#showSecondaryView("timeline"));
+    this.elements.conversationView.addEventListener("click", () => this.#showSecondaryView("conversations"));
     this.elements.reasoningSeconds.addEventListener("change", () => {
       const value = this.#reasoningSeconds();
       this.elements.reasoningSeconds.value = String(value);
       void this.repository.setSetting("reasoningSeconds", value);
     });
-    this.elements.composer.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
-        event.preventDefault();
-        void this.#runUiTask(() => this.submitComposer());
+    this.elements.speechSpeed.addEventListener("change", () => {
+      try {
+        const value = Number(this.elements.speechSpeed.value);
+        this.voiceRuntime?.setSpeed(value);
+        void this.repository.setSetting("speechSpeed", value);
+      } catch (error) {
+        this.elements.status.textContent = error instanceof Error ? error.message : String(error);
       }
     });
+    this.elements.voiceEnable.addEventListener("click", () => void this.#runUiTask(async () => {
+      if (!this.voiceRuntime) throw new Error("音声エンジンを利用できません。");
+      this.elements.voiceEnable.disabled = true;
+      try {
+        await this.voiceRuntime.enable();
+        this.elements.voiceEnable.textContent = "音声 有効";
+      } finally {
+        if (!this.voiceRuntime.ready) this.elements.voiceEnable.disabled = false;
+      }
+    }));
+
     this.elements.composer.addEventListener("beforeinput", (event) => {
       if (this.typingStartedAt == null) this.typingStartedAt = performance.now();
       if (event.inputType?.startsWith("delete")) this.deletedChars += 1;
+    });
+    this.elements.composer.addEventListener("input", (event) => {
+      if (event.inputType === "insertLineBreak" || event.inputType === "insertParagraph") {
+        void this.#runUiTask(() => this.#finalizeComposerLineBreak());
+      }
     });
     this.elements.composerPanel.addEventListener("click", (event) => {
       if (!isInteractiveTarget(event.target)) this.focusComposer();
@@ -257,6 +323,42 @@ export class UiOrchestrator {
   #reasoningSeconds() {
     const value = Number(this.elements.reasoningSeconds.value);
     return Number.isFinite(value) ? Math.min(30, Math.max(0, value)) : DEFAULT_REASONING_SECONDS;
+  }
+
+  async #finalizeComposerLineBreak() {
+    if (!this.currentSession) return;
+    const composer = this.elements.composer;
+    const completed = getCompletedLineFromLineBreak(composer.value, composer.selectionStart);
+    if (!completed.trim()) return;
+    const typingMs = this.typingStartedAt == null ? 0 : Math.max(0, performance.now() - this.typingStartedAt);
+    await this.repository.recordInputStatistics({
+      typedChars: completed.length,
+      deletedChars: this.deletedChars,
+      typingMs,
+    });
+    await this.utterances.submit({
+      sessionId: this.currentSession.id,
+      text: completed,
+      reasoningSeconds: this.#reasoningSeconds(),
+    });
+    const retained = retainRecentSubmittedLines(composer.value, composer.selectionStart, 2);
+    if (retained.value !== composer.value || retained.caret !== composer.selectionStart) {
+      composer.value = retained.value;
+      composer.setSelectionRange(retained.caret, retained.caret);
+    }
+    this.typingStartedAt = null;
+    this.deletedChars = 0;
+    await this.refreshAll();
+    this.#broadcast();
+    this.focusComposer();
+  }
+
+  #showSecondaryView(view) {
+    const showTimeline = view === "timeline";
+    this.elements.timelinePanel.hidden = !showTimeline;
+    this.elements.conversationPanel.hidden = showTimeline;
+    this.elements.timelineView.setAttribute("aria-pressed", String(showTimeline));
+    this.elements.conversationView.setAttribute("aria-pressed", String(!showTimeline));
   }
 
   #writeUrl(sessionId, replace) {
@@ -286,7 +388,9 @@ export class UiOrchestrator {
       composerPanel: byId("composer-panel"),
       composer: byId("composer"),
       reasoningSeconds: byId("reasoning-seconds"),
+      speechSpeed: byId("speech-speed"),
       submitButton: byId("submit-button"),
+      voiceEnable: byId("voice-enable"),
       focusComposer: byId("focus-composer"),
       status: byId("app-status"),
       conversationTitle: byId("conversation-title"),
@@ -296,9 +400,14 @@ export class UiOrchestrator {
       messageList: byId("message-list"),
       emptyTimeline: byId("empty-timeline"),
       conversationList: byId("conversation-list"),
-      historyPanel: byId("history-panel"),
-      historyToggle: byId("history-toggle"),
+      timelinePanel: byId("timeline-panel"),
+      conversationPanel: byId("conversation-panel"),
+      timelineView: byId("timeline-view"),
+      conversationView: byId("conversation-view"),
       newConversation: byId("new-conversation"),
+      correctionButton: byId("correction-button"),
+      cancelCurrentButton: byId("cancel-current-button"),
+      forceSpeakButton: byId("force-speak-button"),
       statMessages: byId("stat-messages"),
       statConversations: byId("stat-conversations"),
       statTyped: byId("stat-typed"),

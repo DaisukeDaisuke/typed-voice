@@ -1,13 +1,18 @@
 import "./style.css";
 import { UiOrchestrator } from "./app/ui-orchestrator.js";
+import { VoiceRuntimeAdapter } from "./app/voice-runtime-adapter.js";
+import { requireServiceWorker } from "./app/service-worker-required.js";
 
-await registerServiceWorker();
-const app = new UiOrchestrator(document);
+await requireServiceWorker({ reloadKey: "typed-voice-app-coi-reloaded" });
+const voiceStatus = document.querySelector("#voice-status");
+const manifestUrl = new URL(`${import.meta.env.BASE_URL}voice-manifest.json`, document.baseURI).href;
+const voiceRuntime = new VoiceRuntimeAdapter({
+  manifestUrl,
+  onStatus(message) {
+    voiceStatus.textContent = message;
+  },
+});
+const app = new UiOrchestrator(document, { voiceRuntime });
 await app.initialize();
 
-async function registerServiceWorker() {
-  if (!("serviceWorker" in navigator)) return;
-  const serviceWorkerUrl = new URL(`${import.meta.env.BASE_URL}app-service-worker.js`, document.baseURI);
-  if (import.meta.env.DEV) serviceWorkerUrl.searchParams.set("dev", "1");
-  await navigator.serviceWorker.register(serviceWorkerUrl, { scope: import.meta.env.BASE_URL });
-}
+

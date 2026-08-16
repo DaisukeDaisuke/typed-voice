@@ -8,6 +8,31 @@ body {
   margin: 0;
 }
 
+.service-worker-required[hidden] { display: none; }
+.service-worker-required {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #24211d66;
+  backdrop-filter: blur(14px);
+}
+.service-worker-required-card {
+  width: min(520px, 100%);
+  padding: 24px;
+  border: 1px solid #d7d0c7;
+  border-radius: 18px;
+  background: #fffdfa;
+  color: #26231f;
+  box-shadow: 0 24px 80px #211c1640;
+}
+.service-worker-required-card h1 { margin: 0 0 12px; font-size: 1.2rem; line-height: 1.45; }
+.service-worker-required-card p { margin: 0 0 18px; line-height: 1.6; }
+.service-worker-required-card button { min-height: 42px; padding: 8px 14px; border: 0; border-radius: 10px; cursor: pointer; }
+.service-worker-blocked body { overflow: hidden; }
+
 .poc {
   box-sizing: border-box;
   width: min(760px, 100%);

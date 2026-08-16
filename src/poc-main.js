@@ -1,5 +1,6 @@
 import "./poc.css";
 import { EngineClient } from "./engine/engine-client.js";
+import { requireServiceWorker } from "./app/service-worker-required.js";
 
 const isolationStatus = document.querySelector("#isolation-status");
 const engineStatus = document.querySelector("#engine-status");
@@ -13,7 +14,7 @@ const speechSpeed = document.querySelector("#speech-speed");
 let client = null;
 let manifest = null;
 
-await registerServiceWorkerForIsolation();
+await requireServiceWorker({ reloadKey: "typed-voice-poc-coi-reloaded" });
 isolationStatus.textContent = globalThis.crossOriginIsolated
   ? "Cross-Origin Isolation: 有効。WASMマルチスレッドを利用できます。"
   : "Cross-Origin Isolation: 無効。WASMは1スレッドへフォールバックします。";
@@ -129,14 +130,4 @@ async function runButtonTask(button, task) {
   }
 }
 
-async function registerServiceWorkerForIsolation() {
-  if (!("serviceWorker" in navigator)) return;
-  const serviceWorkerUrl = new URL(`${import.meta.env.BASE_URL}app-service-worker.js`, document.baseURI);
-  if (import.meta.env.DEV) serviceWorkerUrl.searchParams.set("dev", "1");
-  await navigator.serviceWorker.register(serviceWorkerUrl, { scope: import.meta.env.BASE_URL });
-  if (navigator.serviceWorker.controller) return;
-  if (sessionStorage.getItem("typed-voice-coi-reloaded") === "1") return;
-  sessionStorage.setItem("typed-voice-coi-reloaded", "1");
-  await new Promise((resolve) => navigator.serviceWorker.addEventListener("controllerchange", resolve, { once: true }));
-  location.reload();
-}
+

@@ -136,6 +136,10 @@ UI側で現在維持する確定事項:
 
 - `仕事` はUIで `会話`。
 - `reasoning` はUIで `読み上げ待ち時間`。
+- 主入力欄は画面の約半分を使う主要操作面とする。Enterは実際の改行を挿入し、その改行を検出した瞬間に直前の行を発話candidateとして確定し、reasoningと合成を並行開始する。改行自体を潰して送信キーとして扱ってはならない。
+- 入力欄には誤字訂正用として直近2件の提出済み行と現在入力中の行を残す。3件目以降の改行では最古の表示済み行を落とす。
+- pendingの訂正は別textareaを増やさず、主入力欄へ対象文章を戻して行う。
+- Spaceキーへの特別な割当は添付仕様書に存在しないため、通常の空白入力として扱う。
 - 正式messageとpending utteranceを混ぜない。
 - Enter/提出時点でreasoningとsynthesisを並行開始できる設計。
 - 両方の条件を満たすまで再生しない。
@@ -143,10 +147,13 @@ UI側で現在維持する確定事項:
 - 直近2件のpendingを修正可能にする。
 - 会話を開くためにreloadしない。
 - URLへconversation UUIDを即時反映する。
+- `読み上げ履歴` と `会話一覧` は同時表示せず、同じ副画面領域を切り替えて使用する。
 - sessions/messages/pending/settings/statisticsを巨大JSONへまとめない。
 - UIは仕様書ではないため、内部語を画面へ表示しない。
 - 入力後もキーボード・focusを維持して連続入力できること。
 - PCデバッグ、スマートフォンを阻害しないresponsive設計。
+
+production buildでは製品UIの `index.html` と、受入試験資産として残す `poc.html` の両方を生成する。`main` branchへのpushでGitHub Pagesを自動build/deployし、PoCの公開先は `https://daisukedaisuke.github.io/typed-voice/poc.html` を想定する。
 
 ## 12. 現在の完成判定
 
