@@ -51,7 +51,12 @@ async function dispatch(message) {
     case "initialize": {
       ensureManifest();
       const appBaseUrl = new URL("./", manifestUrl).href;
-      await assertPreparedVoiceAssets(manifest, { baseUrl: appBaseUrl });
+      await assertPreparedVoiceAssets(manifest, {
+        baseUrl: appBaseUrl,
+        onProgress(progress) {
+          postMessage({ type: "progress", requestId: message.requestId, stage: "initialize", ...progress });
+        },
+      });
       await engine?.dispose();
       engine = new OmniVoiceEngine({ preferredThreadCount: message.preferredThreadCount ?? 0 });
       const ready = await engine.initialize(manifest, {

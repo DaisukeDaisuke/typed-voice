@@ -118,11 +118,28 @@ async function deleteMetadata(db, key) {
   return runTransaction(db, "readwrite", (store) => store.delete(key));
 }
 
-async function cacheHasVerifiedAsset({ cache, db, manifest, asset, virtualUrl }) {
+async function verifyCachedAsset({ cache, db, manifest, asset, virtualUrl, onProgress }) {
   const [cached, metadata] = await Promise.all([cache.match(virtualUrl), readMetadata(db, keyFor(manifest.id, asset.id))]);
-  return Boolean(
+  const metadataMatches = Boolean(
     cached && metadata && metadata.sha256 === asset.sha256.toLowerCase() && metadata.byteSize === asset.byteSize && metadata.virtualUrl === virtualUrl
   );
+  if (!metadataMatches || !cached.body) return false;
+
+  let verified;
+  try {
+    verified = await sha256Stream(cached.body, ({ loaded }) => {
+      onProgress?.({ assetId: asset.id, loaded, total: asset.byteSize });
+    });
+  } catch (error) {
+    await Promise.all([cache.delete(virtualUrl), deleteMetadata(db, keyFor(manifest.id, asset.id))]);
+    throw error;
+  }
+
+  if (verified.byteSize !== asset.byteSize || verified.sha256 !== asset.sha256.toLowerCase()) {
+    await Promise.all([cache.delete(virtualUrl), deleteMetadata(db, keyFor(manifest.id, asset.id))]);
+    return false;
+  }
+  return true;
 }
 
 async function downloadAndVerifyAsset({ fetchImpl, cache, db, manifest, asset, virtualUrl, onProgress }) {
@@ -194,9 +211,21 @@ export async function prepareVoiceAssets(manifest, options = {}) {
 
   for (const asset of manifest.assets) {
     const virtualUrl = buildVirtualAssetUrl(manifest.id, asset.localPath, baseUrl);
-    if (await cacheHasVerifiedAsset({ cache, db, manifest, asset, virtualUrl })) {
+    if (await verifyCachedAsset({
+      cache,
+      db,
+      manifest,
+      asset,
+      virtualUrl,
+      onProgress: ({ loaded }) => options.onProgress?.({
+        phase: "verifying-cache",
+        assetId: asset.id,
+        loadedBytes: completedBytes + loaded,
+        totalBytes,
+      }),
+    })) {
       completedBytes += asset.byteSize;
-      options.onProgress?.({ phase: "cached", assetId: asset.id, loadedBytes: completedBytes, totalBytes });
+      options.onProgress?.({ phase: "verified-cache", assetId: asset.id, loadedBytes: completedBytes, totalBytes });
       continue;
     }
     await downloadAndVerifyAsset({
@@ -227,11 +256,28 @@ export async function assertPreparedVoiceAssets(manifest, options = {}) {
   const db = options.db ?? (await openDatabase(options.indexedDBImpl));
   const cache = await cachesImpl.open(MODEL_CACHE_NAME);
   const baseUrl = options.baseUrl ?? globalThis.location?.href;
+  const totalBytes = manifest.assets.reduce((sum, asset) => sum + asset.byteSize, 0);
+  let completedBytes = 0;
   for (const asset of manifest.assets) {
     const virtualUrl = buildVirtualAssetUrl(manifest.id, asset.localPath, baseUrl);
-    if (!(await cacheHasVerifiedAsset({ cache, db, manifest, asset, virtualUrl }))) {
-      throw new Error(`Prepared asset is missing or unverified: ${asset.id}`);
+    const verified = await verifyCachedAsset({
+      cache,
+      db,
+      manifest,
+      asset,
+      virtualUrl,
+      onProgress: ({ loaded }) => options.onProgress?.({
+        phase: "verifying-cache",
+        assetId: asset.id,
+        loadedBytes: completedBytes + loaded,
+        totalBytes,
+      }),
+    });
+    if (!verified) {
+      throw new Error(`Prepared asset is missing or corrupt: ${asset.id}. Run offline voice preparation again.`);
     }
+    completedBytes += asset.byteSize;
+    options.onProgress?.({ phase: "verified-cache", assetId: asset.id, loadedBytes: completedBytes, totalBytes });
   }
   return { manifestId: manifest.id, assetBaseUrl: buildVirtualAssetUrl(manifest.id, "", baseUrl) };
 }

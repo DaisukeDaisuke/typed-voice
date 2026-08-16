@@ -74,7 +74,14 @@ async function loadVoiceManifest() {
       } else if (message.stage === "generate") {
         engineStatus.textContent = `OmniVoice生成: step ${message.step}/${message.numStep}, masked=${message.remaining}`;
       } else if (message.stage === "initialize") {
-        engineStatus.textContent = `エンジン初期化: ${message.phase}${message.backend ? ` (${message.backend})` : ""}`;
+        if (message.phase === "verifying-cache" || message.phase === "verified-cache") {
+          const loaded = Number(message.loadedBytes || 0);
+          const total = Number(message.totalBytes || 0);
+          const percentage = total > 0 ? ((loaded / total) * 100).toFixed(1) : "?";
+          engineStatus.textContent = `保存済み音声をSHA-256再検証: ${message.assetId || "asset"} ${(loaded / 1024 / 1024).toFixed(1)} / ${(total / 1024 / 1024).toFixed(1)} MiB (${percentage}%)`;
+        } else {
+          engineStatus.textContent = `エンジン初期化: ${message.phase}${message.backend ? ` (${message.backend})` : ""}`;
+        }
       }
     },
   });
