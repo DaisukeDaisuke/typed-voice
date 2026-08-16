@@ -17,6 +17,12 @@ test("full-finetune manifestは固定HF commitのFP32 split runtimeを起動可�
   assert.equal(manifest.runtime.generation.numStep, 16);
   assert.equal(manifest.runtime.generation.positionTemperature, 5);
   assert.equal(manifest.runtime.headDim, 128);
+  assert.deepEqual(manifest.runtime.llmAttention, {
+    mode: "omnivoice-noncausal",
+    maskDtype: "bool",
+    maskRank: 4,
+    useCache: false,
+  });
   assert.equal(manifest.assets.length, 10);
   assert.equal(manifest.assets.every((asset) => asset.role === "runtime"), true);
   assert.equal(manifest.assets.every((asset) => asset.source.repo === manifest.runtimeSource.repo), true);

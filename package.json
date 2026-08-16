@@ -16,6 +16,7 @@
   "dependencies": {
     "@piper-plus/g2p": "file:third_party/piper-plus/src/wasm/g2p",
     "@huggingface/tokenizers": "0.1.3",
+    "hash-wasm": "4.12.0",
     "onnxruntime-web": "1.27.0"
   },
   "devDependencies": {

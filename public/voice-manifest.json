@@ -17,7 +17,7 @@
   "runtimeSource": {
     "provider": "huggingface",
     "repo": "RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx",
-    "revision": "236aaf26821fb4783cbba3b5dcd6921c8f143b5d",
+    "revision": "6ce5e1814efe5697df70cc066240f5127036e17d",
     "qualityProfile": "fp32-unquantized"
   },
   "conversion": {
@@ -36,10 +36,17 @@
   },
   "runtime": {
     "sampleRate": 24000,
+    "preferWebGpu": true,
     "tokenizerDirectory": ".",
     "hiddenSize": 1024,
     "numKvHeads": 8,
     "headDim": 128,
+    "llmAttention": {
+      "mode": "omnivoice-noncausal",
+      "maskDtype": "bool",
+      "maskRank": 4,
+      "useCache": false
+    },
     "decoderInputName": "codes",
     "decoderOutputName": "waveform_24k",
     "generation": {
@@ -99,11 +106,12 @@
       "role": "runtime",
       "localPath": "audio_embeddings_encoder.onnx",
       "byteSize": 9886,
-      "sha256": "31f27ec9ecd80b5b30d9a33a85107ea303698f5356eb375c19306599f782c27b",
+      "sha256": "15c72b91bb501c730c615af09d425bb9a2de573c3b723f4357c6199025bfb24d",
+      "xxh3_128": "fdf7b216b4fdecb03287edf90201cb3e",
       "source": {
         "provider": "huggingface",
         "repo": "RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx",
-        "revision": "236aaf26821fb4783cbba3b5dcd6921c8f143b5d",
+        "revision": "6ce5e1814efe5697df70cc066240f5127036e17d",
         "path": "audio_embeddings_encoder.onnx"
       }
     },
@@ -113,10 +121,11 @@
       "localPath": "audio_embeddings_encoder.onnx.data",
       "byteSize": 654852096,
       "sha256": "beab71e9df8118bc462879805717fdd1a5e69132b9900a958e6c7b9bc312bca3",
+      "xxh3_128": "e848c5576aa5bd5c1f2022bd42bf44fc",
       "source": {
         "provider": "huggingface",
         "repo": "RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx",
-        "revision": "236aaf26821fb4783cbba3b5dcd6921c8f143b5d",
+        "revision": "6ce5e1814efe5697df70cc066240f5127036e17d",
         "path": "audio_embeddings_encoder.onnx.data"
       }
     },
@@ -125,11 +134,12 @@
       "role": "runtime",
       "localPath": "audio_heads_decoder.onnx",
       "byteSize": 5388,
-      "sha256": "f1a9107650ee38bd0eae13c873f928d3a4604a4b58b5587e0999b18d9fcf47e6",
+      "sha256": "1658570b2f95c33083b1e4f88db2cf3dcff1375af17379e38dd657832c24e787",
+      "xxh3_128": "1d23358687585aeca512c1b74b914c08",
       "source": {
         "provider": "huggingface",
         "repo": "RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx",
-        "revision": "236aaf26821fb4783cbba3b5dcd6921c8f143b5d",
+        "revision": "6ce5e1814efe5697df70cc066240f5127036e17d",
         "path": "audio_heads_decoder.onnx"
       }
     },
@@ -139,10 +149,11 @@
       "localPath": "audio_heads_decoder.onnx.data",
       "byteSize": 33587200,
       "sha256": "12b6bd95b417aaa9abdd99adc9e2cf6c18585af98fd1176d92a4be98bf0ca062",
+      "xxh3_128": "732e28d59053fd76684012693775f101",
       "source": {
         "provider": "huggingface",
         "repo": "RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx",
-        "revision": "236aaf26821fb4783cbba3b5dcd6921c8f143b5d",
+        "revision": "6ce5e1814efe5697df70cc066240f5127036e17d",
         "path": "audio_heads_decoder.onnx.data"
       }
     },
@@ -151,11 +162,12 @@
       "role": "runtime",
       "localPath": "higgs_decoder.onnx",
       "byteSize": 781668,
-      "sha256": "6143dac4b363e917ca6c9db8f8a35aec4108a09248ad2d0a5e77900eae461d97",
+      "sha256": "c6a1e029587ed27e0970661a42158d31bd094351bb1600a672edbfc1479c15e2",
+      "xxh3_128": "24fc44f357882f1476fabd8da205b673",
       "source": {
         "provider": "huggingface",
         "repo": "RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx",
-        "revision": "236aaf26821fb4783cbba3b5dcd6921c8f143b5d",
+        "revision": "6ce5e1814efe5697df70cc066240f5127036e17d",
         "path": "higgs_decoder.onnx"
       }
     },
@@ -165,10 +177,11 @@
       "localPath": "higgs_decoder.onnx.data",
       "byteSize": 86241280,
       "sha256": "c431ef18e8e39e9685c9dd0c8c35b6a582290d138cafb7f3f9bdf846a88cd0d4",
+      "xxh3_128": "c6ad2c0728e35262a6ed81426d937f41",
       "source": {
         "provider": "huggingface",
         "repo": "RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx",
-        "revision": "236aaf26821fb4783cbba3b5dcd6921c8f143b5d",
+        "revision": "6ce5e1814efe5697df70cc066240f5127036e17d",
         "path": "higgs_decoder.onnx.data"
       }
     },
@@ -176,12 +189,13 @@
       "id": "llm_decoder.onnx",
       "role": "runtime",
       "localPath": "llm_decoder.onnx",
-      "byteSize": 247277,
-      "sha256": "f0d271d60f0087da820a231c5cf6f58a1fb8824414bf4f3b87013e1653d4f665",
+      "byteSize": 3833331,
+      "sha256": "8227bddb9ce63f09dd1dc13f07b8fb2f2b04bf76bb452465f242ba6d76320a9f",
+      "xxh3_128": "c595aebdf1649c1611b0f5199d2cfca7",
       "source": {
         "provider": "huggingface",
         "repo": "RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx",
-        "revision": "236aaf26821fb4783cbba3b5dcd6921c8f143b5d",
+        "revision": "6ce5e1814efe5697df70cc066240f5127036e17d",
         "path": "llm_decoder.onnx"
       }
     },
@@ -189,12 +203,13 @@
       "id": "llm_decoder.onnx.data",
       "role": "runtime",
       "localPath": "llm_decoder.onnx.data",
-      "byteSize": 1782841344,
-      "sha256": "6c9ea7469df1db97a6dd840b5528dd0f21c7b9ef841b73ac15cc82a86624ffd6",
+      "byteSize": 1761869824,
+      "sha256": "8212070a5e0abf07cc0dbead66621efeda3a876ea07336c3f77bb65f6aa9eefc",
+      "xxh3_128": "95932fa7f9fc196f5594d83c93b0fab2",
       "source": {
         "provider": "huggingface",
         "repo": "RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx",
-        "revision": "236aaf26821fb4783cbba3b5dcd6921c8f143b5d",
+        "revision": "6ce5e1814efe5697df70cc066240f5127036e17d",
         "path": "llm_decoder.onnx.data"
       }
     },
@@ -204,10 +219,11 @@
       "localPath": "tokenizer.json",
       "byteSize": 11423986,
       "sha256": "408f669b7e2b045fdf54201d815bd364e6667dbd845115da81239c40bc6dcfd1",
+      "xxh3_128": "4d4cb1ba958ecce8a57e856ea0aadb3e",
       "source": {
         "provider": "huggingface",
         "repo": "RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx",
-        "revision": "236aaf26821fb4783cbba3b5dcd6921c8f143b5d",
+        "revision": "6ce5e1814efe5697df70cc066240f5127036e17d",
         "path": "tokenizer.json"
       }
     },
@@ -217,10 +233,11 @@
       "localPath": "tokenizer_config.json",
       "byteSize": 534,
       "sha256": "4ab62b5247f77af50613e49bd6df5e105365b827280e0fd8e265ab928b5cbe6f",
+      "xxh3_128": "264660d10922b30788fd24c2c351d964",
       "source": {
         "provider": "huggingface",
         "repo": "RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx",
-        "revision": "236aaf26821fb4783cbba3b5dcd6921c8f143b5d",
+        "revision": "6ce5e1814efe5697df70cc066240f5127036e17d",
         "path": "tokenizer_config.json"
       }
     }

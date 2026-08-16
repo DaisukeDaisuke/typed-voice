@@ -23,7 +23,8 @@ body {
 }
 
 button,
-textarea {
+textarea,
+input {
   font: inherit;
 }
 
@@ -39,6 +40,20 @@ textarea {
   margin: 8px 0 16px;
   padding: 12px;
   resize: vertical;
+}
+
+.speed-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 16px;
+}
+
+.speed-control input {
+  box-sizing: border-box;
+  width: 7rem;
+  min-height: 44px;
+  padding: 8px 10px;
 }
 
 .notice,

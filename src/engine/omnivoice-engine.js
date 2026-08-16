@@ -2,7 +2,7 @@ import * as ort from "onnxruntime-web/all";
 import { Tokenizer } from "@huggingface/tokenizers";
 import { buildVirtualAssetUrl } from "./asset-store.js";
 import { configureOrtWasm } from "./threading.js";
-import { buildOmniVoiceAttentionMask, generateOmniVoiceCodes, prepareOmniVoiceInputs } from "./omnivoice-generation.js";
+import { buildOmniVoiceAttentionMask, createPythonRandom, generateOmniVoiceCodes, prepareOmniVoiceInputs } from "./omnivoice-generation.js";
 
 function halfToFloat(value) {
   const sign = (value & 0x8000) ? -1 : 1;
@@ -45,6 +45,18 @@ function bigintRange(length, batch) {
   return result;
 }
 
+function tokenHash(tokens) {
+  let hash = 0x811c9dc5;
+  for (const token of tokens) {
+    const value = Number(token);
+    hash ^= value & 0xff;
+    hash = Math.imul(hash, 0x01000193);
+    hash ^= (value >>> 8) & 0xff;
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
 export class OmniVoiceEngine {
   constructor({ preferredThreadCount } = {}) {
     this.preferredThreadCount = preferredThreadCount;
@@ -75,7 +87,7 @@ export class OmniVoiceEngine {
       try {
         onStatus({ phase: "sessions", backend });
         this.sessions = await this.#createSessions(backend);
-        this.backend = backend;
+        this.backend = backend === "webgpu" ? "webgpu+higgs-wasm" : backend;
         await this.#warmup();
         return { backend: this.backend, sampleRate: this.runtime.sampleRate };
       } catch (error) {
@@ -106,29 +118,46 @@ export class OmniVoiceEngine {
       attentionMode: this.runtime.llmAttention?.mode ?? "legacy-causal-2d",
       isCancelled: options.isCancelled,
       onStep: options.onStep,
+      random: options.seed == null ? Math.random : createPythonRandom(options.seed),
     });
     if (options.isCancelled?.()) throw new Error("cancelled");
     const pcm = await this.#decode(generated.tokens, generated.codebooks, generated.targetLength);
-    return { pcm: normalizePcm(pcm), sampleRate: this.runtime.sampleRate, backend: this.backend };
+    return {
+      pcm: normalizePcm(pcm),
+      sampleRate: this.runtime.sampleRate,
+      backend: this.backend,
+      tokenHash: tokenHash(generated.tokens),
+      targetLength: generated.targetLength,
+    };
   }
 
   async #createSessions(backend) {
     const sessions = {};
-    for (const [name, definition] of Object.entries(this.runtime.sessions)) {
-      const modelUrl = buildVirtualAssetUrl(this.manifest.id, definition.model, this.appBaseUrl);
-      const options = {
-        executionProviders: [backend],
-        graphOptimizationLevel: "all",
-      };
-      if (definition.externalData?.length) {
-        options.externalData = definition.externalData.map((entry) => ({
-          path: entry.path,
-          data: buildVirtualAssetUrl(this.manifest.id, entry.localPath, this.appBaseUrl),
-        }));
+    try {
+      for (const [name, definition] of Object.entries(this.runtime.sessions)) {
+        const modelUrl = buildVirtualAssetUrl(this.manifest.id, definition.model, this.appBaseUrl);
+        const sessionBackend = backend === "webgpu" && name === "higgsDecoder" ? "wasm" : backend;
+        const options = {
+          executionProviders: [sessionBackend],
+          graphOptimizationLevel: "all",
+        };
+        if (definition.externalData?.length) {
+          options.externalData = definition.externalData.map((entry) => ({
+            path: entry.path,
+            data: buildVirtualAssetUrl(this.manifest.id, entry.localPath, this.appBaseUrl),
+          }));
+        }
+        try {
+          sessions[name] = await ort.InferenceSession.create(modelUrl, options);
+        } catch (error) {
+          throw new Error(`${backend}/${name} (${sessionBackend}) session creation failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
-      sessions[name] = await ort.InferenceSession.create(modelUrl, options);
+      return sessions;
+    } catch (error) {
+      await Promise.allSettled(Object.values(sessions).map((session) => session.release?.()));
+      throw error;
     }
-    return sessions;
   }
 
   async #warmup() {

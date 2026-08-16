@@ -17,7 +17,12 @@
       <button id="initialize-button" type="button">エンジンを起動</button>
     </div>
     <label for="speech-text">読み上げる文章</label>
-    <textarea id="speech-text" rows="5">こんにちは。音声エンジンの動作確認です。</textarea>
+    <textarea id="speech-text" rows="5">税関関税許可局、関税許可を急遽却下</textarea>
+    <label for="speech-speed">速度</label>
+    <div class="speed-control">
+      <input id="speech-speed" type="number" min="0.5" max="2" step="0.1" value="1">
+      <span>倍</span>
+    </div>
     <button id="speak-button" type="button" disabled>読み上げ</button>
     <pre id="engine-status" class="status" aria-live="polite"></pre>
     <section class="license-notice" aria-label="ライセンス表記">

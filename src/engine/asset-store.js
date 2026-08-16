@@ -1,4 +1,4 @@
-import { sha256Stream } from "./incremental-sha256.js";
+import { isXxh3_128, xxh3_128Stream } from "./xxh3-128.js";
 
 export const MODEL_CACHE_NAME = "typed-voice-model-assets-v2";
 const DB_NAME = "typed-voice-assets";
@@ -35,10 +35,11 @@ function isSha256(value) {
 
 function validateAsset(asset) {
   if (!asset || typeof asset !== "object") throw new Error("Invalid asset entry");
-  for (const field of ["id", "localPath", "sha256"]) {
+  for (const field of ["id", "localPath", "sha256", "xxh3_128"]) {
     if (typeof asset[field] !== "string" || asset[field].length === 0) throw new Error(`Asset ${field} is required`);
   }
   if (!isSha256(asset.sha256)) throw new Error(`Asset ${asset.id} has invalid SHA-256`);
+  if (!isXxh3_128(asset.xxh3_128)) throw new Error(`Asset ${asset.id} has invalid XXH3-128`);
   if (!Number.isSafeInteger(asset.byteSize) || asset.byteSize <= 0) throw new Error(`Asset ${asset.id} has invalid byteSize`);
   const source = asset.source;
   if (!source || source.provider !== "huggingface") throw new Error(`Asset ${asset.id} requires a Hugging Face source`);
@@ -120,14 +121,12 @@ async function deleteMetadata(db, key) {
 
 async function verifyCachedAsset({ cache, db, manifest, asset, virtualUrl, onProgress }) {
   const [cached, metadata] = await Promise.all([cache.match(virtualUrl), readMetadata(db, keyFor(manifest.id, asset.id))]);
-  const metadataMatches = Boolean(
-    cached && metadata && metadata.sha256 === asset.sha256.toLowerCase() && metadata.byteSize === asset.byteSize && metadata.virtualUrl === virtualUrl
-  );
-  if (!metadataMatches || !cached.body) return false;
+  if (!cached?.body) return false;
+  if (metadata && (metadata.byteSize !== asset.byteSize || metadata.virtualUrl !== virtualUrl)) return false;
 
   let verified;
   try {
-    verified = await sha256Stream(cached.body, ({ loaded }) => {
+    verified = await xxh3_128Stream(cached.body, ({ loaded }) => {
       onProgress?.({ assetId: asset.id, loaded, total: asset.byteSize });
     });
   } catch (error) {
@@ -135,9 +134,22 @@ async function verifyCachedAsset({ cache, db, manifest, asset, virtualUrl, onPro
     throw error;
   }
 
-  if (verified.byteSize !== asset.byteSize || verified.sha256 !== asset.sha256.toLowerCase()) {
+  if (verified.byteSize !== asset.byteSize || verified.xxh3_128 !== asset.xxh3_128.toLowerCase()) {
     await Promise.all([cache.delete(virtualUrl), deleteMetadata(db, keyFor(manifest.id, asset.id))]);
     return false;
+  }
+  if (!metadata || metadata.xxh3_128 !== verified.xxh3_128 || metadata.sha256 !== asset.sha256.toLowerCase()) {
+    await writeMetadata(db, {
+      key: keyFor(manifest.id, asset.id),
+      manifestId: manifest.id,
+      assetId: asset.id,
+      virtualUrl,
+      sha256: asset.sha256.toLowerCase(),
+      xxh3_128: verified.xxh3_128,
+      byteSize: verified.byteSize,
+      verifiedAt: Date.now(),
+      source: asset.source,
+    });
   }
   return true;
 }
@@ -159,12 +171,12 @@ async function downloadAndVerifyAsset({ fetchImpl, cache, db, manifest, asset, v
       headers: {
         "content-type": response.headers.get("content-type") || "application/octet-stream",
         "content-length": String(asset.byteSize),
-        "x-typed-voice-sha256": asset.sha256.toLowerCase(),
+        "x-typed-voice-xxh3-128": asset.xxh3_128.toLowerCase(),
       },
     })
   );
   let lastReported = 0;
-  const hashResult = sha256Stream(hashBody, ({ loaded }) => {
+  const hashResult = xxh3_128Stream(hashBody, ({ loaded }) => {
     if (loaded - lastReported >= 1024 * 1024 || loaded === asset.byteSize) {
       lastReported = loaded;
       onProgress?.({ assetId: asset.id, loaded, total: asset.byteSize });
@@ -180,7 +192,7 @@ async function downloadAndVerifyAsset({ fetchImpl, cache, db, manifest, asset, v
     throw error;
   }
 
-  if (verified.byteSize !== asset.byteSize || verified.sha256 !== asset.sha256.toLowerCase()) {
+  if (verified.byteSize !== asset.byteSize || verified.xxh3_128 !== asset.xxh3_128.toLowerCase()) {
     await Promise.all([cache.delete(virtualUrl), deleteMetadata(db, keyFor(manifest.id, asset.id))]);
     throw new Error(`Integrity mismatch for ${asset.id}`);
   }
@@ -190,7 +202,8 @@ async function downloadAndVerifyAsset({ fetchImpl, cache, db, manifest, asset, v
     manifestId: manifest.id,
     assetId: asset.id,
     virtualUrl,
-    sha256: verified.sha256,
+    sha256: asset.sha256.toLowerCase(),
+    xxh3_128: verified.xxh3_128,
     byteSize: verified.byteSize,
     verifiedAt: Date.now(),
     source: asset.source,
@@ -282,8 +295,10 @@ export async function assertPreparedVoiceAssets(manifest, options = {}) {
   return { manifestId: manifest.id, assetBaseUrl: buildVirtualAssetUrl(manifest.id, "", baseUrl) };
 }
 
-export async function verifyAssetBytes(bytes, expectedSha256) {
-  const { sha256 } = await sha256Stream(new Blob([bytes]).stream());
-  if (sha256 !== expectedSha256.toLowerCase()) throw new Error(`SHA-256 mismatch: expected ${expectedSha256}, got ${sha256}`);
-  return sha256;
+export async function verifyAssetBytes(bytes, expectedXxh3_128) {
+  const { xxh3_128 } = await xxh3_128Stream(new Blob([bytes]).stream());
+  if (xxh3_128 !== expectedXxh3_128.toLowerCase()) {
+    throw new Error(`XXH3-128 mismatch: expected ${expectedXxh3_128}, got ${xxh3_128}`);
+  }
+  return xxh3_128;
 }

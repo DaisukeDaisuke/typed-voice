@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildOmniVoiceAttentionMask, generateOmniVoiceCodes, prepareOmniVoiceInputs } from "../src/engine/omnivoice-generation.js";
+import { buildOmniVoiceAttentionMask, createPythonRandom, generateOmniVoiceCodes, prepareOmniVoiceInputs } from "../src/engine/omnivoice-generation.js";
 
 function fakeTokenizer(onEncode = () => {}) {
   return {
@@ -17,6 +17,18 @@ const config = {
   audio_mask_id: 4,
   audio_vocab_size: 5,
 };
+
+test("Python random.Random互換seedはCPythonと同じ乱数列を返す", () => {
+  const random = createPythonRandom(2026081601);
+  const actual = Array.from({ length: 5 }, () => random());
+  assert.deepEqual(actual, [
+    0.9714470635171725,
+    0.7426057000486872,
+    0.10110613689366998,
+    0.6191827105927913,
+    0.4595064024223846,
+  ]);
+});
 
 function deterministicBackbone({ batch, codebooks, sequenceLength }) {
   const vocabulary = config.audio_vocab_size;

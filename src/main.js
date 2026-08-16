@@ -8,6 +8,7 @@ const prepareButton = document.querySelector("#prepare-button");
 const initializeButton = document.querySelector("#initialize-button");
 const speakButton = document.querySelector("#speak-button");
 const speechText = document.querySelector("#speech-text");
+const speechSpeed = document.querySelector("#speech-speed");
 
 let client = null;
 let manifest = null;
@@ -21,7 +22,7 @@ await loadVoiceManifest();
 
 prepareButton.addEventListener("click", async () => {
   await runButtonTask(prepareButton, async () => {
-    engineStatus.textContent = "つくよみちゃんFP32 runtimeを取得し、ストリーミングSHA-256検証後にオフラインCacheへ保存しています。";
+    engineStatus.textContent = "つくよみちゃんFP32 runtimeを取得し、ストリーミングXXH3-128検証後にオフラインCacheへ保存しています。";
     const prepared = await client.prepare();
     engineStatus.textContent = `オフライン音声準備完了: ${(prepared.totalBytes / 1024 / 1024).toFixed(1)} MiB`;
     initializeButton.disabled = false;
@@ -40,6 +41,11 @@ initializeButton.addEventListener("click", async () => {
 speakButton.addEventListener("click", async () => {
   const text = speechText.value.trim();
   if (!text) return;
+  const speed = Number(speechSpeed.value);
+  if (!Number.isFinite(speed) || speed < 0.5 || speed > 2) {
+    engineStatus.textContent = "速度は0.5〜2.0倍で指定してください。";
+    return;
+  }
   const audioContext = new AudioContext();
   await audioContext.resume();
   await runButtonTask(speakButton, async () => {
@@ -49,11 +55,11 @@ speakButton.addEventListener("click", async () => {
       utteranceId,
       generation: 1,
       text,
-      options: { language: "ja" },
+      options: { language: "ja", speed, seed: 2026081601, targetTokens: 85 },
     });
     const elapsed = performance.now() - startedAt;
     await playFloat32(audioContext, result.samples, result.sampleRate);
-    engineStatus.textContent = `生成 ${elapsed.toFixed(0)} ms / 音声 ${(result.samples.length / result.sampleRate).toFixed(2)} s / ${result.backend}`;
+    engineStatus.textContent = `生成 ${elapsed.toFixed(0)} ms / 音声 ${(result.samples.length / result.sampleRate).toFixed(2)} s / 速度 ${speed.toFixed(1)}x / ${result.backend} / target=${result.targetLength} / tokens=${result.tokenHash}`;
   });
 });
 
@@ -78,7 +84,7 @@ async function loadVoiceManifest() {
           const loaded = Number(message.loadedBytes || 0);
           const total = Number(message.totalBytes || 0);
           const percentage = total > 0 ? ((loaded / total) * 100).toFixed(1) : "?";
-          engineStatus.textContent = `保存済み音声をSHA-256再検証: ${message.assetId || "asset"} ${(loaded / 1024 / 1024).toFixed(1)} / ${(total / 1024 / 1024).toFixed(1)} MiB (${percentage}%)`;
+          engineStatus.textContent = `保存済み音声をXXH3-128再検証: ${message.assetId || "asset"} ${(loaded / 1024 / 1024).toFixed(1)} / ${(total / 1024 / 1024).toFixed(1)} MiB (${percentage}%)`;
         } else {
           engineStatus.textContent = `エンジン初期化: ${message.phase}${message.backend ? ` (${message.backend})` : ""}`;
         }
@@ -125,28 +131,10 @@ async function runButtonTask(button, task) {
 
 async function registerServiceWorkerForIsolation() {
   if (!("serviceWorker" in navigator)) return;
-  if (import.meta.env.DEV) {
-    const registration = await navigator.serviceWorker.getRegistration(import.meta.env.BASE_URL);
-    if (registration) await registration.unregister();
-    if ("caches" in globalThis) {
-      const cacheNames = await caches.keys();
-      await Promise.all(
-        cacheNames
-          .filter((name) => name.startsWith("typed-voice-shell-"))
-          .map((name) => caches.delete(name))
-      );
-    }
-    if (navigator.serviceWorker.controller && sessionStorage.getItem("typed-voice-dev-sw-cleared") !== "1") {
-      sessionStorage.setItem("typed-voice-dev-sw-cleared", "1");
-      location.reload();
-      await new Promise(() => {});
-    }
-    sessionStorage.removeItem("typed-voice-coi-reloaded");
-    return;
-  }
   const serviceWorkerUrl = new URL(`${import.meta.env.BASE_URL}app-service-worker.js`, document.baseURI);
+  if (import.meta.env.DEV) serviceWorkerUrl.searchParams.set("dev", "1");
   await navigator.serviceWorker.register(serviceWorkerUrl, { scope: import.meta.env.BASE_URL });
-  if (navigator.serviceWorker.controller || globalThis.crossOriginIsolated) return;
+  if (navigator.serviceWorker.controller) return;
   if (sessionStorage.getItem("typed-voice-coi-reloaded") === "1") return;
   sessionStorage.setItem("typed-voice-coi-reloaded", "1");
   await new Promise((resolve) => navigator.serviceWorker.addEventListener("controllerchange", resolve, { once: true }));

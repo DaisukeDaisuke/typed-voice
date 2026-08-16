@@ -4,6 +4,76 @@ const COND_BATCH = 0;
 const UNCOND_BATCH = 1;
 const NONCAUSAL_ATTENTION_MODE = "omnivoice-noncausal";
 
+export function createPythonRandom(seed) {
+  if (!Number.isSafeInteger(seed)) throw new Error("OmniVoice seed must be a safe integer");
+  const words = [];
+  let value = BigInt(seed);
+  if (value < 0n) value = -value;
+  do {
+    words.push(Number(value & 0xffffffffn));
+    value >>= 32n;
+  } while (value !== 0n);
+
+  const mt = new Uint32Array(624);
+  mt[0] = 19650218;
+  for (let index = 1; index < 624; index += 1) {
+    const previous = mt[index - 1];
+    mt[index] = (Math.imul(1812433253, previous ^ (previous >>> 30)) + index) >>> 0;
+  }
+
+  let i = 1;
+  let j = 0;
+  let count = Math.max(624, words.length);
+  for (; count > 0; count -= 1) {
+    const previous = mt[i - 1];
+    mt[i] = (
+      (mt[i] ^ Math.imul(previous ^ (previous >>> 30), 1664525)) +
+      words[j] +
+      j
+    ) >>> 0;
+    i += 1;
+    j += 1;
+    if (i >= 624) {
+      mt[0] = mt[623];
+      i = 1;
+    }
+    if (j >= words.length) j = 0;
+  }
+  for (count = 623; count > 0; count -= 1) {
+    const previous = mt[i - 1];
+    mt[i] = ((mt[i] ^ Math.imul(previous ^ (previous >>> 30), 1566083941)) - i) >>> 0;
+    i += 1;
+    if (i >= 624) {
+      mt[0] = mt[623];
+      i = 1;
+    }
+  }
+  mt[0] = 0x80000000;
+
+  let index = 624;
+  function nextUint32() {
+    if (index >= 624) {
+      for (let k = 0; k < 624; k += 1) {
+        const y = (mt[k] & 0x80000000) | (mt[(k + 1) % 624] & 0x7fffffff);
+        mt[k] = mt[(k + 397) % 624] ^ (y >>> 1) ^ ((y & 1) ? 0x9908b0df : 0);
+      }
+      index = 0;
+    }
+    let y = mt[index++];
+    y ^= y >>> 11;
+    y ^= (y << 7) & 0x9d2c5680;
+    y ^= (y << 15) & 0xefc60000;
+    y ^= y >>> 18;
+    return y >>> 0;
+  }
+
+  return () => {
+    const high = nextUint32() >>> 5;
+    const low = nextUint32() >>> 6;
+    return (high * 67108864 + low) / 9007199254740992;
+  };
+}
+
 export function buildOmniVoiceAttentionMask({ sequenceLength, targetLength, mode = "legacy-causal-2d" }) {
   if (mode !== NONCAUSAL_ATTENTION_MODE) {
     const data = new BigInt64Array(2 * sequenceLength);

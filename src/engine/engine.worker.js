@@ -148,6 +148,8 @@ async function pumpQueue() {
             samples: pcm,
             sampleRate: result.sampleRate,
             backend: result.backend,
+            tokenHash: result.tokenHash,
+            targetLength: result.targetLength,
           },
           [pcm.buffer]
         );

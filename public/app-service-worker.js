@@ -7,6 +7,7 @@
 const SHELL_CACHE = "typed-voice-shell-v4";
 const MODEL_CACHE = "typed-voice-model-assets-v2";
 const MODEL_PREFIX = new URL("__typed_voice_assets/", self.registration.scope).pathname;
+const DEV_MODE = new URL(self.location.href).searchParams.get("dev") === "1";
 const SHELL = [
   "./",
   "./index.html",
@@ -27,7 +28,7 @@ const SHELL = [
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.addAll(SHELL)));
+  if (!DEV_MODE) event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.addAll(SHELL)));
   self.skipWaiting();
 });
 
@@ -52,6 +53,10 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith(MODEL_PREFIX)) {
     event.respondWith(readPreparedModelAsset(event.request));
+    return;
+  }
+  if (DEV_MODE) {
+    event.respondWith(fetch(event.request).then(isolatedResponse));
     return;
   }
   event.respondWith(readShellAsset(event.request));
