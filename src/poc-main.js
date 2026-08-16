@@ -15,11 +15,13 @@ const voiceProfile = document.querySelector("#voice-profile");
 const REMOTE_MANIFEST_URLS = {
   "mobile-int4": "https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/mobile-int4/typed-voice-manifest.json",
   "mobile-int8": "https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/mobile-int8/typed-voice-manifest.json",
+  fp16: "https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/fp16/typed-voice-manifest.json",
 };
 
 const PROFILE_LABELS = {
   "mobile-int4": "Mobile INT4",
   "mobile-int8": "Mobile INT8",
+  fp16: "LLM FP16",
   fp32: "FP32",
 };
 
@@ -40,7 +42,7 @@ await loadVoiceManifest(voiceProfile.value);
 
 voiceProfile.addEventListener("change", async () => {
   const url = new URL(location.href);
-  if (voiceProfile.value === "mobile-int8") url.searchParams.delete("profile");
+  if (voiceProfile.value === "fp16") url.searchParams.delete("profile");
   else url.searchParams.set("profile", voiceProfile.value);
   history.replaceState(null, "", url);
   await loadVoiceManifest(voiceProfile.value);
@@ -93,7 +95,7 @@ speakButton.addEventListener("click", async () => {
   }
 });
 
-async function loadVoiceManifest(profile = "mobile-int8") {
+async function loadVoiceManifest(profile = "fp16") {
   busy = true;
   prepared = false;
   initialized = false;
@@ -150,7 +152,7 @@ async function loadVoiceManifest(profile = "mobile-int8") {
 }
 
 function normalizeProfile(profile) {
-  return Object.hasOwn(PROFILE_LABELS, profile) ? profile : "mobile-int8";
+  return Object.hasOwn(PROFILE_LABELS, profile) ? profile : "fp16";
 }
 
 async function playFloat32(audioContext, samples, sampleRate) {

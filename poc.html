@@ -21,7 +21,8 @@
     <p id="voice-notice" class="notice"></p>
     <label for="voice-profile">ダウンロードするモデル</label>
     <select id="voice-profile">
-      <option value="mobile-int8">Mobile INT8（iPad向け・約1.16 GiB）</option>
+      <option value="fp16">LLM FP16（iPad / WebGPU推奨・約1.56 GiB）</option>
+      <option value="mobile-int8">Mobile INT8（低容量・約1.16 GiB / LLMはWASM）</option>
       <option value="fp32">FP32（品質baseline・約2.38 GiB）</option>
       <option value="mobile-int4">Mobile INT4（低容量・約977 MiB）</option>
     </select>
