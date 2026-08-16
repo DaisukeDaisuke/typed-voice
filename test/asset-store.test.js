@@ -95,13 +95,24 @@ function createFakeDb(records) {
 function createFakeCache(entries) {
   return {
     async match(url) {
-      return entries.get(url)?.clone();
+      const key = typeof url === "string" ? url : url.url;
+      return entries.get(key)?.clone();
     },
     async delete(url) {
-      return entries.delete(url);
+      const key = typeof url === "string" ? url : url.url;
+      return entries.delete(key);
     },
     async put(url, response) {
-      entries.set(url, response.clone());
+      const key = typeof url === "string" ? url : url.url;
+      const bytes = await response.arrayBuffer();
+      entries.set(key, new Response(bytes, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      }));
+    },
+    async keys() {
+      return [...entries.keys()].map((url) => new Request(url));
     },
   };
 }
@@ -149,7 +160,7 @@ test("初回downloadもXXH3-128で検証してmetadataへ記録する", async ()
     onProgress: (value) => progress.push(value),
   });
   assert.equal(result.totalBytes, 9);
-  assert.equal(entries.size, 3);
+  assert.equal(entries.size, 6);
   assert.equal(records.size, 3);
   for (const currentAsset of manifest.assets) {
     const record = records.get(`${manifest.id}:${currentAsset.id}`);
@@ -157,6 +168,11 @@ test("初回downloadもXXH3-128で検証してmetadataへ記録する", async ()
     assert.equal(record.sha256, currentAsset.sha256);
   }
   assert.equal(progress.some((value) => value.phase === "downloading"), true);
+  await assertPreparedVoiceAssets(manifest, {
+    baseUrl,
+    cachesImpl: { open: async () => createFakeCache(entries) },
+    db: createFakeDb(records),
+  });
 });
 
 test("再ロード時の初期化はCache本体をXXH3-128再検証し破損資産を破棄する", async () => {

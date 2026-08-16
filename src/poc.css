@@ -40,6 +40,17 @@ body {
   padding: max(24px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom));
 }
 
+#voice-profile {
+  width: 100%;
+  min-height: 44px;
+  margin: 6px 0 14px;
+  padding: 8px 10px;
+  border: 1px solid #ccc4b9;
+  border-radius: 10px;
+  background: #fff;
+  font: inherit;
+}
+
 .controls {
   display: flex;
   gap: 12px;

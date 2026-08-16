@@ -68,6 +68,21 @@ Higgs decoder     -> WASM
 
 表示上は `webgpu+higgs-wasm` とする。
 
+Mobile INT8では例外がある。`onnxruntime-web@1.27.0` のWebGPU経路は `com.microsoft::MatMulNBits` の2-bit / 4-bitのみを受理し、今回採用した8-bit `MatMulNBits` LLMはWebGPU sessionを作成できない。これは既存hybrid実装の退行ではなく、Mobile INT8で初めて踏むexecution provider制約である。
+
+したがってMobile INT8のPoC backendは次とする。
+
+```text
+audio embeddings  -> WebGPU
+LLM               -> WASM
+audio heads       -> WebGPU
+Higgs decoder     -> WASM
+```
+
+表示上は `webgpu+llm-wasm+higgs-wasm` とする。WebGPUを利用できない場合、またはこのmixed session構成が初期化できない場合は従来通り全WASMへfallbackする。FP32は従来の `webgpu+higgs-wasm` を維持する。
+
+Mobile INT4はこの8-bit制約の対象外としてPoCへ追加する。既定の検証対象をMobile INT4とし、audio embeddings / LLM / audio headsをWebGPU、Higgs decoderをWASMで動かす既存の `webgpu+higgs-wasm` 経路を使用する。Mobile INT8のWebGPU faultはこの検証では変更しない。
+
 このhybrid構成で、税関テスト文は約1.9秒生成、音声約3.31秒、target=85、token hash `5837f4a1`。ユーザー試聴でノイズなし・イントネーション正常を確認した。
 
 WebGPUを利用できない環境ではWASMへfallbackする。

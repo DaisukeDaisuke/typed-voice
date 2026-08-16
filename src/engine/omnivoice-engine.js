@@ -81,13 +81,13 @@ export class OmniVoiceEngine {
     onStatus({ phase: "tokenizer" });
     this.tokenizer = await loadTokenizer(assetRoot, this.runtime.tokenizerDirectory || "tokenizer");
 
-    const candidates = globalThis.navigator?.gpu && this.runtime.preferWebGpu !== false ? ["webgpu", "wasm"] : ["wasm"];
+    const candidates = buildSessionPlans(manifest, Boolean(globalThis.navigator?.gpu) && this.runtime.preferWebGpu !== false);
     let lastError;
-    for (const backend of candidates) {
+    for (const candidate of candidates) {
       try {
-        onStatus({ phase: "sessions", backend });
-        this.sessions = await this.#createSessions(backend);
-        this.backend = backend === "webgpu" ? "webgpu+higgs-wasm" : backend;
+        onStatus({ phase: "sessions", backend: candidate.label });
+        this.sessions = await this.#createSessions(candidate);
+        this.backend = candidate.label;
         await this.#warmup();
         return { backend: this.backend, sampleRate: this.runtime.sampleRate };
       } catch (error) {
@@ -96,7 +96,7 @@ export class OmniVoiceEngine {
         this.manifest = manifest;
         this.runtime = manifest.runtime;
         this.tokenizer = await loadTokenizer(assetRoot, this.runtime.tokenizerDirectory || "tokenizer");
-        onStatus({ phase: "backend-failed", backend, message: error.message });
+        onStatus({ phase: "backend-failed", backend: candidate.label, message: error.message });
       }
     }
     throw new Error(`OmniVoice initialization failed: ${lastError?.message || "no usable backend"}`);
@@ -131,12 +131,12 @@ export class OmniVoiceEngine {
     };
   }
 
-  async #createSessions(backend) {
+  async #createSessions(candidate) {
     const sessions = {};
     try {
       for (const [name, definition] of Object.entries(this.runtime.sessions)) {
         const modelUrl = buildVirtualAssetUrl(this.manifest.id, definition.model, this.appBaseUrl);
-        const sessionBackend = backend === "webgpu" && name === "higgsDecoder" ? "wasm" : backend;
+        const sessionBackend = candidate.backends[name] || candidate.defaultBackend;
         const options = {
           executionProviders: [sessionBackend],
           graphOptimizationLevel: "all",
@@ -150,7 +150,7 @@ export class OmniVoiceEngine {
         try {
           sessions[name] = await ort.InferenceSession.create(modelUrl, options);
         } catch (error) {
-          throw new Error(`${backend}/${name} (${sessionBackend}) session creation failed: ${error instanceof Error ? error.message : String(error)}`);
+          throw new Error(`${candidate.label}/${name} (${sessionBackend}) session creation failed: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
       return sessions;
@@ -236,6 +236,34 @@ export class OmniVoiceEngine {
     this.backend = null;
     this.tokenizer = null;
   }
+}
+
+function buildSessionPlans(manifest, webGpuAvailable) {
+  if (!webGpuAvailable) {
+    return [{ label: "wasm", defaultBackend: "wasm", backends: {} }];
+  }
+
+  const isMobileInt8 = manifest.runtimeSource?.qualityProfile === "mobile-int8-weight-only"
+    || manifest.conversion?.targetProfile === "mobile-int8-weight-only";
+  if (isMobileInt8) {
+    return [
+      {
+        label: "webgpu+llm-wasm+higgs-wasm",
+        defaultBackend: "webgpu",
+        backends: { llm: "wasm", higgsDecoder: "wasm" },
+      },
+      { label: "wasm", defaultBackend: "wasm", backends: {} },
+    ];
+  }
+
+  return [
+    {
+      label: "webgpu+higgs-wasm",
+      defaultBackend: "webgpu",
+      backends: { higgsDecoder: "wasm" },
+    },
+    { label: "wasm", defaultBackend: "wasm", backends: {} },
+  ];
 }
 
 async function loadTokenizer(assetRoot, tokenizerDirectory) {

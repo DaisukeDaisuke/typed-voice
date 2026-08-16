@@ -8,6 +8,8 @@ let running = false;
 let engine = null;
 let manifest = null;
 let manifestUrl = null;
+let appBaseUrl = null;
+let verifiedManifestId = null;
 
 self.addEventListener("message", (event) => {
   const message = event.data;
@@ -30,7 +32,9 @@ async function dispatch(message) {
   switch (message.type) {
     case "configure": {
       manifestUrl = message.manifestUrl;
+      appBaseUrl = message.appBaseUrl || new URL("./", manifestUrl).href;
       manifest = await fetchManifest(manifestUrl);
+      verifiedManifestId = null;
       await engine?.dispose();
       engine = null;
       postMessage({ type: "configured", requestId: message.requestId, manifest });
@@ -38,25 +42,27 @@ async function dispatch(message) {
     }
     case "prepare": {
       ensureManifest();
-      const appBaseUrl = new URL("./", manifestUrl).href;
       const prepared = await prepareVoiceAssets(manifest, {
         baseUrl: appBaseUrl,
         onProgress(progress) {
           postMessage({ type: "progress", requestId: message.requestId, stage: "download", ...progress });
         },
       });
+      verifiedManifestId = manifest.id;
       postMessage({ type: "prepared", requestId: message.requestId, ...prepared });
       return;
     }
     case "initialize": {
       ensureManifest();
-      const appBaseUrl = new URL("./", manifestUrl).href;
-      await assertPreparedVoiceAssets(manifest, {
-        baseUrl: appBaseUrl,
-        onProgress(progress) {
-          postMessage({ type: "progress", requestId: message.requestId, stage: "initialize", ...progress });
-        },
-      });
+      if (verifiedManifestId !== manifest.id) {
+        await assertPreparedVoiceAssets(manifest, {
+          baseUrl: appBaseUrl,
+          onProgress(progress) {
+            postMessage({ type: "progress", requestId: message.requestId, stage: "initialize", ...progress });
+          },
+        });
+        verifiedManifestId = manifest.id;
+      }
       await engine?.dispose();
       engine = new OmniVoiceEngine({ preferredThreadCount: message.preferredThreadCount ?? 0 });
       const ready = await engine.initialize(manifest, {

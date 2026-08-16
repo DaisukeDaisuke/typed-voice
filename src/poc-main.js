@@ -10,32 +10,57 @@ const initializeButton = document.querySelector("#initialize-button");
 const speakButton = document.querySelector("#speak-button");
 const speechText = document.querySelector("#speech-text");
 const speechSpeed = document.querySelector("#speech-speed");
+const voiceProfile = document.querySelector("#voice-profile");
+
+const REMOTE_MANIFEST_URLS = {
+  "mobile-int4": "https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/mobile-int4/typed-voice-manifest.json",
+  "mobile-int8": "https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/mobile-int8/typed-voice-manifest.json",
+};
+
+const PROFILE_LABELS = {
+  "mobile-int4": "Mobile INT4",
+  "mobile-int8": "Mobile INT8",
+  fp32: "FP32",
+};
 
 let client = null;
 let manifest = null;
+let prepared = false;
+let initialized = false;
+let busy = false;
 
 await requireServiceWorker({ reloadKey: "typed-voice-poc-coi-reloaded" });
 isolationStatus.textContent = globalThis.crossOriginIsolated
   ? "Cross-Origin Isolation: 有効。WASMマルチスレッドを利用できます。"
   : "Cross-Origin Isolation: 無効。WASMは1スレッドへフォールバックします。";
 
-await loadVoiceManifest();
+const requestedProfile = new URL(location.href).searchParams.get("profile");
+voiceProfile.value = normalizeProfile(requestedProfile);
+await loadVoiceManifest(voiceProfile.value);
+
+voiceProfile.addEventListener("change", async () => {
+  const url = new URL(location.href);
+  if (voiceProfile.value === "mobile-int4") url.searchParams.delete("profile");
+  else url.searchParams.set("profile", voiceProfile.value);
+  history.replaceState(null, "", url);
+  await loadVoiceManifest(voiceProfile.value);
+});
 
 prepareButton.addEventListener("click", async () => {
-  await runButtonTask(prepareButton, async () => {
-    engineStatus.textContent = "つくよみちゃんFP32 runtimeを取得し、ストリーミングXXH3-128検証後にオフラインCacheへ保存しています。";
-    const prepared = await client.prepare();
-    engineStatus.textContent = `オフライン音声準備完了: ${(prepared.totalBytes / 1024 / 1024).toFixed(1)} MiB`;
-    initializeButton.disabled = false;
+  await runButtonTask(async () => {
+    engineStatus.textContent = `${manifest.displayName} runtimeを取得し、ストリーミングXXH3-128検証後にオフラインCacheへ保存しています。`;
+    const result = await client.prepare();
+    prepared = true;
+    engineStatus.textContent = `オフライン音声準備完了: ${(result.totalBytes / 1024 / 1024).toFixed(1)} MiB`;
   });
 });
 
 initializeButton.addEventListener("click", async () => {
-  await runButtonTask(initializeButton, async () => {
-    engineStatus.textContent = "保存済みモデルからOmniVoiceエンジンを起動し、実forwardでbackendを検証しています。";
+  await runButtonTask(async () => {
+    engineStatus.textContent = "検証済みモデルからOmniVoiceエンジンを起動し、実forwardでbackendを検証しています。";
     const ready = await client.initialize();
+    initialized = true;
     engineStatus.textContent = `エンジン起動完了: backend=${ready.backend}, sampleRate=${ready.sampleRate}`;
-    speakButton.disabled = false;
   });
 });
 
@@ -48,31 +73,42 @@ speakButton.addEventListener("click", async () => {
     return;
   }
   const audioContext = new AudioContext();
-  await audioContext.resume();
-  await runButtonTask(speakButton, async () => {
-    const utteranceId = crypto.randomUUID();
-    const startedAt = performance.now();
-    const result = await client.synthesize({
-      utteranceId,
-      generation: 1,
-      text,
-      options: { language: "ja", speed, seed: 2026081601, targetTokens: 85 },
+  try {
+    await audioContext.resume();
+    await runButtonTask(async () => {
+      const utteranceId = crypto.randomUUID();
+      const startedAt = performance.now();
+      const result = await client.synthesize({
+        utteranceId,
+        generation: 1,
+        text,
+        options: { language: "ja", speed, seed: 2026081601, targetTokens: 85 },
+      });
+      const elapsed = performance.now() - startedAt;
+      await playFloat32(audioContext, result.samples, result.sampleRate);
+      engineStatus.textContent = `生成 ${elapsed.toFixed(0)} ms / 音声 ${(result.samples.length / result.sampleRate).toFixed(2)} s / 速度 ${speed.toFixed(1)}x / ${result.backend} / target=${result.targetLength} / tokens=${result.tokenHash}`;
     });
-    const elapsed = performance.now() - startedAt;
-    await playFloat32(audioContext, result.samples, result.sampleRate);
-    engineStatus.textContent = `生成 ${elapsed.toFixed(0)} ms / 音声 ${(result.samples.length / result.sampleRate).toFixed(2)} s / 速度 ${speed.toFixed(1)}x / ${result.backend} / target=${result.targetLength} / tokens=${result.tokenHash}`;
-  });
+  } finally {
+    await audioContext.close().catch(() => {});
+  }
 });
 
-async function loadVoiceManifest() {
-  speakButton.disabled = true;
-  initializeButton.disabled = true;
-  prepareButton.disabled = true;
-  if (client) await client.dispose();
-  const manifestUrl = new URL(`${import.meta.env.BASE_URL}voice-manifest.json`, document.baseURI).href;
-  client = new EngineClient({
-    manifestUrl,
-    onProgress(message) {
+async function loadVoiceManifest(profile = "mobile-int4") {
+  busy = true;
+  prepared = false;
+  initialized = false;
+  syncControls();
+  if (client) await client.dispose().catch(() => {});
+  client = null;
+  manifest = null;
+  const appBaseUrl = new URL(import.meta.env.BASE_URL, document.baseURI).href;
+  const manifestUrl = REMOTE_MANIFEST_URLS[profile]
+    || new URL(`${import.meta.env.BASE_URL}voice-manifest.json`, document.baseURI).href;
+  try {
+    client = new EngineClient({
+      manifestUrl,
+      appBaseUrl,
+      onProgress(message) {
       if (message.stage === "download") {
         const loaded = Number(message.loadedBytes || 0);
         const total = Number(message.totalBytes || 0);
@@ -86,19 +122,35 @@ async function loadVoiceManifest() {
           const total = Number(message.totalBytes || 0);
           const percentage = total > 0 ? ((loaded / total) * 100).toFixed(1) : "?";
           engineStatus.textContent = `保存済み音声をXXH3-128再検証: ${message.assetId || "asset"} ${(loaded / 1024 / 1024).toFixed(1)} / ${(total / 1024 / 1024).toFixed(1)} MiB (${percentage}%)`;
+        } else if (message.phase === "backend-failed") {
+          engineStatus.textContent = `エンジン初期化: ${message.backend || "backend"} 失敗: ${message.message || "詳細なし"}`;
         } else {
           engineStatus.textContent = `エンジン初期化: ${message.phase}${message.backend ? ` (${message.backend})` : ""}`;
         }
       }
-    },
-  });
-  manifest = await client.getManifest();
-  voiceNotice.textContent = manifest.displayName;
-  prepareButton.disabled = manifest.preparable === false || !Array.isArray(manifest.assets) || manifest.assets.length === 0;
-  initializeButton.disabled = manifest.installable === false;
-  engineStatus.textContent = manifest.installable === false
-    ? (manifest.blockedReason || "音声runtimeは現在利用できません。")
-    : "最初に「オフライン音声を準備」を実行してください。";
+      },
+    });
+    manifest = await client.getManifest();
+    voiceNotice.textContent = manifest.displayName;
+    engineStatus.textContent = manifest.installable === false
+      ? (manifest.blockedReason || "音声runtimeは現在利用できません。")
+      : "最初に「オフライン音声を準備」を実行してください。";
+  } catch (error) {
+    manifest = null;
+    await client?.dispose().catch(() => {});
+    client = null;
+    voiceNotice.textContent = REMOTE_MANIFEST_URLS[profile]
+      ? `${PROFILE_LABELS[profile]} runtimeを読み込めません。`
+      : "";
+    engineStatus.textContent = error instanceof Error ? error.message : String(error);
+  } finally {
+    busy = false;
+    syncControls();
+  }
+}
+
+function normalizeProfile(profile) {
+  return Object.hasOwn(PROFILE_LABELS, profile) ? profile : "mobile-int4";
 }
 
 async function playFloat32(audioContext, samples, sampleRate) {
@@ -113,21 +165,27 @@ async function playFloat32(audioContext, samples, sampleRate) {
   });
 }
 
-async function runButtonTask(button, task) {
-  button.disabled = true;
+async function runButtonTask(task) {
+  busy = true;
+  syncControls();
   try {
     await task();
   } catch (error) {
     engineStatus.textContent = error instanceof Error ? error.message : String(error);
   } finally {
-    if (button === prepareButton) {
-      button.disabled = manifest?.preparable === false || !Array.isArray(manifest?.assets) || manifest.assets.length === 0;
-    } else if (button === initializeButton) {
-      button.disabled = manifest?.installable === false;
-    } else {
-      button.disabled = false;
-    }
+    busy = false;
+    syncControls();
   }
+}
+
+function syncControls() {
+  const hasAssets = Array.isArray(manifest?.assets) && manifest.assets.length > 0;
+  const preparable = Boolean(manifest) && manifest.preparable !== false && hasAssets;
+  const installable = Boolean(manifest) && manifest.installable !== false;
+  voiceProfile.disabled = busy;
+  prepareButton.disabled = busy || !preparable || initialized;
+  initializeButton.disabled = busy || !installable || !prepared || initialized;
+  speakButton.disabled = busy || !initialized;
 }
 
 

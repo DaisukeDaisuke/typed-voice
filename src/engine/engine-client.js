@@ -1,10 +1,10 @@
 export class EngineClient {
-  constructor({ manifestUrl, onProgress = () => {} }) {
+  constructor({ manifestUrl, appBaseUrl = null, onProgress = () => {} }) {
     this.worker = new Worker(new URL("./engine.worker.js", import.meta.url), { type: "module" });
     this.pending = new Map();
     this.onProgress = onProgress;
     this.worker.addEventListener("message", (event) => this.handleMessage(event.data));
-    this.configured = this.request("configure", { manifestUrl });
+    this.configured = this.request("configure", { manifestUrl, appBaseUrl });
   }
 
   request(type, payload = {}) {

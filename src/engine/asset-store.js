@@ -1,3 +1,4 @@
+import { createXXHash128 } from "hash-wasm";
 import { isXxh3_128, xxh3_128Stream } from "./xxh3-128.js";
 
 export const MODEL_CACHE_NAME = "typed-voice-model-assets-v2";
@@ -5,6 +6,8 @@ const DB_NAME = "typed-voice-assets";
 const DB_VERSION = 2;
 const STORE_NAME = "asset-metadata";
 const VIRTUAL_PREFIX = "__typed_voice_assets/";
+const CACHE_CHUNK_BYTES = 16 * 1024 * 1024;
+const CACHE_CHUNK_QUERY = "__typed_voice_part";
 
 function openDatabase(indexedDBImpl = indexedDB) {
   return new Promise((resolve, reject) => {
@@ -107,6 +110,95 @@ function keyFor(manifestId, assetId) {
   return `${manifestId}:${assetId}`;
 }
 
+function buildCacheChunkUrl(virtualUrl, index) {
+  const url = new URL(virtualUrl);
+  url.searchParams.set(CACHE_CHUNK_QUERY, String(index));
+  return url.href;
+}
+
+function isCacheChunkUrl(candidateUrl, virtualUrl) {
+  const candidate = new URL(candidateUrl);
+  const base = new URL(virtualUrl);
+  if (!candidate.searchParams.has(CACHE_CHUNK_QUERY)) return false;
+  candidate.searchParams.delete(CACHE_CHUNK_QUERY);
+  return candidate.href === base.href;
+}
+
+async function deleteCachedAsset(cache, virtualUrl) {
+  const indexResponse = await cache.match(virtualUrl);
+  const chunkCount = Number(indexResponse?.headers.get("x-typed-voice-chunk-count") || 0);
+  await cache.delete(virtualUrl);
+  if (Number.isSafeInteger(chunkCount) && chunkCount > 0) {
+    await Promise.all(Array.from({ length: chunkCount }, (_, index) => cache.delete(buildCacheChunkUrl(virtualUrl, index))));
+    return;
+  }
+  const requests = await cache.keys();
+  await Promise.all(
+    requests
+      .filter((request) => isCacheChunkUrl(request.url, virtualUrl))
+      .map((request) => cache.delete(request))
+  );
+}
+
+function createCachedChunkStream(cache, virtualUrl, chunkCount) {
+  let chunkIndex = 0;
+  let reader = null;
+  return new ReadableStream({
+    async pull(controller) {
+      try {
+        for (;;) {
+          if (reader) {
+            const current = await reader.read();
+            if (!current.done) {
+              controller.enqueue(current.value);
+              return;
+            }
+            reader.releaseLock();
+            reader = null;
+            chunkIndex += 1;
+          }
+          if (chunkIndex >= chunkCount) {
+            controller.close();
+            return;
+          }
+          const response = await cache.match(buildCacheChunkUrl(virtualUrl, chunkIndex));
+          if (!response?.body) throw new Error(`Cached model chunk is missing: ${chunkIndex}`);
+          reader = response.body.getReader();
+        }
+      } catch (error) {
+        if (reader) reader.releaseLock();
+        reader = null;
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      if (!reader) return;
+      try {
+        await reader.cancel(reason);
+      } finally {
+        reader.releaseLock();
+        reader = null;
+      }
+    },
+  });
+}
+
+async function openCachedAsset(cache, virtualUrl) {
+  const response = await cache.match(virtualUrl);
+  if (!response) return null;
+  const chunkCount = Number(response.headers.get("x-typed-voice-chunk-count") || 0);
+  if (!Number.isSafeInteger(chunkCount) || chunkCount <= 0) return response;
+  const byteSize = Number(response.headers.get("x-typed-voice-byte-size") || 0);
+  return new Response(createCachedChunkStream(cache, virtualUrl, chunkCount), {
+    status: 200,
+    headers: {
+      "content-type": response.headers.get("x-typed-voice-content-type") || "application/octet-stream",
+      ...(Number.isSafeInteger(byteSize) && byteSize > 0 ? { "content-length": String(byteSize) } : {}),
+      "x-typed-voice-xxh3-128": response.headers.get("x-typed-voice-xxh3-128") || "",
+    },
+  });
+}
+
 async function readMetadata(db, key) {
   return runTransaction(db, "readonly", (store) => store.get(key));
 }
@@ -120,7 +212,7 @@ async function deleteMetadata(db, key) {
 }
 
 async function verifyCachedAsset({ cache, db, manifest, asset, virtualUrl, onProgress }) {
-  const [cached, metadata] = await Promise.all([cache.match(virtualUrl), readMetadata(db, keyFor(manifest.id, asset.id))]);
+  const [cached, metadata] = await Promise.all([openCachedAsset(cache, virtualUrl), readMetadata(db, keyFor(manifest.id, asset.id))]);
   if (!cached?.body) return false;
   if (metadata && (metadata.byteSize !== asset.byteSize || metadata.virtualUrl !== virtualUrl)) return false;
 
@@ -130,12 +222,12 @@ async function verifyCachedAsset({ cache, db, manifest, asset, virtualUrl, onPro
       onProgress?.({ assetId: asset.id, loaded, total: asset.byteSize });
     });
   } catch (error) {
-    await Promise.all([cache.delete(virtualUrl), deleteMetadata(db, keyFor(manifest.id, asset.id))]);
+    await Promise.all([deleteCachedAsset(cache, virtualUrl), deleteMetadata(db, keyFor(manifest.id, asset.id))]);
     throw error;
   }
 
   if (verified.byteSize !== asset.byteSize || verified.xxh3_128 !== asset.xxh3_128.toLowerCase()) {
-    await Promise.all([cache.delete(virtualUrl), deleteMetadata(db, keyFor(manifest.id, asset.id))]);
+    await Promise.all([deleteCachedAsset(cache, virtualUrl), deleteMetadata(db, keyFor(manifest.id, asset.id))]);
     return false;
   }
   if (!metadata || metadata.xxh3_128 !== verified.xxh3_128 || metadata.sha256 !== asset.sha256.toLowerCase()) {
@@ -163,39 +255,75 @@ async function downloadAndVerifyAsset({ fetchImpl, cache, db, manifest, asset, v
     throw new Error(`Content-Length mismatch for ${asset.id}: expected ${asset.byteSize}, got ${declaredSize}`);
   }
 
-  const [cacheBody, hashBody] = response.body.tee();
-  const cacheWrite = cache.put(
-    virtualUrl,
-    new Response(cacheBody, {
+  await deleteCachedAsset(cache, virtualUrl);
+  const hasher = await createXXHash128();
+  const reader = response.body.getReader();
+  let loaded = 0;
+  let lastReported = 0;
+  let chunkIndex = 0;
+  let pendingBytes = 0;
+  let pendingParts = [];
+  const contentType = response.headers.get("content-type") || "application/octet-stream";
+
+  const flushChunk = async () => {
+    if (pendingBytes === 0) return;
+    const body = new Blob(pendingParts, { type: contentType });
+    await cache.put(buildCacheChunkUrl(virtualUrl, chunkIndex), new Response(body, {
       status: 200,
       headers: {
-        "content-type": response.headers.get("content-type") || "application/octet-stream",
-        "content-length": String(asset.byteSize),
-        "x-typed-voice-xxh3-128": asset.xxh3_128.toLowerCase(),
+        "content-type": contentType,
+        "content-length": String(pendingBytes),
       },
-    })
-  );
-  let lastReported = 0;
-  const hashResult = xxh3_128Stream(hashBody, ({ loaded }) => {
-    if (loaded - lastReported >= 1024 * 1024 || loaded === asset.byteSize) {
-      lastReported = loaded;
-      onProgress?.({ assetId: asset.id, loaded, total: asset.byteSize });
-    }
-  });
+    }));
+    chunkIndex += 1;
+    pendingBytes = 0;
+    pendingParts = [];
+  };
 
   let verified;
   try {
-    const [, digest] = await Promise.all([cacheWrite, hashResult]);
-    verified = digest;
+    for (;;) {
+      const current = await reader.read();
+      if (current.done) break;
+      const value = current.value;
+      hasher.update(value);
+      loaded += value.byteLength;
+      let offset = 0;
+      while (offset < value.byteLength) {
+        const take = Math.min(CACHE_CHUNK_BYTES - pendingBytes, value.byteLength - offset);
+        pendingParts.push(value.subarray(offset, offset + take));
+        pendingBytes += take;
+        offset += take;
+        if (pendingBytes === CACHE_CHUNK_BYTES) await flushChunk();
+      }
+      if (loaded - lastReported >= 1024 * 1024 || loaded === asset.byteSize) {
+        lastReported = loaded;
+        onProgress?.({ assetId: asset.id, loaded, total: asset.byteSize });
+      }
+    }
+    await flushChunk();
+    verified = { xxh3_128: hasher.digest(), byteSize: loaded };
   } catch (error) {
-    await cache.delete(virtualUrl);
+    await deleteCachedAsset(cache, virtualUrl);
     throw error;
+  } finally {
+    reader.releaseLock();
   }
 
   if (verified.byteSize !== asset.byteSize || verified.xxh3_128 !== asset.xxh3_128.toLowerCase()) {
-    await Promise.all([cache.delete(virtualUrl), deleteMetadata(db, keyFor(manifest.id, asset.id))]);
+    await Promise.all([deleteCachedAsset(cache, virtualUrl), deleteMetadata(db, keyFor(manifest.id, asset.id))]);
     throw new Error(`Integrity mismatch for ${asset.id}`);
   }
+
+  await cache.put(virtualUrl, new Response(null, {
+    status: 200,
+    headers: {
+      "x-typed-voice-chunk-count": String(chunkIndex),
+      "x-typed-voice-byte-size": String(asset.byteSize),
+      "x-typed-voice-content-type": contentType,
+      "x-typed-voice-xxh3-128": asset.xxh3_128.toLowerCase(),
+    },
+  }));
 
   await writeMetadata(db, {
     key: keyFor(manifest.id, asset.id),
