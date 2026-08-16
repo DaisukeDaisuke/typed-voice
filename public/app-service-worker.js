@@ -11,6 +11,7 @@ const DEV_MODE = new URL(self.location.href).searchParams.get("dev") === "1";
 const SHELL = [
   "./",
   "./index.html",
+  "./poc.html",
   "./voice-manifest.json",
   "./LICENSE.txt",
   "./NOTICE.txt",

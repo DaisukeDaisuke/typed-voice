@@ -1,6 +1,9 @@
 import { defineConfig } from "vite";
+import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 
 const isCodespaces = process.env.CODESPACES === "true";
+const rootDirectory = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
   base: "./",
@@ -20,6 +23,12 @@ export default defineConfig({
   },
   build: {
     target: "es2022",
+    rollupOptions: {
+      input: {
+        app: resolve(rootDirectory, "index.html"),
+        poc: resolve(rootDirectory, "poc.html"),
+      },
+    },
   },
   worker: {
     format: "es",
