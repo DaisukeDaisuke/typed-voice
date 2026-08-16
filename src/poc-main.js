@@ -40,7 +40,7 @@ await loadVoiceManifest(voiceProfile.value);
 
 voiceProfile.addEventListener("change", async () => {
   const url = new URL(location.href);
-  if (voiceProfile.value === "mobile-int4") url.searchParams.delete("profile");
+  if (voiceProfile.value === "mobile-int8") url.searchParams.delete("profile");
   else url.searchParams.set("profile", voiceProfile.value);
   history.replaceState(null, "", url);
   await loadVoiceManifest(voiceProfile.value);
@@ -93,7 +93,7 @@ speakButton.addEventListener("click", async () => {
   }
 });
 
-async function loadVoiceManifest(profile = "mobile-int4") {
+async function loadVoiceManifest(profile = "mobile-int8") {
   busy = true;
   prepared = false;
   initialized = false;
@@ -150,7 +150,7 @@ async function loadVoiceManifest(profile = "mobile-int4") {
 }
 
 function normalizeProfile(profile) {
-  return Object.hasOwn(PROFILE_LABELS, profile) ? profile : "mobile-int4";
+  return Object.hasOwn(PROFILE_LABELS, profile) ? profile : "mobile-int8";
 }
 
 async function playFloat32(audioContext, samples, sampleRate) {

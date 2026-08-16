@@ -390,6 +390,29 @@ export async function prepareVoiceAssets(manifest, options = {}) {
   return { manifestId: manifest.id, totalBytes, assetBaseUrl: buildVirtualAssetUrl(manifest.id, "", baseUrl) };
 }
 
+export async function storePreparedVoiceManifest(manifestUrl, manifest, options = {}) {
+  validateVoiceManifest(manifest);
+  const cachesImpl = options.cachesImpl ?? caches;
+  const cache = await cachesImpl.open(MODEL_CACHE_NAME);
+  await cache.put(manifestUrl, new Response(JSON.stringify(manifest), {
+    status: 200,
+    headers: { "content-type": "application/json; charset=utf-8" },
+  }));
+}
+
+export async function readPreparedVoiceManifest(manifestUrl, options = {}) {
+  const cachesImpl = options.cachesImpl ?? caches;
+  const cache = await cachesImpl.open(MODEL_CACHE_NAME);
+  const response = await cache.match(manifestUrl);
+  if (!response) return null;
+  try {
+    return validateVoiceManifest(await response.json());
+  } catch (error) {
+    await cache.delete(manifestUrl);
+    throw new Error(`Cached voice manifest is invalid: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 export async function assertPreparedVoiceAssets(manifest, options = {}) {
   validateVoiceManifest(manifest);
   if (manifest.installable === false) throw new Error(manifest.blockedReason || "Manifest is not installable");

@@ -245,7 +245,9 @@ function buildSessionPlans(manifest, webGpuAvailable) {
 
   const isMobileInt8 = manifest.runtimeSource?.qualityProfile === "mobile-int8-weight-only"
     || manifest.conversion?.targetProfile === "mobile-int8-weight-only";
-  if (isMobileInt8) {
+  const isMobileInt4 = manifest.runtimeSource?.qualityProfile === "mobile-int4-weight-only"
+    || manifest.conversion?.targetProfile === "mobile-int4-weight-only";
+  if (isMobileInt8 || isMobileInt4) {
     return [
       {
         label: "webgpu+llm-wasm+higgs-wasm",

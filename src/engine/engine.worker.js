@@ -1,4 +1,10 @@
-import { assertPreparedVoiceAssets, prepareVoiceAssets, validateVoiceManifest } from "./asset-store.js";
+import {
+  assertPreparedVoiceAssets,
+  prepareVoiceAssets,
+  readPreparedVoiceManifest,
+  storePreparedVoiceManifest,
+  validateVoiceManifest,
+} from "./asset-store.js";
 import { LatestRequestQueue } from "./latest-queue.js";
 import { OmniVoiceEngine } from "./omnivoice-engine.js";
 
@@ -23,9 +29,18 @@ self.addEventListener("message", (event) => {
 });
 
 async function fetchManifest(url) {
-  const response = await fetch(url, { cache: "no-cache" });
-  if (!response.ok) throw new Error(`Failed to fetch voice manifest: ${response.status}`);
-  return validateVoiceManifest(await response.json());
+  let networkError;
+  try {
+    const response = await fetch(url, { cache: "no-cache" });
+    if (!response.ok) throw new Error(`Failed to fetch voice manifest: ${response.status}`);
+    return validateVoiceManifest(await response.json());
+  } catch (error) {
+    networkError = error;
+  }
+
+  const cached = await readPreparedVoiceManifest(url);
+  if (cached) return cached;
+  throw networkError;
 }
 
 async function dispatch(message) {
@@ -48,6 +63,7 @@ async function dispatch(message) {
           postMessage({ type: "progress", requestId: message.requestId, stage: "download", ...progress });
         },
       });
+      await storePreparedVoiceManifest(manifestUrl, manifest);
       verifiedManifestId = manifest.id;
       postMessage({ type: "prepared", requestId: message.requestId, ...prepared });
       return;

@@ -4,8 +4,9 @@
  * Copyright (c) Guido Zuidhof and contributors, MIT License.
  */
 
-const SHELL_CACHE = "typed-voice-shell-v4";
 const MODEL_CACHE = "typed-voice-model-assets-v2";
+const SOURCE_CACHE_KEY = new URL(self.location.href).searchParams.get("source-cache") || "legacy-v4";
+const SOURCE_CACHE = `typed-voice-source-${SOURCE_CACHE_KEY}`;
 const MODEL_PREFIX = new URL("__typed_voice_assets/", self.registration.scope).pathname;
 const MODEL_CHUNK_QUERY = "__typed_voice_part";
 const DEV_MODE = new URL(self.location.href).searchParams.get("dev") === "1";
@@ -30,7 +31,7 @@ const SHELL = [
 ];
 
 self.addEventListener("install", (event) => {
-  if (!DEV_MODE) event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.addAll(SHELL)));
+  if (!DEV_MODE) event.waitUntil(caches.open(SOURCE_CACHE).then((cache) => cache.addAll(SHELL)));
   self.skipWaiting();
 });
 
@@ -40,7 +41,7 @@ self.addEventListener("activate", (event) => {
       caches.keys().then((keys) =>
         Promise.all(
           keys
-            .filter((key) => key.startsWith("typed-voice-") && key !== SHELL_CACHE && key !== MODEL_CACHE)
+            .filter((key) => key.startsWith("typed-voice-") && key !== SOURCE_CACHE && key !== MODEL_CACHE)
             .map((key) => caches.delete(key))
         )
       ),
@@ -143,14 +144,18 @@ async function readShellAsset(request) {
   try {
     const response = await fetch(request);
     if (response.ok) {
-      const cache = await caches.open(SHELL_CACHE);
+      const cache = await caches.open(SOURCE_CACHE);
       await cache.put(request, response.clone());
     }
     return isolatedResponse(response);
   } catch (error) {
     let response = await caches.match(request);
     if (!response && request.mode === "navigate") {
-      response = await caches.match(new URL("./index.html", self.registration.scope).href);
+      const canonicalUrl = new URL(request.url);
+      canonicalUrl.search = "";
+      canonicalUrl.hash = "";
+      response = await caches.match(canonicalUrl.href);
+      if (!response) response = await caches.match(new URL("./index.html", self.registration.scope).href);
     }
     if (!response) throw error;
     return isolatedResponse(response);

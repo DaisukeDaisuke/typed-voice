@@ -5,6 +5,8 @@ import {
   buildHuggingFaceResolveUrl,
   buildVirtualAssetUrl,
   prepareVoiceAssets,
+  readPreparedVoiceManifest,
+  storePreparedVoiceManifest,
   validateVoiceManifest,
   verifyAssetBytes,
 } from "../src/engine/asset-store.js";
@@ -173,6 +175,25 @@ test("初回downloadもXXH3-128で検証してmetadataへ記録する", async ()
     cachesImpl: { open: async () => createFakeCache(entries) },
     db: createFakeDb(records),
   });
+});
+
+test("準備済みmanifestはモデルCacheへ保存しネットワーク無しで復元できる", async () => {
+  const manifestUrl = "https://huggingface.co/owner/repo/resolve/mobile-int4/typed-voice-manifest.json";
+  const entries = new Map();
+  const cachesImpl = { open: async () => createFakeCache(entries) };
+
+  assert.equal(await readPreparedVoiceManifest(manifestUrl, { cachesImpl }), null);
+  await storePreparedVoiceManifest(manifestUrl, manifest, { cachesImpl });
+  assert.deepEqual(await readPreparedVoiceManifest(manifestUrl, { cachesImpl }), manifest);
+});
+
+test("壊れた準備済みmanifestは再利用せずモデルCacheから削除する", async () => {
+  const manifestUrl = "https://huggingface.co/owner/repo/resolve/mobile-int4/typed-voice-manifest.json";
+  const entries = new Map([[manifestUrl, new Response("{\"schemaVersion\":999}")]]);
+  const cachesImpl = { open: async () => createFakeCache(entries) };
+
+  await assert.rejects(() => readPreparedVoiceManifest(manifestUrl, { cachesImpl }), /Cached voice manifest is invalid/);
+  assert.equal(entries.has(manifestUrl), false);
 });
 
 test("再ロード時の初期化はCache本体をXXH3-128再検証し破損資産を破棄する", async () => {
