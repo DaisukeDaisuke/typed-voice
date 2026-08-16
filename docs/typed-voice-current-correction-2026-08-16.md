@@ -33,6 +33,20 @@ Python + ONNX Runtime CPUで生成した日本語音声をユーザーが試聴�
 
 GitHub ActionsではPython + ONNX Runtime CPUにより静的audio sampleを生成し、Hugging Face / GitHub Releaseへ配布する経路を持つ。ブラウザリアルタイム生成をsample生成に使用しない。
 
+## 3.1 Mobile INT8は採用する
+
+FP32品質baselineを維持したまま、ブラウザ向け軽量profileとしてLLM weight-only Mobile INT8を実装・native検証した。
+
+量子化範囲は `llm_decoder.onnx` の定数 `MatMul` weightだけであり、ONNX Runtimeの `com.microsoft::MatMulNBits`、8-bit、block size 128、accuracy level 1を使用する。LLM activation、audio embeddings、audio heads、Higgs decoderはFP32のまま維持する。OmniVoice本来の `bool [batch, 1, sequence, sequence]` non-causal attentionとno-KV-cache契約も維持する。
+
+変換実測ではLLM全体が `1,765,703,155` bytesから `457,930,174` bytesへ縮小し、runtime 14 asset合計は `2,552,614,336` bytesから `1,244,841,355` bytesへ縮小した。量子化後graphには `com.microsoft::MatMulNBits` が196 node存在する。
+
+固定seed `2026081601`、文章 `税関関税許可局、関税許可を急遽却下`、16-stepでnative Python + ONNX Runtime CPU生成を完走した。生成WAVは24 kHz mono / 16-bit PCM、約3.322秒で、SHA-256は `e2152b842728c67ed6262e37dfe70545bb625011b698aaaa3609983ac322e703`。
+
+ユーザーがFP32とMobile INT8を聞き比べた結果、**実用上の劣化はほぼない**と判定した。わずかに音の豊かさが減ったようにも感じられるが、勘違いの可能性もある程度の差であり、ブラウザ向けprofileとしてMobile INT8を採用する。
+
+GitHub Actionsは `main` へのpush時にFP32とMobile INT8をどちらも無条件でbuildし、FP32をHugging Face `main` / GitHub Release `full-finetune-latest`、Mobile INT8をHugging Face `mobile-int8` / GitHub Release `mobile-int8-latest` へ公開する。同一文章・同一seedのnative CPU sampleを両profileへ置き、READMEから直接比較できるようにする。
+
 ## 4. ブラウザbackendの確定補正
 
 純WebGPUでの生成は、日本語として認識できるものの、ひどいマイクを通したようなノイズ・劣化が発生した。

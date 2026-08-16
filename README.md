@@ -1,10 +1,26 @@
 # typed-voice
-とある日曜劇場の真似事（AIで実装中）。現在のPoCは `kizuna-intelligence/tsukuyomichan-omnivoice-full-finetune` の実際の音質をブラウザ上で確認することを目的とします。別のOmniVoiceモデル、compressed/GPTQ版、Piper PlusなどをPoCの代替音声として使用しません。
+とある日曜劇場の真似事（AIで実装中）。現在のPoCは `kizuna-intelligence/tsukuyomichan-omnivoice-full-finetune` から変換した実モデルをブラウザ上で動かします。別のOmniVoiceモデル、compressed/GPTQ版、Piper Plusを代替音声には使用しません。
+
+| 配布profile | Hugging Face直リンク | 用途 | 量子化 |
+| --- | --- | --- | --- |
+| Mobile INT8 | [mobile-int8](https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/tree/mobile-int8) | ブラウザ向け標準候補 | LLMの定数MatMul weightのみ8-bit。activation / audio embeddings / audio heads / Higgs decoderはFP32 |
+| FP32 baseline | [main](https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/tree/main) | 品質baseline / 比較用 | なし |
+
+Mobile INT8は同一文・固定seedのnative ONNX Runtime生成をFP32と聞き比べ、実用上の劣化はほぼないと確認済みです。わずかに音の豊かさが減った可能性はありますが、差は小さいためブラウザ移植対象として採用します。
 ## 現在のPoC境界
-`public/voice-manifest.json` はfull-finetune元重みの固定revisionを保持します。ブラウザ用split ONNXがまだ生成されていないため `installable:false` ですが、これはエンジン初期化だけを止めます。`preparable:true` と固定hash付き `conversion-source` assetを持つため、dev画面からfull-finetune原本 `model.safetensors`（2,450,344,144 bytes）を実際に取得・ストリーミングSHA-256検証・Cache保存できます。`C:\Users\owner\Downloads\model.safetensors` のcompressed/GPTQ重みをfull-finetuneの代用品にはしません。
-ブラウザ実装は `audio_embeddings_encoder -> llm_decoder -> audio_heads_decoder -> iterative unmask -> Higgs decoder` のsplit構成を前提にしますが、PoCで実行可能にするモデル資産はfull-finetuneから生成したものだけです。音質確認前のINT4/INT8量子化も行いません。
+ブラウザ実装は `audio_embeddings_encoder -> llm_decoder -> audio_heads_decoder -> iterative unmask -> Higgs decoder` のsplit構成です。desktopではaudio embeddings / LLM / audio headsをWebGPU、Higgs decoderをWASMで動かすhybrid経路の音質・速度を確認済みです。Mobile INT8ではLLM weightだけを8-bit `MatMulNBits` へ変換し、OmniVoice本来のrank-4 Boolean non-causal attentionとno-KV-cache契約を維持します。
+## Audio Samples
+以下はGitHub ActionsのCPU runnerで、各profileの確定runtimeから**同一文章・同一seed**で生成する比較用WAVです。
+
+| Sample | FP32 | Mobile INT8 |
+| --- | --- | --- |
+| `税関関税許可局、関税許可を急遽却下` | <audio controls src="https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/main/samples/01_customs_tariff_rejection.wav"></audio> | <audio controls src="https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/mobile-int8/samples/01_customs_tariff_rejection.wav"></audio> |
+| `WebAssemblyをLLMでVibe Coding中` | <audio controls src="https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/main/samples/02_webassembly_vibe_coding.wav"></audio> | <audio controls src="https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/mobile-int8/samples/02_webassembly_vibe_coding.wav"></audio> |
+| `えへへ、見つけてくれたんだ！ずっとここで待ってたんだよ？` | <audio controls src="https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/main/samples/03_found_me_waiting.wav"></audio> | <audio controls src="https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/mobile-int8/samples/03_found_me_waiting.wav"></audio> |
+| `Hey, you finally made it! How does it feel, looking back at everything we've been through?` | <audio controls src="https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/main/samples/04_found_me_waiting_English.wav"></audio> | <audio controls src="https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/mobile-int8/samples/04_found_me_waiting_English.wav"></audio> |
+
 ## オフライン設計
-最初の明示的な「オフライン音声を準備」で、固定revision・固定SHA-256の資産を取得します。大容量ファイルは `ReadableStream` を二分し、Cache APIへの保存と増分SHA-256検証を並行します。検証済みメタデータだけをIndexedDBへ記録し、巨大な `ArrayBuffer` をIndexedDBへ複製しません。
+最初の明示的な「オフライン音声を準備」で、build固有のimmutable revisionへ固定した資産を取得します。CI / Release監査ではSHA-256を維持し、ブラウザの初回取得・reload時の大容量asset検証にはXXH3-128を使用します。検証済みメタデータだけをIndexedDBへ記録し、巨大な `ArrayBuffer` をIndexedDBへ複製しません。
 Service Workerは1個だけ使用し、アプリshell、ONNX Runtime WebのWASM runtime、manifestのオフライン化とCOOP/COEP付与を担当します。app base配下の `__typed_voice_assets/` は準備済みCache以外へネットワークfallbackしません。
 ## 音声生成
 Dedicated Worker内でOmniVoice推論を行います。UIとの境界はFloat32 PCMです。待機列はlatest-winsで有限長とし、実行中生成もiterative unmaskのstep間でgenerationを確認して古い要求を中断します。WebGPUはsession生成と実forwardのwarmupが成功した場合のみ使用し、失敗時はWASMへfallbackします。WASM multi-threadはCross-Origin Isolation、SharedArrayBuffer、secure contextが揃う場合だけ有効です。
@@ -29,6 +45,6 @@ npm run build:with-piper
 ```bash
 npm test
 ```
-ローカルMCPのオフラインMJS runnerで依存不要のPoCテストだけを実行する場合は `scripts/offline-poc-tests.mjs` を実行します。増分SHA-256境界、manifest固定revision、latest-wins queue、OmniVoice iterative unmask、step間cancel、ORT thread fallbackを挙動で検証します。
+ローカルMCPのオフラインMJS runnerで依存不要のPoCテストだけを実行する場合は `scripts/offline-poc-tests.mjs` を実行します。asset integrity境界、manifest固定revision、latest-wins queue、OmniVoice iterative unmask、step間cancel、ORT thread fallbackを挙動で検証します。
 ## License
 プロジェクト自身のコードはApache License 2.0です。モデル、コーパス、Higgs Audio 2、Meta Llama 3、Piper Plusなどの第三者資産はトップレベルApache-2.0へ再ライセンスされません。詳細は `NOTICE`、`THIRD_PARTY_NOTICES.md`、`licenses/` を参照してください。
