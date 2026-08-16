@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { generateOmniVoiceCodes, prepareOmniVoiceInputs } from "../src/engine/omnivoice-generation.js";
+import { buildOmniVoiceAttentionMask, generateOmniVoiceCodes, prepareOmniVoiceInputs } from "../src/engine/omnivoice-generation.js";
 
 function fakeTokenizer(onEncode = () => {}) {
   return {
@@ -33,6 +33,30 @@ function deterministicBackbone({ batch, codebooks, sequenceLength }) {
   }
   return Promise.resolve(logits);
 }
+
+test("OmniVoice noncausal attentionはconditionalを全結合しunconditional paddingを対角だけ残す", () => {
+  const attention = buildOmniVoiceAttentionMask({ sequenceLength: 5, targetLength: 2, mode: "omnivoice-noncausal" });
+  assert.equal(attention.type, "bool");
+  assert.deepEqual(attention.shape, [2, 1, 5, 5]);
+  assert.deepEqual(Array.from(attention.data.slice(0, 25)), new Array(25).fill(1));
+  assert.deepEqual(
+    Array.from(attention.data.slice(25)),
+    [
+      1, 1, 0, 0, 0,
+      1, 1, 0, 0, 0,
+      0, 0, 1, 0, 0,
+      0, 0, 0, 1, 0,
+      0, 0, 0, 0, 1,
+    ]
+  );
+});
+
+test("legacy ONNXは従来の2D int64 attention contractを維持する", () => {
+  const attention = buildOmniVoiceAttentionMask({ sequenceLength: 5, targetLength: 2 });
+  assert.equal(attention.type, "int64");
+  assert.deepEqual(attention.shape, [2, 5]);
+  assert.deepEqual(Array.from(attention.data), [1n, 1n, 1n, 1n, 1n, 1n, 1n, 0n, 0n, 0n]);
+});
 
 test("iterative unmaskingは最終stepまでに全codebookのMASKを解消する", async () => {
   const inputs = await prepareOmniVoiceInputs("こんにちは", fakeTokenizer(), config, { targetTokens: 3 });

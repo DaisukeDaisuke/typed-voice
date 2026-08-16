@@ -2,7 +2,7 @@ import * as ort from "onnxruntime-web/all";
 import { Tokenizer } from "@huggingface/tokenizers";
 import { buildVirtualAssetUrl } from "./asset-store.js";
 import { configureOrtWasm } from "./threading.js";
-import { generateOmniVoiceCodes, prepareOmniVoiceInputs } from "./omnivoice-generation.js";
+import { buildOmniVoiceAttentionMask, generateOmniVoiceCodes, prepareOmniVoiceInputs } from "./omnivoice-generation.js";
 
 function halfToFloat(value) {
   const sign = (value & 0x8000) ? -1 : 1;
@@ -103,6 +103,7 @@ export class OmniVoiceEngine {
       layerPenalty: options.layerPenalty ?? this.runtime.generation.layerPenalty ?? 5,
       positionTemperature: options.positionTemperature ?? this.runtime.generation.positionTemperature ?? 0,
       classTemperature: options.classTemperature ?? this.runtime.generation.classTemperature ?? 0,
+      attentionMode: this.runtime.llmAttention?.mode ?? "legacy-causal-2d",
       isCancelled: options.isCancelled,
       onStep: options.onStep,
     });
@@ -135,14 +136,27 @@ export class OmniVoiceEngine {
     const sequenceLength = 4;
     const inputIds = new BigInt64Array(2 * codebooks * sequenceLength).fill(BigInt(this.runtime.generation.audio_mask_id));
     const audioMask = new Uint8Array(2 * sequenceLength).fill(1);
-    const attentionMask = new BigInt64Array(2 * sequenceLength).fill(1n);
-    const logits = await this.#runBackboneStep({ inputIds, audioMask, attentionMask, batch: 2, codebooks, sequenceLength });
+    const attention = buildOmniVoiceAttentionMask({
+      sequenceLength,
+      targetLength: sequenceLength,
+      mode: this.runtime.llmAttention?.mode ?? "legacy-causal-2d",
+    });
+    const logits = await this.#runBackboneStep({
+      inputIds,
+      audioMask,
+      attentionMask: attention.data,
+      attentionMaskType: attention.type,
+      attentionMaskShape: attention.shape,
+      batch: 2,
+      codebooks,
+      sequenceLength,
+    });
     if (logits.length !== 2 * codebooks * sequenceLength * this.runtime.generation.audio_vocab_size) {
       throw new Error(`Unexpected warmup logits length: ${logits.length}`);
     }
   }
 
-  async #runBackboneStep({ inputIds, audioMask, attentionMask, batch, codebooks, sequenceLength }) {
+  async #runBackboneStep({ inputIds, audioMask, attentionMask, attentionMaskType = "int64", attentionMaskShape, batch, codebooks, sequenceLength }) {
     const embeddingsResult = await this.sessions.audioEmbeddings.run({
       input_ids: new ort.Tensor("int64", inputIds, [batch, codebooks, sequenceLength]),
       audio_mask: new ort.Tensor("bool", audioMask, [batch, sequenceLength]),
@@ -153,7 +167,11 @@ export class OmniVoiceEngine {
     };
     const llmInputNames = new Set(this.sessions.llm.inputNames);
     if (llmInputNames.has("attention_mask")) {
-      llmFeed.attention_mask = new ort.Tensor("int64", attentionMask, [batch, sequenceLength]);
+      llmFeed.attention_mask = new ort.Tensor(
+        attentionMaskType,
+        attentionMask,
+        attentionMaskShape ?? [batch, sequenceLength]
+      );
     }
     if (llmInputNames.has("position_ids")) {
       llmFeed.position_ids = new ort.Tensor("int64", bigintRange(sequenceLength, batch), [batch, sequenceLength]);

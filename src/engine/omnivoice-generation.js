@@ -2,6 +2,28 @@ import { estimateTargetTokens } from "./duration-estimator.js";
 
 const COND_BATCH = 0;
 const UNCOND_BATCH = 1;
+const NONCAUSAL_ATTENTION_MODE = "omnivoice-noncausal";
+
+export function buildOmniVoiceAttentionMask({ sequenceLength, targetLength, mode = "legacy-causal-2d" }) {
+  if (mode !== NONCAUSAL_ATTENTION_MODE) {
+    const data = new BigInt64Array(2 * sequenceLength);
+    data.fill(1n, 0, sequenceLength);
+    data.fill(1n, sequenceLength, sequenceLength + targetLength);
+    return { data, type: "int64", shape: [2, sequenceLength] };
+  }
+
+  const matrixSize = sequenceLength * sequenceLength;
+  const data = new Uint8Array(2 * matrixSize);
+  data.fill(1, 0, matrixSize);
+  const uncondBase = matrixSize;
+  for (let row = 0; row < targetLength; row += 1) {
+    data.fill(1, uncondBase + row * sequenceLength, uncondBase + row * sequenceLength + targetLength);
+  }
+  for (let index = targetLength; index < sequenceLength; index += 1) {
+    data[uncondBase + index * sequenceLength + index] = 1;
+  }
+  return { data, type: "bool", shape: [2, 1, sequenceLength, sequenceLength] };
+}
 
 function timeSteps(numStep, tShift) {
   const steps = [];
@@ -142,6 +164,7 @@ export async function generateOmniVoiceCodes({
   layerPenalty = 5,
   positionTemperature = 0,
   classTemperature = 0,
+  attentionMode = "legacy-causal-2d",
   isCancelled = () => false,
   yieldControl = () => new Promise((resolve) => setTimeout(resolve, 0)),
   onStep = () => {},
@@ -158,9 +181,7 @@ export async function generateOmniVoiceCodes({
   const vocabularySize = config.audio_vocab_size;
   const batchIds = new BigInt64Array(2 * codebooks * sequenceLength).fill(BigInt(maskId));
   const batchMask = new Uint8Array(2 * sequenceLength);
-  const attentionMask = new BigInt64Array(2 * sequenceLength);
-  attentionMask.fill(1n, 0, sequenceLength);
-  attentionMask.fill(1n, sequenceLength, sequenceLength + targetLength);
+  const attention = buildOmniVoiceAttentionMask({ sequenceLength, targetLength, mode: attentionMode });
 
   for (let codebook = 0; codebook < codebooks; codebook += 1) {
     for (let sequence = 0; sequence < sequenceLength; sequence += 1) {
@@ -189,7 +210,9 @@ export async function generateOmniVoiceCodes({
     const logits = await runBackboneStep({
       inputIds: batchIds,
       audioMask: batchMask,
-      attentionMask,
+      attentionMask: attention.data,
+      attentionMaskType: attention.type,
+      attentionMaskShape: attention.shape,
       batch: 2,
       codebooks,
       sequenceLength,
