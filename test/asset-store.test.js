@@ -28,7 +28,30 @@ const manifest = {
     engine: "omnivoice",
     source: { repo: "owner/repo", revision: "0123456789abcdef" },
   },
-  assets: [asset],
+  runtime: {
+    tokenizerDirectory: "tokenizer",
+    sessions: {
+      audioEmbeddings: { model: "models/model.onnx" },
+      llm: { model: "models/model.onnx" },
+      audioHeads: { model: "models/model.onnx" },
+      higgsDecoder: { model: "models/model.onnx" },
+    },
+  },
+  assets: [
+    asset,
+    {
+      ...asset,
+      id: "tokenizer-json",
+      localPath: "tokenizer/tokenizer.json",
+      source: { ...asset.source, path: "folder/tokenizer.json" },
+    },
+    {
+      ...asset,
+      id: "tokenizer-config",
+      localPath: "tokenizer/tokenizer_config.json",
+      source: { ...asset.source, path: "folder/tokenizer_config.json" },
+    },
+  ],
 };
 
 test("installable manifestはimmutable revisionと完全なasset情報を受理する", () => {

@@ -1,49 +1,227 @@
 {
   "schemaVersion": 2,
-  "id": "tsukuyomichan-omnivoice-full-finetune",
-  "displayName": "つくよみちゃん OmniVoice Full Finetune",
+  "id": "tsukuyomichan-omnivoice-full-finetune-fp32",
+  "displayName": "つくよみちゃん OmniVoice Full Finetune FP32",
   "preparable": true,
-  "installable": false,
-  "blockedReason": "full-finetune原本は取得・検証できますが、ブラウザ用split ONNXをまだ生成していないためエンジンは起動できません。compressed/GPTQ重みを代用品として使用しません。",
+  "installable": true,
   "voice": {
     "engine": "omnivoice",
     "source": {
       "provider": "huggingface",
       "repo": "kizuna-intelligence/tsukuyomichan-omnivoice-full-finetune",
       "revision": "c1d7ff9477d0b21f220c58070da63355f69607e9",
-      "modelPath": "model.safetensors",
       "modelSha256": "9ebaa8dd3bf35ceb6217cd19142bdabe6d6c044cca40672d2ae163d1a90ab47e",
       "modelByteSize": 2450344144
     }
   },
+  "runtimeSource": {
+    "provider": "huggingface",
+    "repo": "RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx",
+    "revision": "236aaf26821fb4783cbba3b5dcd6921c8f143b5d",
+    "qualityProfile": "fp32-unquantized"
+  },
   "conversion": {
     "sourceFormat": "safetensors",
     "targetProfile": "split-onnx-unquantized-quality-baseline",
-    "qualityRule": "PoCではfull-finetune重みを量子化・別モデル置換せず、まず元モデル相当の音質を確認する。軽量化は音質確認後の別工程とする。",
-    "requiredTensors": [
-      "audio_embeddings.weight",
-      "audio_heads.weight",
-      "codebook_layer_offsets"
-    ]
+    "quantized": false,
+    "sourceRedistributed": false
   },
   "licenses": {
     "projectCode": "Apache-2.0",
     "voiceModel": "other",
     "voiceModelNotice": "THIRD_PARTY_NOTICES.md",
-    "audioCodec": "Boson Higgs Audio 2 Community License Agreement"
+    "upstreamOmniVoiceModel": "CC-BY-NC as stated by the pinned upstream model card",
+    "audioCodec": "Boson Higgs Audio 2 Community License Agreement",
+    "metaDependency": "Meta Llama 3 Community License Agreement"
+  },
+  "runtime": {
+    "sampleRate": 24000,
+    "tokenizerDirectory": ".",
+    "hiddenSize": 1024,
+    "numKvHeads": 8,
+    "headDim": 128,
+    "decoderInputName": "codes",
+    "decoderOutputName": "waveform_24k",
+    "generation": {
+      "num_audio_codebook": 8,
+      "audio_mask_id": 1024,
+      "audio_vocab_size": 1025,
+      "numStep": 16,
+      "guidanceScale": 2.0,
+      "tShift": 0.1,
+      "layerPenalty": 5.0,
+      "positionTemperature": 5.0,
+      "classTemperature": 0.0,
+      "denoise": true
+    },
+    "sessions": {
+      "audioEmbeddings": {
+        "model": "audio_embeddings_encoder.onnx",
+        "externalData": [
+          {
+            "path": "audio_embeddings_encoder.onnx.data",
+            "localPath": "audio_embeddings_encoder.onnx.data"
+          }
+        ]
+      },
+      "llm": {
+        "model": "llm_decoder.onnx",
+        "externalData": [
+          {
+            "path": "llm_decoder.onnx.data",
+            "localPath": "llm_decoder.onnx.data"
+          }
+        ]
+      },
+      "audioHeads": {
+        "model": "audio_heads_decoder.onnx",
+        "externalData": [
+          {
+            "path": "audio_heads_decoder.onnx.data",
+            "localPath": "audio_heads_decoder.onnx.data"
+          }
+        ]
+      },
+      "higgsDecoder": {
+        "model": "higgs_decoder.onnx",
+        "externalData": [
+          {
+            "path": "higgs_decoder.onnx.data",
+            "localPath": "higgs_decoder.onnx.data"
+          }
+        ]
+      }
+    }
   },
   "assets": [
     {
-      "id": "full-finetune-source-model",
-      "role": "conversion-source",
-      "localPath": "source/model.safetensors",
-      "byteSize": 2450344144,
-      "sha256": "9ebaa8dd3bf35ceb6217cd19142bdabe6d6c044cca40672d2ae163d1a90ab47e",
+      "id": "audio_embeddings_encoder.onnx",
+      "role": "runtime",
+      "localPath": "audio_embeddings_encoder.onnx",
+      "byteSize": 9886,
+      "sha256": "31f27ec9ecd80b5b30d9a33a85107ea303698f5356eb375c19306599f782c27b",
       "source": {
         "provider": "huggingface",
-        "repo": "kizuna-intelligence/tsukuyomichan-omnivoice-full-finetune",
-        "revision": "c1d7ff9477d0b21f220c58070da63355f69607e9",
-        "path": "model.safetensors"
+        "repo": "RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx",
+        "revision": "236aaf26821fb4783cbba3b5dcd6921c8f143b5d",
+        "path": "audio_embeddings_encoder.onnx"
+      }
+    },
+    {
+      "id": "audio_embeddings_encoder.onnx.data",
+      "role": "runtime",
+      "localPath": "audio_embeddings_encoder.onnx.data",
+      "byteSize": 654852096,
+      "sha256": "beab71e9df8118bc462879805717fdd1a5e69132b9900a958e6c7b9bc312bca3",
+      "source": {
+        "provider": "huggingface",
+        "repo": "RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx",
+        "revision": "236aaf26821fb4783cbba3b5dcd6921c8f143b5d",
+        "path": "audio_embeddings_encoder.onnx.data"
+      }
+    },
+    {
+      "id": "audio_heads_decoder.onnx",
+      "role": "runtime",
+      "localPath": "audio_heads_decoder.onnx",
+      "byteSize": 5388,
+      "sha256": "f1a9107650ee38bd0eae13c873f928d3a4604a4b58b5587e0999b18d9fcf47e6",
+      "source": {
+        "provider": "huggingface",
+        "repo": "RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx",
+        "revision": "236aaf26821fb4783cbba3b5dcd6921c8f143b5d",
+        "path": "audio_heads_decoder.onnx"
+      }
+    },
+    {
+      "id": "audio_heads_decoder.onnx.data",
+      "role": "runtime",
+      "localPath": "audio_heads_decoder.onnx.data",
+      "byteSize": 33587200,
+      "sha256": "12b6bd95b417aaa9abdd99adc9e2cf6c18585af98fd1176d92a4be98bf0ca062",
+      "source": {
+        "provider": "huggingface",
+        "repo": "RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx",
+        "revision": "236aaf26821fb4783cbba3b5dcd6921c8f143b5d",
+        "path": "audio_heads_decoder.onnx.data"
+      }
+    },
+    {
+      "id": "higgs_decoder.onnx",
+      "role": "runtime",
+      "localPath": "higgs_decoder.onnx",
+      "byteSize": 781668,
+      "sha256": "6143dac4b363e917ca6c9db8f8a35aec4108a09248ad2d0a5e77900eae461d97",
+      "source": {
+        "provider": "huggingface",
+        "repo": "RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx",
+        "revision": "236aaf26821fb4783cbba3b5dcd6921c8f143b5d",
+        "path": "higgs_decoder.onnx"
+      }
+    },
+    {
+      "id": "higgs_decoder.onnx.data",
+      "role": "runtime",
+      "localPath": "higgs_decoder.onnx.data",
+      "byteSize": 86241280,
+      "sha256": "c431ef18e8e39e9685c9dd0c8c35b6a582290d138cafb7f3f9bdf846a88cd0d4",
+      "source": {
+        "provider": "huggingface",
+        "repo": "RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx",
+        "revision": "236aaf26821fb4783cbba3b5dcd6921c8f143b5d",
+        "path": "higgs_decoder.onnx.data"
+      }
+    },
+    {
+      "id": "llm_decoder.onnx",
+      "role": "runtime",
+      "localPath": "llm_decoder.onnx",
+      "byteSize": 247277,
+      "sha256": "f0d271d60f0087da820a231c5cf6f58a1fb8824414bf4f3b87013e1653d4f665",
+      "source": {
+        "provider": "huggingface",
+        "repo": "RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx",
+        "revision": "236aaf26821fb4783cbba3b5dcd6921c8f143b5d",
+        "path": "llm_decoder.onnx"
+      }
+    },
+    {
+      "id": "llm_decoder.onnx.data",
+      "role": "runtime",
+      "localPath": "llm_decoder.onnx.data",
+      "byteSize": 1782841344,
+      "sha256": "6c9ea7469df1db97a6dd840b5528dd0f21c7b9ef841b73ac15cc82a86624ffd6",
+      "source": {
+        "provider": "huggingface",
+        "repo": "RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx",
+        "revision": "236aaf26821fb4783cbba3b5dcd6921c8f143b5d",
+        "path": "llm_decoder.onnx.data"
+      }
+    },
+    {
+      "id": "tokenizer.json",
+      "role": "runtime",
+      "localPath": "tokenizer.json",
+      "byteSize": 11423986,
+      "sha256": "408f669b7e2b045fdf54201d815bd364e6667dbd845115da81239c40bc6dcfd1",
+      "source": {
+        "provider": "huggingface",
+        "repo": "RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx",
+        "revision": "236aaf26821fb4783cbba3b5dcd6921c8f143b5d",
+        "path": "tokenizer.json"
+      }
+    },
+    {
+      "id": "tokenizer_config.json",
+      "role": "runtime",
+      "localPath": "tokenizer_config.json",
+      "byteSize": 534,
+      "sha256": "4ab62b5247f77af50613e49bd6df5e105365b827280e0fd8e265ab928b5cbe6f",
+      "source": {
+        "provider": "huggingface",
+        "repo": "RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx",
+        "revision": "236aaf26821fb4783cbba3b5dcd6921c8f143b5d",
+        "path": "tokenizer_config.json"
       }
     }
   ]

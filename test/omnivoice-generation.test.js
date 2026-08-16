@@ -2,9 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { generateOmniVoiceCodes, prepareOmniVoiceInputs } from "../src/engine/omnivoice-generation.js";
 
-function fakeTokenizer(text) {
-  const length = Math.max(1, Math.min(3, text.length));
-  return Promise.resolve({ input_ids: { data: Int32Array.from({ length }, (_, index) => index + 1) } });
+function fakeTokenizer(onEncode = () => {}) {
+  return {
+    encode(text) {
+      onEncode(text);
+      const length = Math.max(1, Math.min(3, text.length));
+      return { ids: Array.from({ length }, (_, index) => index + 1) };
+    },
+  };
 }
 
 const config = {
@@ -30,7 +35,7 @@ function deterministicBackbone({ batch, codebooks, sequenceLength }) {
 }
 
 test("iterative unmaskingは最終stepまでに全codebookのMASKを解消する", async () => {
-  const inputs = await prepareOmniVoiceInputs("こんにちは", fakeTokenizer, config, { targetTokens: 3 });
+  const inputs = await prepareOmniVoiceInputs("こんにちは", fakeTokenizer(), config, { targetTokens: 3 });
   const steps = [];
   const result = await generateOmniVoiceCodes({
     inputs,
@@ -49,7 +54,7 @@ test("iterative unmaskingは最終stepまでに全codebookのMASKを解消する
 });
 
 test("generation変更は次のunmask stepへ進む前に実行中生成を中断する", async () => {
-  const inputs = await prepareOmniVoiceInputs("編集中", fakeTokenizer, config, { targetTokens: 4 });
+  const inputs = await prepareOmniVoiceInputs("編集中", fakeTokenizer(), config, { targetTokens: 4 });
   let cancelled = false;
   let backboneCalls = 0;
   await assert.rejects(
@@ -73,4 +78,19 @@ test("generation変更は次のunmask stepへ進む前に実行中生成を中�
     /cancelled/
   );
   assert.equal(backboneCalls, 1);
+});
+
+test("reference audioなしのauto voice入力ではdenoise tokenを付けない", async () => {
+  const encoded = [];
+  await prepareOmniVoiceInputs("こんにちは", fakeTokenizer((text) => encoded.push(text)), { ...config, denoise: true }, { targetTokens: 2, language: "ja" });
+  assert.equal(encoded.length, 2);
+  assert.equal(encoded[0], "<|lang_start|>ja<|lang_end|><|instruct_start|>None<|instruct_end|>");
+});
+
+test("未実装のclass temperature samplingを黙ってgreedyへ落とさない", async () => {
+  const inputs = await prepareOmniVoiceInputs("温度", fakeTokenizer(), config, { targetTokens: 2 });
+  await assert.rejects(
+    () => generateOmniVoiceCodes({ inputs, config, runBackboneStep: deterministicBackbone, classTemperature: 0.5 }),
+    /classTemperature=0/
+  );
 });

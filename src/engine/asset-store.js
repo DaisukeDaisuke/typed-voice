@@ -65,6 +65,26 @@ export function validateVoiceManifest(manifest) {
     ids.add(asset.id);
     paths.add(asset.localPath);
   }
+  if (manifest.installable !== false) {
+    const sessions = manifest.runtime?.sessions;
+    if (!sessions || typeof sessions !== "object") throw new Error("Installable OmniVoice manifest requires runtime.sessions");
+    for (const sessionName of ["audioEmbeddings", "llm", "audioHeads", "higgsDecoder"]) {
+      const session = sessions[sessionName];
+      if (!session?.model || !paths.has(session.model)) {
+        throw new Error(`Runtime session ${sessionName} model is missing from assets`);
+      }
+      for (const entry of session.externalData ?? []) {
+        if (!entry?.localPath || !paths.has(entry.localPath)) {
+          throw new Error(`Runtime session ${sessionName} external data is missing from assets`);
+        }
+      }
+    }
+    const tokenizerDirectory = (manifest.runtime.tokenizerDirectory || ".").replace(/^\.\/?|\/$/g, "");
+    const tokenizerPrefix = tokenizerDirectory ? `${tokenizerDirectory}/` : "";
+    for (const name of ["tokenizer.json", "tokenizer_config.json"]) {
+      if (!paths.has(`${tokenizerPrefix}${name}`)) throw new Error(`Runtime tokenizer asset is missing: ${tokenizerPrefix}${name}`);
+    }
+  }
   return manifest;
 }
 

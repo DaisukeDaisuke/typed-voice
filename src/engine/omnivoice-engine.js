@@ -100,6 +100,9 @@ export class OmniVoiceEngine {
       numStep: options.numStep ?? this.runtime.generation.numStep ?? 16,
       guidanceScale: options.guidanceScale ?? this.runtime.generation.guidanceScale ?? 4,
       tShift: options.tShift ?? this.runtime.generation.tShift ?? 0.05,
+      layerPenalty: options.layerPenalty ?? this.runtime.generation.layerPenalty ?? 5,
+      positionTemperature: options.positionTemperature ?? this.runtime.generation.positionTemperature ?? 0,
+      classTemperature: options.classTemperature ?? this.runtime.generation.classTemperature ?? 0,
       isCancelled: options.isCancelled,
       onStep: options.onStep,
     });

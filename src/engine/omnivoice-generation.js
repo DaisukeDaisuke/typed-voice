@@ -5,9 +5,8 @@ const UNCOND_BATCH = 1;
 
 function timeSteps(numStep, tShift) {
   const steps = [];
-  const intervals = numStep + 1;
-  for (let index = 0; index <= intervals; index += 1) {
-    const linear = index / intervals;
+  for (let index = 0; index <= numStep; index += 1) {
+    const linear = index / numStep;
     steps.push((tShift * linear) / (1 + (tShift - 1) * linear));
   }
   return steps;
@@ -28,7 +27,7 @@ function logSoftmaxInto(values, offset, length, output) {
   }
 }
 
-function choosePredictions({ logits, codebooks, sequenceLength, vocabularySize, targetLength, targetOffset, guidanceScale, layerPenalty }) {
+function choosePredictions({ logits, codebooks, sequenceLength, vocabularySize, targetLength, targetOffset, guidanceScale, layerPenalty, maskId }) {
   const count = codebooks * targetLength;
   const predictions = new Int32Array(count);
   const scores = new Float32Array(count);
@@ -44,11 +43,22 @@ function choosePredictions({ logits, codebooks, sequenceLength, vocabularySize, 
       logSoftmaxInto(logits, condOffset, vocabularySize, conditional);
       logSoftmaxInto(logits, uncondOffset, vocabularySize, unconditional);
 
-      let bestToken = 0;
-      let bestScore = -Infinity;
-      for (let token = 0; token < vocabularySize - 1; token += 1) {
+      let normalizerMax = -Infinity;
+      for (let token = 0; token < vocabularySize; token += 1) {
         const score = (1 + guidanceScale) * conditional[token] - guidanceScale * unconditional[token];
         guided[token] = score;
+        normalizerMax = Math.max(normalizerMax, score);
+      }
+      let normalizerSum = 0;
+      for (let token = 0; token < vocabularySize; token += 1) {
+        normalizerSum += Math.exp(guided[token] - normalizerMax);
+      }
+      const normalizer = normalizerMax + Math.log(normalizerSum);
+      let bestToken = 0;
+      let bestScore = -Infinity;
+      for (let token = 0; token < vocabularySize; token += 1) {
+        if (token === maskId) continue;
+        const score = guided[token] - normalizer;
         if (score > bestScore) {
           bestToken = token;
           bestScore = score;
@@ -62,16 +72,23 @@ function choosePredictions({ logits, codebooks, sequenceLength, vocabularySize, 
   return { predictions, scores };
 }
 
-function unmaskBest({ scores, predictions, tokens, maskId, count }) {
+function gumbelScore(score, temperature, random) {
+  if (!(temperature > 0)) return score;
+  const u = Math.min(1 - 1e-10, Math.max(0, random()));
+  const noise = -Math.log(-Math.log(u + 1e-10) + 1e-10);
+  return score / temperature + noise;
+}
+
+function unmaskBest({ scores, predictions, tokens, maskId, count, positionTemperature, random }) {
   const candidates = [];
   for (let index = 0; index < tokens.length; index += 1) {
     if (tokens[index] === BigInt(maskId)) {
-      candidates.push(index);
+      candidates.push({ index, score: gumbelScore(scores[index], positionTemperature, random) });
     }
   }
-  candidates.sort((left, right) => scores[right] - scores[left]);
+  candidates.sort((left, right) => right.score - left.score);
   const chosen = candidates.slice(0, count);
-  for (const index of chosen) {
+  for (const { index } of chosen) {
     tokens[index] = BigInt(predictions[index]);
   }
   return chosen.length;
@@ -84,7 +101,10 @@ export async function prepareOmniVoiceInputs(text, tokenizer, config, options = 
   }
   const language = options.language ?? "ja";
   const instruction = options.instruct ?? "None";
-  const styleText = `<|denoise|><|lang_start|>${language}<|lang_end|><|instruct_start|>${instruction}<|instruct_end|>`;
+  // OmniVoice 0.2.1 prepends <|denoise|> only when reference-audio tokens
+  // are present. The fixed-voice browser PoC has no reference encoder.
+  const denoisePrefix = options.hasReferenceAudio && (options.denoise ?? config.denoise) ? "<|denoise|>" : "";
+  const styleText = `${denoisePrefix}<|lang_start|>${language}<|lang_end|><|instruct_start|>${instruction}<|instruct_end|>`;
   const wrappedText = `<|text_start|>${normalizedText}<|text_end|>`;
   const [styleEncoded, textEncoded] = await Promise.all([
     tokenizer.encode(styleText),
@@ -120,10 +140,19 @@ export async function generateOmniVoiceCodes({
   guidanceScale = 4,
   tShift = 0.05,
   layerPenalty = 5,
+  positionTemperature = 0,
+  classTemperature = 0,
   isCancelled = () => false,
   yieldControl = () => new Promise((resolve) => setTimeout(resolve, 0)),
   onStep = () => {},
+  random = Math.random,
 }) {
+  if (!Number.isInteger(numStep) || numStep <= 0) {
+    throw new Error("OmniVoice numStep must be a positive integer");
+  }
+  if (classTemperature !== 0) {
+    throw new Error("OmniVoice browser PoC currently requires classTemperature=0 (greedy token selection)");
+  }
   const { inputIds, audioMask, codebooks, sequenceLength, targetLength, targetOffset } = inputs;
   const maskId = config.audio_mask_id;
   const vocabularySize = config.audio_vocab_size;
@@ -155,7 +184,7 @@ export async function generateOmniVoiceCodes({
     const scheduled =
       step === numStep - 1
         ? remaining
-        : Math.max(1, Math.min(remaining, Math.ceil(totalMask * (steps[step + 1] - steps[step]))));
+        : Math.min(remaining, Math.ceil(totalMask * (steps[step + 1] - steps[step])));
 
     const logits = await runBackboneStep({
       inputIds: batchIds,
@@ -174,8 +203,17 @@ export async function generateOmniVoiceCodes({
       targetOffset,
       guidanceScale,
       layerPenalty,
+      maskId,
     });
-    const changed = unmaskBest({ scores, predictions, tokens, maskId, count: scheduled });
+    const changed = unmaskBest({
+      scores,
+      predictions,
+      tokens,
+      maskId,
+      count: scheduled,
+      positionTemperature,
+      random,
+    });
     remaining -= changed;
 
     for (let codebook = 0; codebook < codebooks; codebook += 1) {

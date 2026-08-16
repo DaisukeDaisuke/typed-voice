@@ -21,15 +21,10 @@ await loadVoiceManifest();
 
 prepareButton.addEventListener("click", async () => {
   await runButtonTask(prepareButton, async () => {
-    engineStatus.textContent = "つくよみちゃんfull-finetune資産を取得し、ストリーミングSHA-256検証後にオフラインCacheへ保存しています。";
+    engineStatus.textContent = "つくよみちゃんFP32 runtimeを取得し、ストリーミングSHA-256検証後にオフラインCacheへ保存しています。";
     const prepared = await client.prepare();
-    if (manifest.installable === false) {
-      engineStatus.textContent = `full-finetune原本の取得・検証完了: ${(prepared.totalBytes / 1024 / 1024).toFixed(1)} MiB。${manifest.blockedReason}`;
-      initializeButton.disabled = true;
-    } else {
-      engineStatus.textContent = `オフライン準備完了: ${(prepared.totalBytes / 1024 / 1024).toFixed(1)} MiB`;
-      initializeButton.disabled = false;
-    }
+    engineStatus.textContent = `オフライン音声準備完了: ${(prepared.totalBytes / 1024 / 1024).toFixed(1)} MiB`;
+    initializeButton.disabled = false;
   });
 });
 
@@ -84,11 +79,11 @@ async function loadVoiceManifest() {
     },
   });
   manifest = await client.getManifest();
-  voiceNotice.textContent = manifest.blockedReason || manifest.displayName;
+  voiceNotice.textContent = manifest.displayName;
   prepareButton.disabled = manifest.preparable === false || !Array.isArray(manifest.assets) || manifest.assets.length === 0;
   initializeButton.disabled = manifest.installable === false;
   engineStatus.textContent = manifest.installable === false
-    ? `full-finetune原本は取得できます。エンジン起動は変換待ちです: ${manifest.blockedReason}`
+    ? (manifest.blockedReason || "音声runtimeは現在利用できません。")
     : "最初に「オフライン音声を準備」を実行してください。";
 }
 
