@@ -301,20 +301,39 @@ export class TutorialController {
       return;
     }
 
+    const shellRect = this.elements.overlay.querySelector(".tutorial-shell")?.getBoundingClientRect();
+    if (!shellRect) {
+      arrow.hidden = true;
+      return;
+    }
+
     const viewportWidth = globalThis.innerWidth || this.document.documentElement.clientWidth;
     const viewportHeight = globalThis.innerHeight || this.document.documentElement.clientHeight;
-    const arrowSize = 56;
-    const gap = 10;
-    const centerX = rect.left + rect.width / 2;
-    const placeAbove = rect.top >= arrowSize + gap + 8;
-    const x = Math.max(8, Math.min(viewportWidth - arrowSize - 8, centerX - arrowSize * 0.72));
-    const y = placeAbove
-      ? rect.top - arrowSize - gap
-      : Math.min(viewportHeight - arrowSize - 8, rect.bottom + gap);
+    const targetCenterX = rect.left + rect.width / 2;
+    const targetCenterY = rect.top + rect.height / 2;
+    const sourceCenterX = shellRect.left + shellRect.width / 2;
+    const sourceCenterY = shellRect.top + shellRect.height / 2;
+    const dx = targetCenterX - sourceCenterX;
+    const dy = targetCenterY - sourceCenterY;
+    const desiredAngle = Math.atan2(dy, dx) * 180 / Math.PI;
+    const rotation = desiredAngle - 180;
 
-    arrow.dataset.placement = placeAbove ? "above" : "below";
+    let anchorX = targetCenterX;
+    let anchorY = targetCenterY;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      anchorX = dx < 0 ? rect.right + 12 : rect.left - 12;
+    } else {
+      anchorY = dy < 0 ? rect.bottom + 12 : rect.top - 12;
+    }
+
+    const headX = 18;
+    const headY = 21;
+    const x = Math.max(-120, Math.min(viewportWidth - 30, anchorX - headX));
+    const y = Math.max(-100, Math.min(viewportHeight - 30, anchorY - headY));
+
     arrow.style.setProperty("--tutorial-target-arrow-x", `${Math.round(x)}px`);
     arrow.style.setProperty("--tutorial-target-arrow-y", `${Math.round(y)}px`);
+    arrow.style.setProperty("--tutorial-target-arrow-rotation", `${rotation.toFixed(1)}deg`);
     arrow.hidden = false;
   }
 

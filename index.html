@@ -227,13 +227,25 @@ https://tyc.rei-yumesaki.net
         <div class="tutorial-footer-end">
           <button id="tutorial-next" class="primary-button tutorial-next-button" type="button">次へ</button>
           <div class="tutorial-progress-anchor" aria-hidden="true">
-            <span class="tutorial-attention-arrow">↷</span>
+            <span class="tutorial-attention-arrow tutorial-loop-arrow">
+              <span class="tutorial-loop-arrow-shape">
+                <span class="tutorial-loop-arrow-stroke"></span>
+                <span class="tutorial-loop-arrow-loop"></span>
+                <span class="tutorial-loop-arrow-head"></span>
+              </span>
+            </span>
             <strong id="tutorial-progress" class="tutorial-progress" aria-live="polite">1 / 5</strong>
           </div>
         </div>
       </footer>
     </div>
-    <span id="tutorial-target-arrow" class="tutorial-target-arrow" aria-hidden="true" hidden></span>
+    <span id="tutorial-target-arrow" class="tutorial-target-arrow tutorial-loop-arrow" aria-hidden="true" hidden>
+      <span class="tutorial-loop-arrow-shape">
+        <span class="tutorial-loop-arrow-stroke"></span>
+        <span class="tutorial-loop-arrow-loop"></span>
+        <span class="tutorial-loop-arrow-head"></span>
+      </span>
+    </span>
   </section>
 
   <!-- handled by src/app/ui-orchestrator.js -->
