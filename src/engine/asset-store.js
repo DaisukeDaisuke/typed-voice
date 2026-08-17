@@ -16,7 +16,10 @@ function runTransaction(db, mode, operation) {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(STORE_NAME, mode);
     const request = operation(transaction.objectStore(STORE_NAME));
-    transaction.oncomplete = () => resolve(request?.result ?? request);
+    transaction.oncomplete = () => {
+      if (request && typeof request === "object" && "result" in request) resolve(request.result);
+      else resolve(request);
+    };
     transaction.onerror = () => reject(transaction.error);
     transaction.onabort = () => reject(transaction.error ?? new Error("IndexedDB transaction aborted"));
   });
