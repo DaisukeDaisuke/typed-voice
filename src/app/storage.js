@@ -121,7 +121,15 @@ export class IndexedDbConversationRepository {
     const transaction = this.db.transaction(STORE_SESSIONS, "readwrite");
     const done = transactionDone(transaction);
     transaction.objectStore(STORE_SESSIONS).add(session);
-    await done;
+    try {
+      await done;
+    } catch (error) {
+      if (error?.name === "ConstraintError" || transaction.error?.name === "ConstraintError") {
+        const raced = await this.getSession(id);
+        if (raced) return raced;
+      }
+      throw error;
+    }
     await updateStatistics(this.db, {
       conversationCount: 1,
       timestamp: createdAt,

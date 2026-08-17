@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { MemoryConversationRepository } from "../src/app/storage.js";
 import {
   createConversationFromSubmittedText,
+  normalizeConversationId,
   resolveCurrentConversation,
 } from "../src/app/conversation-session-policy.js";
 
@@ -39,6 +40,20 @@ test("現在の会話が消えていたら新しい会話へ復旧する", async
 
   assert.notEqual(resolved.id, stale.id);
   assert.equal((await repository.listSessions()).length, 1);
+});
+
+test("初期化前に決めたUUIDをそのまま新しい会話IDとして使える", async () => {
+  const repository = new MemoryConversationRepository();
+  const preferredId = "123e4567-e89b-42d3-a456-426614174000";
+  const session = await resolveCurrentConversation(repository, null, { preferredId });
+
+  assert.equal(session.id, preferredId);
+  assert.equal((await repository.listSessions()).length, 1);
+});
+
+test("会話IDとして不正なURL値はUUIDとして採用しない", () => {
+  assert.equal(normalizeConversationId("not-a-uuid"), null);
+  assert.equal(normalizeConversationId("123e4567-e89b-42d3-a456-426614174000"), "123e4567-e89b-42d3-a456-426614174000");
 });
 
 test("新しい会話の作成時に手元の1行目をプレビューへ即時保存できる", async () => {

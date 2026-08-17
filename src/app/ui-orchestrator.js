@@ -8,6 +8,7 @@ import { planComposerRevisions } from "./revision-target.js";
 import { prepareKanalizerOffline } from "../text/kanalizer-normalizer.js";
 import {
   createConversationFromSubmittedText,
+  normalizeConversationId,
   resolveCurrentConversation,
 } from "./conversation-session-policy.js";
 import {
@@ -74,12 +75,14 @@ export class UiOrchestrator {
     this.elements.speechSpeed.value = String(speed);
     this.voiceRuntime?.setSpeed(speed);
 
-    const requestedId = new URL(location.href).searchParams.get(CONVERSATION_PARAM);
+    const requestedId = normalizeConversationId(new URL(location.href).searchParams.get(CONVERSATION_PARAM));
     const session = requestedId ? await this.repository.getSession(requestedId) : null;
     if (session) {
       await this.openConversation(session.id, { replaceUrl: true });
     } else {
-      await this.ensureCurrentConversation({ replaceUrl: true });
+      const bootstrapId = requestedId ?? crypto.randomUUID();
+      this.#writeUrl(bootstrapId, true);
+      await this.ensureCurrentConversation({ replaceUrl: true, preferredId: bootstrapId });
       await this.refreshAll();
       this.#showSecondaryView("timeline");
       this.focusComposer();
@@ -159,11 +162,11 @@ export class UiOrchestrator {
     return session;
   }
 
-  async ensureCurrentConversation({ replaceUrl = true } = {}) {
+  async ensureCurrentConversation({ replaceUrl = true, preferredId = null } = {}) {
     if (this.ensureConversationPromise) return this.ensureConversationPromise;
     const currentSession = this.currentSession;
     this.ensureConversationPromise = (async () => {
-      const session = await resolveCurrentConversation(this.repository, currentSession);
+      const session = await resolveCurrentConversation(this.repository, currentSession, { preferredId });
       const changed = !currentSession || currentSession.id !== session.id;
       this.currentSession = session;
       if (changed) {
