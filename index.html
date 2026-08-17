@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f3f1ed">
   <title>typed-voice</title>
   <style>
-    #blocking-loader{position:fixed;z-index:2000;inset:0;display:grid;place-items:center;padding:24px;background:#050505;color:#f7f4ef}#blocking-loader[hidden]{display:none}.blocking-loader-card{width:min(680px,100%);display:grid;gap:18px}.blocking-loader-title{margin:0;font-size:clamp(1.5rem,5vw,2.5rem)}.blocking-loader-cells{display:grid;grid-template-columns:repeat(auto-fit,minmax(24px,1fr));gap:8px}.blocking-loader-cell{height:24px;border:1px solid #716d67;border-radius:6px;background:#181716}.blocking-loader-cell.is-running{border-color:#e28b4c;background:#633213}.blocking-loader-cell.is-done{border-color:#d3b08f;background:#a14f1e}.blocking-loader-cell.is-skipped{border-color:#777;background:#363432}.blocking-loader-cell.is-error{border-color:#ef8d8d;background:#671e1e}.blocking-loader-summary{display:flex;align-items:baseline;justify-content:space-between;gap:16px}.blocking-loader-count{font-size:1.2rem;font-variant-numeric:tabular-nums}.blocking-loader-detail{margin:0;color:#bbb5ad;line-height:1.5}.blocking-detail-progress{display:grid;gap:7px}.blocking-detail-progress[hidden]{display:none}.blocking-detail-progress-head{display:flex;justify-content:space-between;gap:12px;color:#d8d1ca;font-size:.82rem}.blocking-detail-track{height:10px;overflow:hidden;border:1px solid #5c5751;border-radius:999px;background:#171615}.blocking-detail-fill{block-size:100%;inline-size:0;background:#c86628;transition:inline-size 120ms linear}
+    #blocking-loader{position:fixed;z-index:2000;left:50%;top:max(14px,env(safe-area-inset-top));width:min(720px,calc(100vw - 28px));padding:18px 20px;transform:translateX(-50%);border:1px solid #34312d;border-radius:20px;background:#050505;color:#f7f4ef;box-shadow:0 20px 70px #0007;opacity:1;transition:opacity 1s ease}#blocking-loader[hidden]{display:none}#blocking-loader.is-fading{opacity:0;pointer-events:none}.blocking-loader-card{width:100%;display:grid;gap:14px}.blocking-loader-title{margin:0;font-size:clamp(1.2rem,3vw,1.8rem)}.blocking-loader-cells{display:grid;grid-template-columns:repeat(auto-fit,minmax(24px,1fr));gap:8px}.blocking-loader-cell{height:20px;border:1px solid #716d67;border-radius:6px;background:#181716}.blocking-loader-cell.is-running{border-color:#e28b4c;background:#633213}.blocking-loader-cell.is-done{border-color:#d3b08f;background:#a14f1e}.blocking-loader-cell.is-skipped{border-color:#777;background:#363432}.blocking-loader-cell.is-error{border-color:#ef8d8d;background:#671e1e}.blocking-loader-summary{display:flex;align-items:baseline;justify-content:space-between;gap:16px}.blocking-loader-count{font-size:1.05rem;font-variant-numeric:tabular-nums}.blocking-loader-detail{margin:0;color:#bbb5ad;line-height:1.5}.blocking-detail-progress{display:grid;gap:7px}.blocking-detail-progress[hidden]{display:none}.blocking-detail-progress-head{display:flex;justify-content:space-between;gap:12px;color:#d8d1ca;font-size:.82rem}.blocking-detail-track{height:10px;overflow:hidden;border:1px solid #5c5751;border-radius:999px;background:#171615}.blocking-detail-fill{block-size:100%;inline-size:0;background:#c86628;transition:inline-size 120ms linear}
   </style>
 </head>
 <body>
@@ -158,7 +158,7 @@ https://tyc.rei-yumesaki.net
 つくよみちゃんの声質を使用する場合は、出力した音声を次の目的で使用することを禁止します。
 
 【禁止事項】
-■人を批判・攻撃すること。（「批判・攻撃」の定義は、つくよみちゃんキャラクターライセンスに準じます）
+■人を批判・攻撃すること。（「批判・攻撃」の定義は、<a href="https://tyc.rei-yumesaki.net/about/terms/" target="_blank" rel="noopener noreferrer">つくよみちゃんキャラクターライセンス</a>に準じます）
 ■特定の政治的立場・宗教・思想への賛同または反対を呼びかけること。
 ■刺激の強い表現をゾーニングなしで公開すること。
 ■他者に対して二次利用（素材としての利用）を許可する形で公開すること。</pre>
@@ -196,9 +196,20 @@ https://tyc.rei-yumesaki.net
   </main>
 
   <aside id="voice-load-progress" class="voice-load-progress" aria-live="polite" hidden>
-    <strong id="voice-load-status">音声モデルを読み込んでいます。</strong>
-    <progress id="voice-load-progress-bar" max="100" value="0">0%</progress>
-    <span id="voice-load-detail">準備中…</span>
+    <strong id="voice-load-status">音声は現在利用可能な状態ではありません。ロード中です。</strong>
+    <span id="voice-load-detail">会話と入力はこのまま利用できます。</span>
+    <div class="voice-load-row">
+      <div class="voice-load-row-head"><span>モデルデータ</span><span id="voice-load-model-value">確認中…</span></div>
+      <progress id="voice-load-progress-bar" max="100" value="0">0%</progress>
+    </div>
+    <div class="voice-load-row">
+      <div class="voice-load-row-head"><span>音声エンジン</span><span id="voice-load-engine-value">開始待ち</span></div>
+      <progress id="voice-load-engine-progress" max="1" value="0">0 / 1</progress>
+    </div>
+    <label class="voice-load-replay-toggle" for="voice-load-replay-after-load">
+      <input id="voice-load-replay-after-load" type="checkbox" checked>
+      <span>ロード中に送った文章は、準備完了後に順番に読み上げる</span>
+    </label>
   </aside>
 
   <section id="tutorial-overlay" class="tutorial-overlay" role="dialog" aria-modal="true" aria-labelledby="tutorial-title" hidden>
@@ -220,9 +231,9 @@ https://tyc.rei-yumesaki.net
           <p class="tutorial-about-lines">typed-voiceは、入力した文章をその場で声にするためのツールです。</p>
           <p class="tutorial-about-lines">話してほしい内容をキーボードで書いて、改行を合図に順番に読み上げます。</p>
           <div class="tutorial-callout tutorial-privacy-callout">
+            <strong>プライバシーも大切にします。</strong>
             <p class="tutorial-about-lines">会話と入力内容はこのブラウザ内に保存し、音声合成も端末内で行います。</p>
             <p class="tutorial-about-lines">外部へ通信するのは、モデルや試聴用WAVなどの配布アセットを取得するときです。</p>
-            <strong>プライバシーも大切にします。</strong>
           </div>
           <p class="tutorial-about-lines">音声を使わずに、会話や入力だけ試すこともできます。</p>
           <p>モデルの準備は、この次に選べます。</p>
@@ -230,7 +241,7 @@ https://tyc.rei-yumesaki.net
 
         <section class="tutorial-page" data-tutorial-step="model">
           <p class="tutorial-kicker">声の準備</p>
-          <h3>まずは、声の設定を選びましょう</h3>
+          <h3>まずは、読み上げに使う声の音質を選びましょう</h3>
           <p>迷ったら「推奨」のままで大丈夫です。あとから設定で変えられます。この段階ではモデルを読み込みません。</p>
           <div class="model-profile-picker tutorial-model-picker" data-model-profile-control>
             <div class="model-toggle" role="radiogroup" aria-label="チュートリアルの音声モデル">
@@ -312,7 +323,7 @@ https://tyc.rei-yumesaki.net
             <span class="tutorial-official-url">https://tyc.rei-yumesaki.net</span>
             <div class="tutorial-character-prohibitions">
               <strong>【禁止事項】</strong>
-              <span>■人を批判・攻撃すること。（「批判・攻撃」の定義は、つくよみちゃんキャラクターライセンスに準じます）</span>
+              <span>■人を批判・攻撃すること。（「批判・攻撃」の定義は、<a href="https://tyc.rei-yumesaki.net/about/terms/" target="_blank" rel="noopener noreferrer">つくよみちゃんキャラクターライセンス</a>に準じます）</span>
               <span>■特定の政治的立場・宗教・思想への賛同または反対を呼びかけること。</span>
               <span>■刺激の強い表現をゾーニングなしで公開すること。</span>
               <span>■他者に対して二次利用（素材としての利用）を許可する形で公開すること。</span>
@@ -329,11 +340,11 @@ https://tyc.rei-yumesaki.net
 つくよみちゃんの声質を使用する場合は、出力した音声を次の目的で使用することを禁止します。
 
 【禁止事項】
-■人を批判・攻撃すること。（「批判・攻撃」の定義は、つくよみちゃんキャラクターライセンスに準じます）
+■人を批判・攻撃すること。（「批判・攻撃」の定義は、<a href="https://tyc.rei-yumesaki.net/about/terms/" target="_blank" rel="noopener noreferrer">つくよみちゃんキャラクターライセンス</a>に準じます）
 ■特定の政治的立場・宗教・思想への賛同または反対を呼びかけること。
 ■刺激の強い表現をゾーニングなしで公開すること。
 ■他者に対して二次利用（素材としての利用）を許可する形で公開すること。</pre>
-          <p>詳しい条件はアプリ内の「ライセンス・利用条件」からいつでも確認できます。</p>
+          <p class="tutorial-license-summary">詳しい条件はアプリ内の「ライセンス・利用条件」からいつでも確認できます。</p>
         </section>
 
         <section class="tutorial-page" data-tutorial-step="linebreak" data-tutorial-live="true" hidden>
@@ -378,7 +389,8 @@ https://tyc.rei-yumesaki.net
           <p class="tutorial-kicker">会話を分ける</p>
           <h3>会話一覧を開いたまま、新しい会話を始められます</h3>
           <p>上の「会話一覧」を押し、そのまま左の入力欄へ新しい文章を書いて改行してください。</p>
-          <p>新しいUUIDの会話をその場で作り、最初に送った1行を一覧のプレビューへ反映して、その会話へ切り替わります。過去の会話を押せば、履歴も一緒に切り替わります。</p>
+          <p>そうすると、新しい会話が自動的に作成されます。最初に送った1行が一覧の見出しになり、過去の会話を押せば履歴も一緒に切り替わります。</p>
+          <button id="tutorial-conversation-repeat" class="tutorial-demo-button" type="button" hidden>もう一度やってみる</button>
           <p id="tutorial-conversation-status" class="tutorial-demo-status" aria-live="polite">まずは上の「会話一覧」を押してみましょう。</p>
         </section>
 
@@ -496,6 +508,13 @@ https://tyc.rei-yumesaki.net
       </div>
       <p class="pending-text"></p>
       <p class="pending-help">読み上げるまでの待ち時間です。この間は訂正・取り消しできます。</p>
+      <div class="pending-synthesis" aria-label="音声合成の進捗">
+        <div class="pending-synthesis-head">
+          <span>音声合成</span>
+          <span class="pending-synthesis-label">開始待ち</span>
+        </div>
+        <div class="pending-synthesis-cells" aria-hidden="true"></div>
+      </div>
       <p class="pending-error" hidden></p>
       <div class="pending-actions">
         <button class="pending-cancel danger-button" type="button">取り消し</button>

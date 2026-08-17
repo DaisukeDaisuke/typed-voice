@@ -1,6 +1,6 @@
 // Bump only this key when deployed HTML/JS/CSS/runtime source must be discarded.
 // The prepared model cache uses a separate fixed key and is intentionally preserved.
-const SOURCE_CACHE_KEY = "2026-08-17-43";
+const SOURCE_CACHE_KEY = "2026-08-17-44";
 
 export async function requireServiceWorker({ reloadKey = "typed-voice-coi-reloaded" } = {}) {
   if (!("serviceWorker" in navigator)) {
@@ -61,6 +61,29 @@ export async function requireServiceWorker({ reloadKey = "typed-voice-coi-reload
     showServiceWorkerRequired();
     throw error;
   }
+}
+
+export async function queryPreparedModelCache(manifestUrl, { appBaseUrl = null } = {}) {
+  const controller = navigator.serviceWorker?.controller;
+  if (!controller) return false;
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    let settled = false;
+    const finish = (prepared) => {
+      if (settled) return;
+      settled = true;
+      globalThis.clearTimeout(timeout);
+      channel.port1.close();
+      resolve(Boolean(prepared));
+    };
+    const timeout = globalThis.setTimeout(() => finish(false), 5000);
+    channel.port1.onmessage = (event) => finish(event.data?.ok && event.data?.prepared);
+    controller.postMessage({
+      type: "typed-voice:check-model-cache",
+      manifestUrl,
+      appBaseUrl,
+    }, [channel.port2]);
+  });
 }
 
 function refreshServiceWorker(serviceWorkerUrl, scopeUrl) {

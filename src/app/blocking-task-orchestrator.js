@@ -12,6 +12,7 @@ export class BlockingTaskOrchestrator {
     this.elements = this.#resolveElements();
     this.running = 0;
     this.finished = false;
+    this.fadeTimer = null;
     this.#render();
   }
 
@@ -26,6 +27,10 @@ export class BlockingTaskOrchestrator {
     };
     this.tasks.push(state);
     this.running += 1;
+    this.finished = false;
+    globalThis.clearTimeout(this.fadeTimer);
+    this.fadeTimer = null;
+    this.elements.root.classList.remove("is-fading");
     this.elements.root.hidden = false;
     this.#render();
     const report = (update = {}) => {
@@ -54,7 +59,7 @@ export class BlockingTaskOrchestrator {
   finish() {
     this.finished = true;
     this.#render();
-    if (this.running === 0) this.elements.root.hidden = true;
+    if (this.running === 0) this.#fadeOut();
   }
 
   #render() {
@@ -78,7 +83,19 @@ export class BlockingTaskOrchestrator {
     this.elements.detail.textContent = active?.detail || "起動準備中…";
     this.#renderProgress(this.elements.primary, active?.primary);
     this.#renderProgress(this.elements.secondary, active?.secondary);
-    if (this.finished && this.running === 0) this.elements.root.hidden = true;
+    if (this.finished && this.running === 0) this.#fadeOut();
+  }
+
+  #fadeOut() {
+    if (this.elements.root.hidden || this.elements.root.classList.contains("is-fading")) return;
+    this.elements.root.classList.add("is-fading");
+    globalThis.clearTimeout(this.fadeTimer);
+    this.fadeTimer = globalThis.setTimeout(() => {
+      if (this.running > 0 || !this.finished) return;
+      this.elements.root.hidden = true;
+      this.elements.root.classList.remove("is-fading");
+      this.fadeTimer = null;
+    }, 1000);
   }
 
   #renderProgress(elements, progress) {

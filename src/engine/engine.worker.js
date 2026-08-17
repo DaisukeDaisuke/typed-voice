@@ -92,6 +92,11 @@ async function dispatch(message) {
     }
     case "synthesize": {
       ensureManifest();
+      const latest = latestGeneration.get(message.utteranceId);
+      if (Number.isFinite(latest) && message.generation < latest) {
+        postMessage({ type: "discarded", requestId: message.requestId, reason: "stale-generation" });
+        return;
+      }
       latestGeneration.set(message.utteranceId, message.generation);
       const { replaced, dropped } = queue.enqueue(message);
       for (const item of [...replaced, ...dropped]) {
@@ -101,8 +106,9 @@ async function dispatch(message) {
       return;
     }
     case "cancel": {
-      latestGeneration.set(message.utteranceId, message.generation);
-      const removed = queue.removeOlder(message.utteranceId, message.generation);
+      const cancelledBeforeGeneration = message.generation + 1;
+      latestGeneration.set(message.utteranceId, cancelledBeforeGeneration);
+      const removed = queue.removeOlder(message.utteranceId, cancelledBeforeGeneration);
       for (const item of removed) {
         postMessage({ type: "discarded", requestId: item.requestId, reason: "cancelled" });
       }
@@ -150,6 +156,8 @@ async function pumpQueue() {
               type: "progress",
               requestId: request.requestId,
               stage: "generate",
+              utteranceId: request.utteranceId,
+              generation: request.generation,
               ...step,
             });
           },

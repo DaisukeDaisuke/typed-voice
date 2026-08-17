@@ -54,6 +54,21 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+self.addEventListener("message", (event) => {
+  const message = event.data;
+  if (message?.type !== "typed-voice:check-model-cache") return;
+  const port = event.ports?.[0];
+  if (!port) return;
+  event.waitUntil((async () => {
+    try {
+      const prepared = await isPreparedModelCached(message.manifestUrl, message.appBaseUrl);
+      port.postMessage({ ok: true, prepared });
+    } catch (error) {
+      port.postMessage({ ok: false, prepared: false, message: error instanceof Error ? error.message : String(error) });
+    }
+  })());
+});
+
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
@@ -99,6 +114,36 @@ function buildModelChunkUrl(virtualUrl, index) {
   const url = new URL(virtualUrl);
   url.searchParams.set(MODEL_CHUNK_QUERY, String(index));
   return url.href;
+}
+
+function buildModelAssetUrl(manifestId, localPath, baseUrl) {
+  const encodedId = encodeURIComponent(manifestId);
+  const encodedPath = String(localPath || "").split("/").filter(Boolean).map(encodeURIComponent).join("/");
+  return new URL(`__typed_voice_assets/${encodedId}/${encodedPath}`, baseUrl || self.registration.scope).href;
+}
+
+async function isPreparedModelCached(manifestUrl, appBaseUrl) {
+  if (!manifestUrl) return false;
+  const cache = await caches.open(MODEL_CACHE);
+  const manifestResponse = await cache.match(manifestUrl);
+  if (!manifestResponse) return false;
+  const manifest = await manifestResponse.json();
+  if (!manifest?.id || !Array.isArray(manifest.assets) || manifest.assets.length === 0) return false;
+  for (const asset of manifest.assets) {
+    const virtualUrl = buildModelAssetUrl(manifest.id, asset.localPath, appBaseUrl);
+    const indexResponse = await cache.match(virtualUrl);
+    if (!indexResponse) return false;
+    const chunkCount = Number(indexResponse.headers.get("x-typed-voice-chunk-count") || 0);
+    const byteSize = Number(indexResponse.headers.get("x-typed-voice-byte-size") || 0);
+    const xxh3 = indexResponse.headers.get("x-typed-voice-xxh3-128") || "";
+    if (!Number.isSafeInteger(chunkCount) || chunkCount <= 0) return false;
+    if (Number(asset.byteSize) !== byteSize) return false;
+    if (String(asset.xxh3_128 || "").toLowerCase() !== xxh3.toLowerCase()) return false;
+    for (let index = 0; index < chunkCount; index += 1) {
+      if (!await cache.match(buildModelChunkUrl(virtualUrl, index))) return false;
+    }
+  }
+  return true;
 }
 
 function createModelChunkStream(cache, virtualUrl, chunkCount) {

@@ -110,11 +110,12 @@ export class OmniVoiceEngine {
   async synthesize(text, options = {}) {
     if (!this.sessions || !this.tokenizer) throw new Error("OmniVoice engine is not initialized");
     const inputs = await prepareOmniVoiceInputs(text, this.tokenizer, this.runtime.generation, options);
+    const numStep = options.numStep ?? this.runtime.generation.numStep ?? 16;
     const generated = await generateOmniVoiceCodes({
       inputs,
       config: this.runtime.generation,
       runBackboneStep: (step) => this.#runBackboneStep(step),
-      numStep: options.numStep ?? this.runtime.generation.numStep ?? 16,
+      numStep,
       guidanceScale: options.guidanceScale ?? this.runtime.generation.guidanceScale ?? 4,
       tShift: options.tShift ?? this.runtime.generation.tShift ?? 0.05,
       layerPenalty: options.layerPenalty ?? this.runtime.generation.layerPenalty ?? 5,
@@ -122,11 +123,18 @@ export class OmniVoiceEngine {
       classTemperature: options.classTemperature ?? this.runtime.generation.classTemperature ?? 0,
       attentionMode: this.runtime.llmAttention?.mode ?? "legacy-causal-2d",
       isCancelled: options.isCancelled,
-      onStep: options.onStep,
+      onStep: (progress) => options.onStep?.({
+        ...progress,
+        phase: "generate",
+        completed: progress.step,
+        totalSteps: numStep + 1,
+      }),
       random: options.seed == null ? Math.random : createPythonRandom(options.seed),
     });
     if (options.isCancelled?.()) throw new Error("cancelled");
+    options.onStep?.({ phase: "decode", completed: numStep, totalSteps: numStep + 1 });
     const pcm = await this.#decode(generated.tokens, generated.codebooks, generated.targetLength);
+    options.onStep?.({ phase: "decode-complete", completed: numStep + 1, totalSteps: numStep + 1 });
     return {
       pcm: normalizePcm(pcm),
       sampleRate: this.runtime.sampleRate,

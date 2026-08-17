@@ -1,4 +1,5 @@
 import { EngineClient } from "../engine/engine-client.js";
+import { queryPreparedModelCache } from "./service-worker-required.js";
 
 const REMOTE_MANIFEST_URLS = Object.freeze({
   "mobile-int4": "https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/mobile-int4/typed-voice-manifest.json",
@@ -20,6 +21,10 @@ export class VoiceRuntimeAdapter {
     this.playbackTail = Promise.resolve();
     this.client = null;
     this.progressListeners = new Set();
+    this.loading = false;
+    this.replayAfterLoad = true;
+    this.deferredSynthesis = [];
+    this.replayingDeferred = false;
   }
 
   subscribeProgress(listener) {
@@ -53,6 +58,17 @@ export class VoiceRuntimeAdapter {
     };
   }
 
+  async isProfilePrepared(profile = "fp32") {
+    const normalized = Object.hasOwn(REMOTE_MANIFEST_URLS, profile) || profile === "fp32" ? profile : "fp16";
+    return queryPreparedModelCache(this.manifestUrlForProfile(normalized), { appBaseUrl: this.appBaseUrl });
+  }
+
+  setReplayAfterLoad(enabled) {
+    this.replayAfterLoad = Boolean(enabled);
+    if (!this.replayAfterLoad) this.#releaseDeferredSynthesis(false);
+    return this.replayAfterLoad;
+  }
+
   async prepare(profile = "fp32", { signal = null } = {}) {
     await this.#ensureProfileClient(profile);
     if (this.prepared) {
@@ -83,18 +99,30 @@ export class VoiceRuntimeAdapter {
   }
 
   async initializePrepared(profile = this.activeProfile ?? "fp32", { enableAudio = true } = {}) {
-    await this.#ensureProfileClient(profile);
-    if (this.ready) {
+    this.loading = true;
+    try {
+      await this.#ensureProfileClient(profile);
+      if (this.ready) {
+        if (enableAudio) await this.#enableAudioContext();
+        if (this.audioEnabled) this.#releaseDeferredSynthesis(true);
+        else this.#markDeferredAwaitingAudio();
+        return { ready: true, profile: this.activeProfile };
+      }
       if (enableAudio) await this.#enableAudioContext();
-      return { ready: true, profile: this.activeProfile };
+      this.onStatus("保存済みモデルから音声エンジンを起動しています。");
+      const initialized = await this.client.initialize();
+      this.prepared = true;
+      this.ready = true;
+      this.onStatus(`音声を利用できます。${initialized.backend}`);
+      if (this.audioEnabled) this.#releaseDeferredSynthesis(true);
+      else this.#markDeferredAwaitingAudio();
+      return initialized;
+    } catch (error) {
+      this.#releaseDeferredSynthesis(false);
+      throw error;
+    } finally {
+      this.loading = false;
     }
-    if (enableAudio) await this.#enableAudioContext();
-    this.onStatus("保存済みモデルから音声エンジンを起動しています。");
-    const initialized = await this.client.initialize();
-    this.prepared = true;
-    this.ready = true;
-    this.onStatus(`音声を利用できます。${initialized.backend}`);
-    return initialized;
   }
 
   async enable(profile = this.activeProfile ?? "fp32") {
@@ -106,26 +134,55 @@ export class VoiceRuntimeAdapter {
     return Boolean(this.audioContext && this.audioContext.state !== "closed");
   }
 
-  async synthesize({ utteranceId, generation, text }) {
-    if (!this.ready) return { skipped: true, durationMs: 0 };
-    const result = await this.client.synthesize({
-      utteranceId,
-      generation,
-      text,
-      options: {
-        language: "ja",
-        speed: this.speed,
-      },
-    });
-    return {
-      ...result,
-      durationMs: result.samples.length / result.sampleRate * 1000,
-    };
+  async synthesize({ utteranceId, generation, text }, { fromDeferred = false } = {}) {
+    if (!this.ready || !this.audioEnabled) {
+      if (this.replayAfterLoad && (this.loading || this.ready)) {
+        const phase = this.loading ? "waiting-for-model" : "waiting-for-audio";
+        this.#emitProgress({ stage: "synthesis-deferred", phase, utteranceId, generation });
+        const shouldReplay = await this.#waitForModelLoad(utteranceId, generation);
+        if (shouldReplay && this.ready && this.audioEnabled) {
+          return this.synthesize({ utteranceId, generation, text }, { fromDeferred: true });
+        }
+      }
+      this.#emitProgress({ stage: "synthesis-skipped", utteranceId, generation });
+      return { skipped: true, durationMs: 0 };
+    }
+    try {
+      const result = await this.client.synthesize({
+        utteranceId,
+        generation,
+        text,
+        options: {
+          language: "ja",
+          speed: this.speed,
+        },
+      });
+      this.#emitProgress({ stage: "synthesis-complete", utteranceId, generation });
+      return {
+        ...result,
+        durationMs: result.samples.length / result.sampleRate * 1000,
+      };
+    } finally {
+      if (fromDeferred) {
+        this.replayingDeferred = false;
+        this.#releaseNextDeferredSynthesis();
+      }
+    }
   }
 
   async cancel(utteranceId, generation) {
+    const deferredIndex = this.deferredSynthesis.findIndex((item) => (
+      item.utteranceId === utteranceId && item.generation === generation
+    ));
+    if (deferredIndex >= 0) {
+      const [deferred] = this.deferredSynthesis.splice(deferredIndex, 1);
+      deferred.resolve(false);
+      this.#emitProgress({ stage: "synthesis-cancelled", utteranceId, generation });
+      return;
+    }
     if (!this.ready || !this.client) return;
     await this.client.cancel(utteranceId, generation);
+    this.#emitProgress({ stage: "synthesis-cancelled", utteranceId, generation });
   }
 
   async play({ samples, sampleRate, durationMs }) {
@@ -154,6 +211,9 @@ export class VoiceRuntimeAdapter {
     this.audioContext = null;
     this.ready = false;
     this.prepared = false;
+    this.loading = false;
+    this.replayingDeferred = false;
+    this.#releaseDeferredSynthesis(false);
     this.activeProfile = null;
     this.activeManifest = null;
   }
@@ -186,13 +246,7 @@ export class VoiceRuntimeAdapter {
   }
 
   #handleProgress(message) {
-    for (const listener of this.progressListeners) {
-      try {
-        listener(message);
-      } catch {
-        // A UI progress observer must never break engine preparation.
-      }
-    }
+    this.#emitProgress(message);
     if (message.stage === "download" || message.phase === "verifying-cache" || message.phase === "verified-cache") {
       const loaded = Number(message.loadedBytes || 0);
       const total = Number(message.totalBytes || 0);
@@ -202,6 +256,50 @@ export class VoiceRuntimeAdapter {
     }
     if (message.stage === "initialize") {
       this.onStatus(`音声エンジンを起動中${message.backend ? ` (${message.backend})` : ""}`);
+    }
+  }
+
+  #emitProgress(message) {
+    for (const listener of this.progressListeners) {
+      try {
+        listener(message);
+      } catch {
+        // A UI progress observer must never break engine preparation.
+      }
+    }
+  }
+
+  #waitForModelLoad(utteranceId, generation) {
+    return new Promise((resolve) => {
+      this.deferredSynthesis.push({ utteranceId, generation, resolve });
+    });
+  }
+
+  #releaseDeferredSynthesis(ready) {
+    if (ready && this.replayAfterLoad) {
+      this.#releaseNextDeferredSynthesis();
+      return;
+    }
+    const pending = this.deferredSynthesis.splice(0);
+    for (const item of pending) item.resolve(false);
+  }
+
+  #releaseNextDeferredSynthesis() {
+    if (this.replayingDeferred || !this.replayAfterLoad || !this.ready || !this.audioEnabled) return;
+    const item = this.deferredSynthesis.shift();
+    if (!item) return;
+    this.replayingDeferred = true;
+    item.resolve(true);
+  }
+
+  #markDeferredAwaitingAudio() {
+    for (const item of this.deferredSynthesis) {
+      this.#emitProgress({
+        stage: "synthesis-deferred",
+        phase: "waiting-for-audio",
+        utteranceId: item.utteranceId,
+        generation: item.generation,
+      });
     }
   }
 }

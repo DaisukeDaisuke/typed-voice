@@ -11,3 +11,4 @@ dist/
 /src/kanalizer-dictionary/dictionary.str
 /src/kanalizer-dictionary/metadata.json
 /kanalizer-patch-worktree/
+/.tmp-draft-review

@@ -18,6 +18,7 @@ import {
   createApplicationBackup,
   restoreApplicationBackup,
 } from "./application-backup.js";
+import { markTutorialComplete } from "./tutorial-persistence.js";
 
 const DEFAULT_REASONING_SECONDS = 2;
 const CONVERSATION_PARAM = "conversation";
@@ -55,6 +56,8 @@ export class UiOrchestrator {
     this.typingStartedAt = null;
     this.deletedChars = 0;
     this.pendingTicker = null;
+    this.synthesisProgress = new Map();
+    this.voiceProgressUnsubscribe = null;
     this.ensureConversationPromise = null;
     this.secondaryView = "timeline";
     this.elements = this.#resolveElements();
@@ -67,8 +70,16 @@ export class UiOrchestrator {
       repository: this.repository,
       speech: this.voiceRuntime,
       playback: this.voiceRuntime,
-      onChange: () => void this.refreshAll(),
+      onChange: (change) => {
+        if (change?.type === "message-committed" || change?.type === "pending-cancelled") {
+          const id = change?.message?.id ?? change?.id;
+          if (id) this.synthesisProgress.delete(id);
+        }
+        void this.refreshAll();
+      },
     });
+    this.voiceProgressUnsubscribe = this.voiceRuntime?.subscribeProgress?.((message) => this.#handleVoiceProgress(message)) ?? null;
+    this.voiceRuntime?.setReplayAfterLoad?.(this.elements.voiceLoadReplayAfterLoad.checked);
     this.#bindEvents();
 
     const storedWait = Number(await this.repository.getSetting("reasoningSeconds", DEFAULT_REASONING_SECONDS));
@@ -161,6 +172,10 @@ export class UiOrchestrator {
     await this.refreshAll();
     this.#showSecondaryView("timeline");
     this.focusComposer();
+  }
+
+  async markTutorialComplete() {
+    return markTutorialComplete(this.repository, globalThis.localStorage);
   }
 
   async startConversationFromSubmittedText(text) {
@@ -267,6 +282,10 @@ export class UiOrchestrator {
     return this.voiceRuntime.getProfilePlan(profile);
   }
 
+  async isVoiceProfileCached(profile = this.getModelProfile()) {
+    return Boolean(await this.voiceRuntime?.isProfilePrepared?.(profile));
+  }
+
   async prepareOfflineVoice(profile = this.getModelProfile(), { onKanalizerStatus = () => {}, signal = null } = {}) {
     if (!this.voiceRuntime?.prepare) throw new Error("音声データを準備できません。");
     const voice = await this.voiceRuntime.prepare(profile, { signal });
@@ -289,10 +308,17 @@ export class UiOrchestrator {
     const progress = this.elements.voiceLoadProgressBar;
     const status = this.elements.voiceLoadStatus;
     const detail = this.elements.voiceLoadDetail;
+    const modelValue = this.elements.voiceLoadModelValue;
+    const engineProgress = this.elements.voiceLoadEngineProgress;
+    const engineValue = this.elements.voiceLoadEngineValue;
     panel.hidden = false;
     progress.value = 0;
-    status.textContent = "保存済みモデルを読み込んでいます。";
-    detail.textContent = "キャッシュを確認中…";
+    modelValue.textContent = "確認中…";
+    engineProgress.max = 1;
+    engineProgress.value = 0;
+    engineValue.textContent = "開始待ち";
+    status.textContent = "音声は現在利用可能な状態ではありません。ロード中です。";
+    detail.textContent = "会話と入力はこのまま利用できます。";
     const unsubscribe = this.voiceRuntime.subscribeProgress((message) => {
       if (message.stage !== "initialize") return;
       const loaded = Number(message.loadedBytes || 0);
@@ -300,7 +326,7 @@ export class UiOrchestrator {
       if (total > 0) {
         const percent = Math.max(0, Math.min(100, loaded / total * 100));
         progress.value = percent;
-        detail.textContent = `${percent.toFixed(1)}% · ${(loaded / 1024 / 1024).toFixed(1)} / ${(total / 1024 / 1024).toFixed(1)} MiB`;
+        modelValue.textContent = `${(loaded / 1024 / 1024).toFixed(1)} / ${(total / 1024 / 1024).toFixed(1)} MiB`;
         onBlockingProgress?.({
           detail: "保存済みモデルを検証しています。",
           primary: {
@@ -316,6 +342,9 @@ export class UiOrchestrator {
       const engineLoaded = Number(message.engineLoaded);
       const engineTotal = Number(message.engineTotal);
       if (Number.isFinite(engineLoaded) && Number.isFinite(engineTotal) && engineTotal > 0) {
+        engineProgress.max = engineTotal;
+        engineProgress.value = Math.max(0, Math.min(engineTotal, engineLoaded));
+        engineValue.textContent = `${engineLoaded} / ${engineTotal}`;
         const phaseLabels = {
           tokenizer: "Tokenizerを準備しています",
           "tokenizer-ready": "Tokenizerを読み込みました",
@@ -338,12 +367,15 @@ export class UiOrchestrator {
     try {
       const initialized = await this.voiceRuntime.initializePrepared(profile, { enableAudio });
       progress.value = 100;
-      status.textContent = "音声モデルを読み込みました。";
-      detail.textContent = initialized?.backend ? `backend: ${initialized.backend}` : "準備完了";
+      modelValue.textContent = "準備済み";
+      if (engineProgress.max > 0) engineProgress.value = engineProgress.max;
+      engineValue.textContent = "完了";
+      status.textContent = "音声を利用できます。";
+      detail.textContent = initialized?.backend ? `音声エンジン: ${initialized.backend}` : "準備完了";
       this.elements.voiceEnable.textContent = enableAudio ? "音声 有効" : "音声を有効化";
       this.elements.voiceEnable.disabled = false;
       globalThis.setTimeout(() => {
-        if (status.textContent === "音声モデルを読み込みました。") panel.hidden = true;
+        if (status.textContent === "音声を利用できます。") panel.hidden = true;
       }, 1600);
       return initialized;
     } catch (error) {
@@ -512,6 +544,10 @@ export class UiOrchestrator {
     this.elements.pendingList.replaceChildren(fragment);
     this.elements.pendingCount.textContent = String(pending.length);
     this.elements.pendingEmpty.hidden = pending.length > 0;
+    const pendingIds = new Set(pending.map((item) => item.id));
+    for (const id of this.synthesisProgress.keys()) {
+      if (!pendingIds.has(id)) this.synthesisProgress.delete(id);
+    }
     const hasRevisionable = pending.some((item) => this.utterances.isRevisionable(item.id));
     this.elements.correctionButton.disabled = !hasRevisionable;
     this.elements.cancelCurrentButton.disabled = pending.length === 0;
@@ -525,9 +561,19 @@ export class UiOrchestrator {
       const job = this.utterances.jobs.get(node.dataset.pendingId);
       if (!job) continue;
       const remaining = Math.max(0, job.reasoningDeadline - currentTime) / 1000;
+      const synthesis = this.synthesisProgress.get(job.id);
+      const synthesisRunning = job.state === "reasoning"
+        && (synthesis?.status === "running" || (Boolean(this.voiceRuntime?.ready) && !synthesis));
       node.querySelector(".pending-timer").textContent = remaining > 0
         ? `あと ${remaining.toFixed(1)} 秒で読み上げ`
-        : "読み上げを開始します";
+        : synthesis?.phase === "waiting-for-model"
+          ? "モデルロード中のため遅延中"
+          : synthesis?.phase === "waiting-for-audio"
+            ? "音声の有効化待ち"
+            : synthesisRunning
+          ? "合成中のため遅延中"
+          : "読み上げを開始します";
+      this.#renderSynthesisProgress(node, job, synthesis);
       if (job.state === "editing") {
         node.querySelector(".pending-state").textContent = "訂正中";
         node.querySelector(".pending-timer").textContent = "入力待ち";
@@ -544,6 +590,80 @@ export class UiOrchestrator {
         }
       }
     }
+  }
+
+  #handleVoiceProgress(message) {
+    const utteranceId = message?.utteranceId;
+    if (!utteranceId) return;
+    if (message.stage === "synthesis-cancelled") {
+      this.synthesisProgress.delete(utteranceId);
+      this.#updatePendingTimers();
+      return;
+    }
+    const previous = this.synthesisProgress.get(utteranceId) ?? {};
+    if (message.stage === "synthesis-skipped") {
+      this.synthesisProgress.set(utteranceId, { ...previous, status: "skipped", phase: "skipped", value: 0, total: 0 });
+    } else if (message.stage === "synthesis-complete") {
+      this.synthesisProgress.set(utteranceId, {
+        ...previous,
+        status: "done",
+        value: Number(previous.total || previous.value || 0),
+      });
+    } else if (message.stage === "synthesis-deferred") {
+      this.synthesisProgress.set(utteranceId, {
+        generation: message.generation,
+        status: "running",
+        phase: message.phase || "waiting-for-model",
+        value: 0,
+        total: 1,
+      });
+    } else if (message.stage === "generate") {
+      const total = Math.max(0, Number(message.totalSteps || 0));
+      const value = Math.max(0, Math.min(total || Number(message.completed || 0), Number(message.completed || 0)));
+      this.synthesisProgress.set(utteranceId, {
+        generation: message.generation,
+        status: total > 0 && value >= total ? "done" : "running",
+        phase: message.phase || "generate",
+        value,
+        total,
+      });
+    }
+    this.#updatePendingTimers();
+  }
+
+  #renderSynthesisProgress(node, job, synthesis) {
+    const label = node.querySelector(".pending-synthesis-label");
+    const cells = node.querySelector(".pending-synthesis-cells");
+    if (synthesis?.phase === "waiting-for-model" || synthesis?.phase === "waiting-for-audio") {
+      label.textContent = synthesis.phase === "waiting-for-audio" ? "音声の有効化待ち" : "モデルのロード完了待ち";
+    } else if (!this.voiceRuntime?.ready || synthesis?.status === "skipped") {
+      label.textContent = "音声モデル未準備";
+      cells.replaceChildren();
+      return;
+    }
+    const total = Math.max(0, Number(synthesis?.total || 0));
+    const value = Math.max(0, Math.min(total, Number(synthesis?.value || 0)));
+    if (total <= 0) {
+      label.textContent = job.state === "reasoning" ? "合成を開始しています" : "開始待ち";
+      cells.replaceChildren();
+      return;
+    }
+    label.textContent = synthesis?.phase === "waiting-for-model" || synthesis?.phase === "waiting-for-audio"
+      ? synthesis.phase === "waiting-for-audio" ? "音声の有効化待ち" : "モデルのロード完了待ち"
+      : synthesis?.phase === "decode"
+      ? `${value} / ${total} · 波形を作成中`
+      : synthesis?.status === "done"
+        ? `${total} / ${total} · 完了`
+        : `${value} / ${total}`;
+    const fragment = document.createDocumentFragment();
+    for (let index = 0; index < total; index += 1) {
+      const cell = document.createElement("i");
+      cell.className = "pending-synthesis-cell";
+      if (synthesis?.status === "done" || index < value) cell.classList.add("is-done");
+      else if (index === value) cell.classList.add("is-running");
+      fragment.append(cell);
+    }
+    cells.replaceChildren(fragment);
   }
 
   #bindEvents() {
@@ -568,6 +688,9 @@ export class UiOrchestrator {
       }
     });
     this.elements.voiceEnable.addEventListener("click", () => void this.#runUiTask(() => this.enableVoice()));
+    this.elements.voiceLoadReplayAfterLoad.addEventListener("change", () => {
+      this.voiceRuntime?.setReplayAfterLoad?.(this.elements.voiceLoadReplayAfterLoad.checked);
+    });
 
     this.elements.composer.addEventListener("beforeinput", (event) => {
       if (this.typingStartedAt == null) this.typingStartedAt = performance.now();
@@ -727,6 +850,10 @@ export class UiOrchestrator {
       voiceLoadProgressBar: byId("voice-load-progress-bar"),
       voiceLoadStatus: byId("voice-load-status"),
       voiceLoadDetail: byId("voice-load-detail"),
+      voiceLoadModelValue: byId("voice-load-model-value"),
+      voiceLoadEngineProgress: byId("voice-load-engine-progress"),
+      voiceLoadEngineValue: byId("voice-load-engine-value"),
+      voiceLoadReplayAfterLoad: byId("voice-load-replay-after-load"),
       focusComposer: byId("focus-composer"),
       status: byId("app-status"),
       conversationTitle: byId("conversation-title"),

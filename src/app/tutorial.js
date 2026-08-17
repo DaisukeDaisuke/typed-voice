@@ -1,6 +1,4 @@
 import { MODEL_PROFILES } from "./model-profile-ui.js";
-
-export const TUTORIAL_STORAGE_KEY = "typed-voice-tutorial-v1-complete";
 const SAMPLE_BRANCHES = Object.freeze({
   fp32: "main",
   fp16: "fp16",
@@ -48,29 +46,12 @@ const CORRECTION_TEXTS = Object.freeze([
 const CANCEL_DEMO_TEXT = "やっぱり違うと思ったら、取り消すこともできます。";
 const WAIT_DEMO_TEXT = "この文章は、読み上げ待ち時間を確認するための例です。";
 
-function safeRead(storage, key) {
-  try {
-    return storage?.getItem(key) ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function safeWrite(storage, key, value) {
-  try {
-    storage?.setItem(key, value);
-  } catch {
-    // The tutorial still works for the current page when localStorage is blocked.
-  }
-}
-
 export class TutorialController {
-  constructor(documentRef = document, { modelProfileUi = null, app = null, blocking = null, storage = globalThis.localStorage } = {}) {
+  constructor(documentRef = document, { modelProfileUi = null, app = null, tutorialComplete = false } = {}) {
     this.document = documentRef;
     this.modelProfileUi = modelProfileUi;
     this.app = app;
-    this.blocking = blocking;
-    this.storage = storage;
+    this.tutorialComplete = Boolean(tutorialComplete);
     this.stepIndex = 0;
     this.demoSnapshot = null;
     this.demoRunToken = 0;
@@ -129,6 +110,7 @@ export class TutorialController {
     this.elements.conversationView.addEventListener("click", () => {
       globalThis.setTimeout(() => this.#handleConversationListOpened(), 0);
     });
+    this.elements.conversationRepeat.addEventListener("click", () => this.#repeatConversationTutorial());
     this.elements.composer.addEventListener("input", (event) => {
       if (this.elements.overlay.dataset.step !== "conversations") return;
       if (event.inputType !== "insertLineBreak" && event.inputType !== "insertParagraph") return;
@@ -150,7 +132,7 @@ export class TutorialController {
       if (this.elements.overlay.dataset.step === "download") this.#showStep();
     });
 
-    if (safeRead(this.storage, TUTORIAL_STORAGE_KEY) !== "1") {
+    if (!this.tutorialComplete) {
       this.start();
     }
     return this;
@@ -158,7 +140,7 @@ export class TutorialController {
 
   start() {
     this.#cleanupDemo();
-    if (safeRead(this.storage, TUTORIAL_STORAGE_KEY) !== "1") {
+    if (!this.tutorialComplete) {
       this.modelProfileUi?.select?.("fp16");
     }
     const voiceState = this.app?.voiceRuntimeState;
@@ -217,24 +199,15 @@ export class TutorialController {
     this.#cleanupDemo();
     try {
       await this.app?.finishTutorialData?.();
-      safeWrite(this.storage, TUTORIAL_STORAGE_KEY, "1");
+      await this.app?.markTutorialComplete?.();
+      this.tutorialComplete = true;
       this.elements.overlay.hidden = true;
       this.document.body.classList.remove("tutorial-open", "tutorial-scrollable", "tutorial-window-dragging");
       this.elements.dragHandle.classList.remove("is-dragging");
       this.dragState = null;
       this.#stopSample({ close: true });
       this.elements.composer.focus({ preventScroll: true });
-      if (this.blocking) {
-        await this.blocking.registerBlockingAsync("音声モデル", async ({ report }) => {
-          report({ detail: "保存したモデルを音声エンジンへ読み込んでいます。" });
-          await this.app?.initializePreparedVoice?.(profile, {
-            enableAudio: false,
-            onBlockingProgress: report,
-          });
-        }, { optional: true });
-      } else {
-        void this.app?.initializePreparedVoice?.(profile, { enableAudio: false }).catch(() => {});
-      }
+      void this.app?.initializePreparedVoice?.(profile, { enableAudio: false }).catch(() => {});
     } catch (error) {
       this.elements.downloadStatus.textContent = error instanceof Error ? error.message : String(error);
       this.elements.next.disabled = false;
@@ -417,6 +390,7 @@ export class TutorialController {
 
   async #prepareConversationTutorial() {
     if (this.elements.overlay.dataset.step !== "conversations") return;
+    this.elements.conversationRepeat.hidden = !this.conversationTutorialCompleted;
     this.elements.conversationStatus.textContent = this.conversationTutorialCompleted
       ? "新しい会話を作れました。会話一覧から別の会話を選ぶと、履歴も一緒に切り替わります。"
       : "まずは上の「会話一覧」を押してみましょう。";
@@ -440,7 +414,19 @@ export class TutorialController {
     if (!this.app?.currentSession?.id || this.app.currentSession.id === this.conversationStartSessionId) return;
     this.conversationTutorialCompleted = true;
     this.elements.next.disabled = false;
+    this.elements.conversationRepeat.hidden = false;
     this.elements.conversationStatus.textContent = "新しい会話へ切り替わりました。最初に送った文章が会話一覧のプレビューになります。";
+    this.#updateHighlights("conversations");
+  }
+
+  #repeatConversationTutorial() {
+    if (this.elements.overlay.dataset.step !== "conversations") return;
+    this.conversationTutorialCompleted = false;
+    this.elements.next.disabled = true;
+    this.elements.conversationRepeat.hidden = true;
+    this.conversationStartSessionId = this.app?.currentSession?.id ?? null;
+    this.elements.conversationStatus.textContent = "もう一度試せます。上の「会話一覧」を押し、左の入力欄へ新しい文章を書いて改行してください。";
+    this.elements.conversationView.click();
     this.#updateHighlights("conversations");
   }
 
@@ -682,6 +668,15 @@ export class TutorialController {
     if (!this.app?.getVoiceProfilePlan || this.downloadRunning || this.downloadCompleted) return;
     try {
       const profile = this.modelProfileUi?.profile ?? "fp16";
+      if (await this.app?.isVoiceProfileCached?.(profile)) {
+        this.downloadCompleted = true;
+        this.downloadAcknowledged = true;
+        this.#renderDownloadDisclosure();
+        this.#resetDownloadProgress();
+        this.elements.next.disabled = false;
+        this.#updateHighlights("download");
+        return;
+      }
       const plan = await this.app.getVoiceProfilePlan(profile);
       const totalBytes = Number(plan?.totalBytes || 0);
       if (totalBytes > 0 && !this.downloadRunning && !this.downloadCompleted) {
@@ -1351,6 +1346,7 @@ export class TutorialController {
       waitDemo: byId("tutorial-wait-demo"),
       cancelDemo: byId("tutorial-cancel-demo"),
       conversationStatus: byId("tutorial-conversation-status"),
+      conversationRepeat: byId("tutorial-conversation-repeat"),
       freeStatus: byId("tutorial-free-status"),
       sampleButtons: [...this.document.querySelectorAll("[data-tutorial-sample]")],
       sampleStatus: byId("tutorial-sample-status"),
