@@ -99,6 +99,7 @@ export class TutorialController {
     this.downloadProgressUnsubscribe = null;
     this.downloadProgressLast = null;
     this.targetArrowTarget = null;
+    this.summaryReturnIndex = null;
     this.elements = this.#resolveElements();
   }
 
@@ -123,6 +124,9 @@ export class TutorialController {
     this.elements.downloadButton.addEventListener("click", () => void this.#runVoiceDownload());
     this.elements.waitSeconds.addEventListener("change", () => void this.#applyWaitSetting());
     this.elements.waitDemo.addEventListener("click", () => void this.#runWaitDemo());
+    for (const button of this.elements.summaryJumpButtons) {
+      button.addEventListener("click", () => this.#jumpFromSummary(button.dataset.tutorialJump));
+    }
     this.document.addEventListener("typed-voice:model-profile-ui-change", () => {
       this.#stopSample();
       const voiceState = this.app?.voiceRuntimeState;
@@ -133,7 +137,7 @@ export class TutorialController {
       this.#resetDownloadAcknowledgement();
       this.#renderDownloadDisclosure();
       this.#resetDownloadProgress();
-      if (this.elements.overlay.dataset.step === "model") this.#showStep();
+      if (this.elements.overlay.dataset.step === "download") this.#showStep();
     });
 
     if (safeRead(this.storage, TUTORIAL_STORAGE_KEY) !== "1") {
@@ -155,6 +159,7 @@ export class TutorialController {
     this.#resetDownloadAcknowledgement();
     this.#renderDownloadDisclosure();
     this.#resetDownloadProgress();
+    this.summaryReturnIndex = null;
     this.stepIndex = 0;
     this.elements.overlay.hidden = false;
     this.document.body.classList.add("tutorial-open");
@@ -162,12 +167,20 @@ export class TutorialController {
   }
 
   previous() {
+    if (this.summaryReturnIndex != null && this.stepIndex !== this.summaryReturnIndex) {
+      this.#returnToSummary();
+      return;
+    }
     if (this.stepIndex === 0) return;
     this.stepIndex -= 1;
     this.#showStep();
   }
 
   next() {
+    if (this.summaryReturnIndex != null && this.stepIndex !== this.summaryReturnIndex) {
+      this.#returnToSummary();
+      return;
+    }
     if (this.stepIndex >= this.elements.pages.length - 1) {
       this.complete();
       return;
@@ -189,6 +202,7 @@ export class TutorialController {
   }
 
   #showStep() {
+    if (this.summaryReturnIndex === this.stepIndex) this.summaryReturnIndex = null;
     const page = this.elements.pages[this.stepIndex];
     for (const [index, candidate] of this.elements.pages.entries()) {
       candidate.hidden = index !== this.stepIndex;
@@ -198,15 +212,19 @@ export class TutorialController {
     this.elements.progress.textContent = `${this.stepIndex + 1} / ${this.elements.pages.length}`;
     this.elements.overlay.classList.add("tutorial-needs-attention");
     this.elements.back.disabled = this.stepIndex === 0;
-    this.elements.next.textContent = this.stepIndex === this.elements.pages.length - 1 ? "使い始める" : "次へ";
-    this.elements.next.disabled = (page.dataset.tutorialStep === "model" && !this.downloadAcknowledged)
-      || (page.dataset.tutorialStep === "download" && !this.downloadCompleted);
+    this.elements.back.textContent = this.summaryReturnIndex != null && this.stepIndex !== this.summaryReturnIndex
+      ? `${this.summaryReturnIndex + 1} / ${this.elements.pages.length}へ戻る`
+      : "戻る";
+    this.elements.next.textContent = this.summaryReturnIndex != null && this.stepIndex !== this.summaryReturnIndex
+      ? `${this.summaryReturnIndex + 1} / ${this.elements.pages.length}へ戻る`
+      : this.stepIndex === this.elements.pages.length - 1 ? "使い始める" : "次へ";
+    this.elements.next.disabled = page.dataset.tutorialStep === "download" && !this.downloadCompleted;
     this.#updateHighlights(page.dataset.tutorialStep);
     if (page.dataset.tutorialStep === "wait") this.#syncWaitSetting();
     if (page.dataset.tutorialStep === "cancel") void this.#prepareCancelExample();
     if (page.dataset.tutorialStep === "download" && !this.downloadCompleted) void this.#loadActualDownloadPlan();
     this.elements.pagesContainer.scrollTop = 0;
-    if (page.dataset.tutorialStep === "model" && !this.downloadAcknowledged) {
+    if (page.dataset.tutorialStep === "download" && !this.downloadCompleted && !this.downloadAcknowledged) {
       this.elements.downloadAck.focus({ preventScroll: true });
     } else if (page.dataset.tutorialStep === "download" && !this.downloadCompleted) {
       this.elements.downloadButton.focus({ preventScroll: true });
@@ -217,6 +235,23 @@ export class TutorialController {
 
   #acknowledgeStep() {
     this.elements.overlay.classList.remove("tutorial-needs-attention");
+  }
+
+  #jumpFromSummary(stepName) {
+    const summaryIndex = this.elements.pages.findIndex((page) => page.dataset.tutorialStep === "finish");
+    const targetIndex = this.elements.pages.findIndex((page) => page.dataset.tutorialStep === stepName);
+    if (summaryIndex < 0 || targetIndex < 0) return;
+    this.summaryReturnIndex = summaryIndex;
+    this.stepIndex = targetIndex;
+    this.#showStep();
+  }
+
+  #returnToSummary() {
+    if (this.summaryReturnIndex == null) return;
+    const target = this.summaryReturnIndex;
+    this.summaryReturnIndex = null;
+    this.stepIndex = target;
+    this.#showStep();
   }
 
   #syncWaitSetting() {
@@ -283,6 +318,8 @@ export class TutorialController {
       await this.#sleep(180);
       this.#removeWaitDemoPending();
       this.#appendDemoHistory(WAIT_DEMO_TEXT);
+      const newestHistory = this.elements.messageList.querySelector(".tutorial-demo-message");
+      newestHistory?.scrollIntoView({ behavior: "smooth", block: "start", inline: "nearest" });
       this.#updateHighlights("wait");
       this.elements.waitStatus.textContent = "待ち時間が終わりました。文章は読み上げ履歴のいちばん上へ移ります。";
     } finally {
@@ -326,25 +363,24 @@ export class TutorialController {
 
   #resetDownloadAcknowledgement() {
     this.downloadAcknowledged = false;
-    this.elements.downloadAck.disabled = false;
-    this.elements.downloadAck.textContent = "あとでダウンロードされます。了解した";
-    if (this.elements.overlay.dataset.step === "model") this.elements.next.disabled = true;
+    this.elements.downloadAck.disabled = true;
+    this.elements.downloadAck.textContent = "容量を確認しています…";
+    this.elements.downloadButton.disabled = true;
   }
 
   #renderDownloadDisclosure() {
-    const profileKey = this.modelProfileUi?.profile ?? "fp16";
-    const profile = MODEL_PROFILES[profileKey] ?? MODEL_PROFILES.fp16;
-    this.elements.downloadSize.textContent = profile.size;
+    this.elements.downloadSize.textContent = this.downloadCompleted ? "保存済み" : "確認中…";
   }
 
   #acknowledgeDownload() {
+    if (this.elements.downloadAck.disabled || this.downloadCompleted) return;
     this.downloadAcknowledged = true;
     this.elements.downloadAck.disabled = true;
-    this.elements.downloadAck.textContent = "了解しました";
-    this.elements.next.disabled = false;
+    this.elements.downloadAck.textContent = "容量を確認しました";
+    this.elements.downloadButton.disabled = false;
     this.elements.overlay.classList.remove("tutorial-needs-attention");
-    this.#updateHighlights("model");
-    this.elements.next.focus({ preventScroll: true });
+    this.#updateHighlights("download");
+    this.elements.downloadButton.focus({ preventScroll: true });
   }
 
   async #runSamplePreview() {
@@ -434,8 +470,8 @@ export class TutorialController {
     this.elements.downloadSpeed.textContent = this.downloadCompleted ? "キャッシュ済み" : "-- MB/s";
     this.elements.downloadStatus.textContent = this.downloadCompleted
       ? "音声データはすでに利用できます。"
-      : "ボタンを押すまでダウンロードは始まりません。";
-    this.elements.downloadButton.disabled = this.downloadCompleted;
+      : "実際の容量を確認してから、ダウンロードを開始できます。";
+    this.elements.downloadButton.disabled = this.downloadCompleted || !this.downloadAcknowledged;
     this.elements.downloadButton.textContent = this.downloadCompleted ? "音声データは準備済み" : "音声データをダウンロード";
   }
 
@@ -447,18 +483,25 @@ export class TutorialController {
       const totalBytes = Number(plan?.totalBytes || 0);
       if (totalBytes > 0 && !this.downloadRunning && !this.downloadCompleted) {
         const formatted = this.#formatBytes(totalBytes);
+        this.elements.downloadSize.textContent = formatted;
         this.elements.downloadBytes.textContent = `予定 ${formatted}`;
-        this.elements.downloadStatus.textContent = `選択中のモデルで実際に確認する音声データは ${formatted} です。ボタンを押すまで開始しません。`;
+        this.elements.downloadAck.disabled = false;
+        this.elements.downloadAck.textContent = `この ${formatted} を保存する。了解した`;
+        this.elements.downloadStatus.textContent = `実際に保存する容量は ${formatted} です。確認するまでダウンロードは始まりません。`;
+        this.#updateHighlights("download");
       }
     } catch {
       if (!this.downloadRunning && !this.downloadCompleted) {
-        this.elements.downloadStatus.textContent = "実際の容量はダウンロード開始時に確認します。ボタンを押すまで開始しません。";
+        this.elements.downloadSize.textContent = "取得できませんでした";
+        this.elements.downloadAck.disabled = true;
+        this.elements.downloadAck.textContent = "容量を確認できません";
+        this.elements.downloadStatus.textContent = "実際の容量を確認できませんでした。再読み込みしてからもう一度お試しください。";
       }
     }
   }
 
   async #runVoiceDownload() {
-    if (this.downloadRunning || this.downloadCompleted) return;
+    if (this.downloadRunning || this.downloadCompleted || !this.downloadAcknowledged) return;
     const voiceRuntime = this.app?.voiceRuntime;
     if (!voiceRuntime?.subscribeProgress || !this.app?.prepareOfflineVoice) {
       this.elements.downloadStatus.textContent = "音声ダウンロードを開始できません。";
@@ -605,29 +648,30 @@ export class TutorialController {
     this.#rememberComposer();
 
     try {
-      if ((this.app?.tutorialPendingCount ?? 0) === 0) {
-        const composer = this.elements.composer;
-        this.#moveCaretToEnd();
-        if (!composer.value.trim() || composer.value.endsWith("\n")) {
-          const source = this.#pickDemoText();
-          if (!await this.#typeText(source, runToken)) return;
-        }
-        const beforePending = this.app?.tutorialPendingCount ?? 0;
-        this.#insertLineBreakAtCaret();
-        if (!await this.#waitForPendingIncrease(beforePending, runToken)) return;
+      while ((this.app?.tutorialPendingCount ?? 0) > 0) {
+        if (!await this.app?.cancelLatestTutorialPending?.()) break;
       }
-      this.#renderDemoHistory();
 
-      const source = this.app?.latestTutorialPendingText ?? this.#lastSubmittedLine();
-      const correction = this.#pickCorrectionText(source);
-      this.elements.correctionStatus.textContent = "差分だけを1文字ずつ直しています。";
-      if (!await this.#replaceLastSubmittedLine(correction, runToken)) return;
+      const currentLines = this.elements.composer.value
+        .replace(/\r\n?/g, "\n")
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .slice(-2);
+      const first = currentLines[0] ?? this.#pickDemoText();
+      let second = currentLines[1] ?? this.#pickDemoText();
+      if (second === first) second = DEMO_TEXTS.find((text) => text !== first) ?? DEMO_TEXTS[0];
+      if (!await this.#seedCorrectionPendingPair(first, second, runToken)) return;
 
-      this.elements.correctionStatus.textContent = "実際の「現在の文章で訂正する」を押します。";
+      const correction = this.#pickCorrectionText(first);
+      this.elements.correctionStatus.textContent = "1行目の差分だけを、1文字ずつ直しています。";
+      if (!await this.#replaceFirstSubmittedLine(correction, runToken)) return;
+
+      this.elements.correctionStatus.textContent = "1行目を直した状態で、実際の「現在の文章で訂正する」を押します。";
       await this.#pressRealButton(this.elements.correctionButton, runToken);
-      if (!await this.#waitForPendingText(correction, runToken)) return;
+      if (!await this.#waitForAnyPendingText(correction, runToken)) return;
       this.#renderDemoHistory();
-      this.elements.correctionStatus.textContent = "訂正されました。チュートリアルの例なので、ここでは通常の訂正対象数の制限を無視しています。";
+      this.elements.correctionStatus.textContent = "1行目だけ訂正されました。これは操作例なので、ここでは通常の訂正対象数の制限を無視しています。";
     } finally {
       if (runToken === this.demoRunToken) {
         this.demoRunning = false;
@@ -823,6 +867,35 @@ export class TutorialController {
     return this.#waitFor(() => this.app?.latestTutorialPendingText === text, runToken);
   }
 
+  #waitForAnyPendingText(text, runToken) {
+    return this.#waitFor(
+      () => [...this.elements.pendingList.querySelectorAll(".pending-text")]
+        .some((node) => node.textContent === text),
+      runToken
+    );
+  }
+
+  async #seedCorrectionPendingPair(first, second, runToken) {
+    const composer = this.elements.composer;
+    composer.focus({ preventScroll: true });
+    if (composer.value.length > 0) {
+      composer.setSelectionRange(0, composer.value.length);
+      if (!this.#deleteBeforeCaret()) return false;
+    }
+
+    this.elements.correctionStatus.textContent = "まず、訂正前の2行を読み上げ待ちへ送ります。";
+    if (!await this.#typeText(first, runToken, 22)) return false;
+    let beforePending = this.app?.tutorialPendingCount ?? 0;
+    if (!this.#insertLineBreakAtCaret()) return false;
+    if (!await this.#waitForPendingIncrease(beforePending, runToken)) return false;
+
+    if (!await this.#typeText(second, runToken, 22)) return false;
+    beforePending = this.app?.tutorialPendingCount ?? 0;
+    if (!this.#insertLineBreakAtCaret()) return false;
+    if (!await this.#waitForPendingIncrease(beforePending, runToken)) return false;
+    return runToken === this.demoRunToken;
+  }
+
   #lastSubmittedLineRange() {
     const value = this.elements.composer.value;
     let end = value.length;
@@ -833,6 +906,35 @@ export class TutorialController {
 
   #lastSubmittedLine() {
     return this.#lastSubmittedLineRange().text;
+  }
+
+  #firstSubmittedLineRange() {
+    const value = this.elements.composer.value;
+    let start = 0;
+    while (start < value.length && value[start] === "\n") start += 1;
+    const newline = value.indexOf("\n", start);
+    const end = newline === -1 ? value.length : newline;
+    return { start, end, text: value.slice(start, end) };
+  }
+
+  async #replaceFirstSubmittedLine(nextText, runToken) {
+    const composer = this.elements.composer;
+    const range = this.#firstSubmittedLineRange();
+    let prefixLength = 0;
+    while (
+      prefixLength < range.text.length
+      && prefixLength < nextText.length
+      && range.text[prefixLength] === nextText[prefixLength]
+    ) prefixLength += 1;
+
+    composer.focus({ preventScroll: true });
+    composer.setSelectionRange(range.end, range.end);
+    for (let index = range.text.length; index > prefixLength; index -= 1) {
+      if (runToken !== this.demoRunToken) return false;
+      if (!this.#deleteBeforeCaret()) return false;
+      await this.#sleep(34);
+    }
+    return this.#typeText(nextText.slice(prefixLength), runToken, 34);
   }
 
   async #replaceLastSubmittedLine(nextText, runToken) {
@@ -916,10 +1018,7 @@ export class TutorialController {
       this.elements.composer.classList.add("tutorial-target");
       primaryTarget = this.elements.composer;
     }
-    if (step === "model" && !this.downloadAcknowledged) {
-      this.elements.downloadAck.classList.add("tutorial-target");
-      primaryTarget = this.elements.downloadAck;
-    }
+
     if (step === "correction") {
       this.elements.correctionButton.classList.add("tutorial-target");
       primaryTarget = this.elements.correctionButton;
@@ -933,8 +1032,13 @@ export class TutorialController {
       primaryTarget = this.elements.cancelCurrentButton;
     }
     if (step === "download" && !this.downloadCompleted) {
-      this.elements.downloadButton.classList.add("tutorial-target");
-      primaryTarget = this.elements.downloadButton;
+      if (!this.downloadAcknowledged) {
+        this.elements.downloadAck.classList.add("tutorial-target");
+        primaryTarget = this.elements.downloadAck;
+      } else {
+        this.elements.downloadButton.classList.add("tutorial-target");
+        primaryTarget = this.elements.downloadButton;
+      }
     }
     this.targetArrowTarget = primaryTarget;
     requestAnimationFrame(() => this.#refreshTargetArrow());
@@ -956,10 +1060,14 @@ export class TutorialController {
 
     const viewportWidth = globalThis.innerWidth || this.document.documentElement.clientWidth;
     const viewportHeight = globalThis.innerHeight || this.document.documentElement.clientHeight;
-    const headX = 16;
-    const headY = 26;
-    const x = Math.max(8, Math.min(viewportWidth - 112, rect.right + 12 - headX));
-    const y = Math.max(8, Math.min(viewportHeight - 210, rect.top + rect.height / 2 - headY));
+    // The visual tip is where the two arrow-head strokes meet, not the
+    // top-left corner of the fixed arrow box. Keep that tip on the target.
+    const tipOffsetX = 20;
+    const tipOffsetY = 30;
+    const desiredTipX = rect.right + 4;
+    const desiredTipY = rect.top + rect.height / 2;
+    const x = Math.max(8, Math.min(viewportWidth - 112, desiredTipX - tipOffsetX));
+    const y = Math.max(8, Math.min(viewportHeight - 210, desiredTipY - tipOffsetY));
 
     arrow.style.setProperty("--tutorial-target-arrow-x", `${Math.round(x)}px`);
     arrow.style.setProperty("--tutorial-target-arrow-y", `${Math.round(y)}px`);
@@ -976,6 +1084,7 @@ export class TutorialController {
     return {
       overlay,
       pages: [...overlay.querySelectorAll("[data-tutorial-step]")],
+      summaryJumpButtons: [...overlay.querySelectorAll("[data-tutorial-jump]")],
       pagesContainer: overlay.querySelector(".tutorial-pages"),
       progress: byId("tutorial-progress"),
       back: byId("tutorial-back"),

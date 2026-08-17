@@ -425,7 +425,9 @@ body.tutorial-open { overflow: hidden; }
   text-align: right;
 }
 .tutorial-summary-grid { margin-top: 20px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
-.tutorial-summary-grid span { min-height: 86px; display: grid; align-content: center; gap: 4px; padding: 12px; border: 1px solid #ddd6cd; border-radius: 14px; background: #faf9f7; color: #746c62; font-size: 0.8rem; }
+.tutorial-summary-grid button { min-height: 86px; display: grid; align-content: center; gap: 4px; padding: 12px; border: 1px solid #ddd6cd; border-radius: 14px; background: #faf9f7; color: #746c62; font: inherit; font-size: 0.8rem; text-align: left; cursor: pointer; }
+.tutorial-summary-grid button:hover,
+.tutorial-summary-grid button:focus-visible { border-color: #b85f28; background: #fff0e3; outline: none; }
 .tutorial-summary-grid strong { display: block; color: #2f2b27; font-size: 0.92rem; }
 .tutorial-footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 24px 22px; border-top: 1px solid #e4ded6; }
 .tutorial-footer-end { display: flex; align-items: end; justify-content: flex-end; gap: 14px; }
@@ -511,7 +513,7 @@ body.tutorial-open { overflow: hidden; }
 .tutorial-nav-button:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .tutorial-overlay.tutorial-live {
-  place-items: center end;
+  place-items: end end;
   background: transparent;
   backdrop-filter: none;
   pointer-events: auto;

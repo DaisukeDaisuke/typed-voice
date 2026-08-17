@@ -199,11 +199,6 @@ https://tyc.rei-yumesaki.net
             <button id="tutorial-sample-button" class="tutorial-demo-button" type="button">この声を試聴する</button>
             <span id="tutorial-sample-status" class="tutorial-demo-status" aria-live="polite">選んだモデルの短いWAVを取得して再生します。</span>
           </div>
-          <div class="tutorial-download-disclosure">
-            <span>この設定のダウンロード容量の目安です。チュートリアルの最後に、実際に取得する容量も確認してからダウンロードします。</span>
-            <strong id="tutorial-download-size">約1.56 GiB</strong>
-            <button id="tutorial-download-ack" class="tutorial-download-ack" type="button">あとでダウンロードされます。了解した</button>
-          </div>
         </section>
 
         <section class="tutorial-page" data-tutorial-step="linebreak" data-tutorial-live="true" hidden>
@@ -244,22 +239,27 @@ https://tyc.rei-yumesaki.net
         </section>
 
         <section class="tutorial-page" data-tutorial-step="finish" hidden>
-          <p class="tutorial-kicker">準備完了</p>
-          <h3>ひと通り、操作はこれで大丈夫です</h3>
-          <p>モデルは右上の「設定」からいつでも変えられます。この案内もあとから見直せます。次のページで音声データを端末へ保存します。</p>
+          <p class="tutorial-kicker">あとから見直せます</p>
+          <h3>気になるところだけ、もう一度見てみましょう</h3>
+          <p>下の項目を押すと、その操作のページへ戻れます。見終わったら「7 / 8へ戻る」でここへ戻ってこられます。</p>
           <div class="tutorial-summary-grid">
-            <span><strong>Enter</strong>改行すると読み上げ</span>
-            <span><strong>訂正</strong>読む前なら直せます</span>
-            <span><strong>取り消し</strong>読む前なら止められます</span>
-            <span><strong>履歴 / 会話一覧</strong>あとからいつでも見返せます</span>
+            <button type="button" data-tutorial-jump="linebreak"><strong>Enter</strong>改行すると読み上げ</button>
+            <button type="button" data-tutorial-jump="correction"><strong>訂正</strong>読む前なら直せます</button>
+            <button type="button" data-tutorial-jump="wait"><strong>待ち時間</strong>直すための時間</button>
+            <button type="button" data-tutorial-jump="cancel"><strong>取り消し</strong>読む前なら止められます</button>
           </div>
         </section>
 
         <section class="tutorial-page" data-tutorial-step="download" hidden>
           <p class="tutorial-kicker">最後に</p>
           <h3>音声データをこの端末へ保存します</h3>
-          <p>ここで初めて大きな音声データを取得し、検証してオフラインCacheへ保存します。モデル本体の読み込みは、このチュートリアルを閉じた次の画面で行います。</p>
-          <button id="tutorial-download-button" class="tutorial-download-button" type="button">音声データをダウンロード</button>
+          <p>ここで初めて大きな音声データを取得し、検証してオフラインCacheへ保存します。実際の容量を確認してから、ダウンロードするか選べます。</p>
+          <div class="tutorial-download-disclosure">
+            <span>この端末へ実際に保存する音声データの容量です。</span>
+            <strong id="tutorial-download-size">確認中…</strong>
+            <button id="tutorial-download-ack" class="tutorial-download-ack" type="button" disabled>容量を確認しています…</button>
+          </div>
+          <button id="tutorial-download-button" class="tutorial-download-button" type="button" disabled>音声データをダウンロード</button>
           <div class="tutorial-download-progress" aria-live="polite">
             <progress id="tutorial-download-progress" max="100" value="0">0%</progress>
             <div class="tutorial-download-progress-meta">
