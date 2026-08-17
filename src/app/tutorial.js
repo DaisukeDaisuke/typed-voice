@@ -1,11 +1,15 @@
 import { MODEL_PROFILES } from "./model-profile-ui.js";
 
 const TUTORIAL_STORAGE_KEY = "typed-voice-tutorial-v1-complete";
-const SAMPLE_URLS = Object.freeze({
-  fp32: "https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/main/samples/03_found_me_waiting.wav",
-  fp16: "https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/fp16/samples/03_found_me_waiting.wav",
-  "mobile-int8": "https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/mobile-int8/samples/03_found_me_waiting.wav",
-  "mobile-int4": "https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/mobile-int4/samples/03_found_me_waiting.wav",
+const SAMPLE_BRANCHES = Object.freeze({
+  fp32: "main",
+  fp16: "fp16",
+  "mobile-int8": "mobile-int8",
+  "mobile-int4": "mobile-int4",
+});
+const SAMPLE_PREVIEWS = Object.freeze({
+  expression: Object.freeze({ filename: "03_found_me_waiting.wav", label: "①" }),
+  articulation: Object.freeze({ filename: "01_customs_tariff_rejection.wav", label: "②" }),
 });
 const DEMO_TEXTS = Object.freeze([
   "こんにちは。今日は何を読み上げましょうか？",
@@ -113,7 +117,9 @@ export class TutorialController {
     this.elements.linebreakDemo.addEventListener("click", () => void this.#runLinebreakDemo());
     this.elements.correctionDemo.addEventListener("click", () => void this.#runCorrectionDemo());
     this.elements.cancelDemo.addEventListener("click", () => void this.#runCancelDemo());
-    this.elements.sampleButton.addEventListener("click", () => void this.#runSamplePreview());
+    for (const button of this.elements.sampleButtons) {
+      button.addEventListener("click", () => void this.#runSamplePreview(button.dataset.tutorialSample));
+    }
     this.elements.downloadAck.addEventListener("click", () => this.#acknowledgeDownload());
     this.elements.downloadButton.addEventListener("click", () => void this.#runVoiceDownload());
     this.elements.waitSeconds.addEventListener("change", () => void this.#applyWaitSetting());
@@ -545,15 +551,18 @@ export class TutorialController {
     this.elements.downloadButton.focus({ preventScroll: true });
   }
 
-  async #runSamplePreview() {
+  async #runSamplePreview(sampleId) {
     const profileKey = this.modelProfileUi?.profile ?? "fp16";
     const profile = MODEL_PROFILES[profileKey] ?? MODEL_PROFILES.fp16;
-    const url = SAMPLE_URLS[profileKey] ?? SAMPLE_URLS.fp16;
+    const sample = SAMPLE_PREVIEWS[sampleId] ?? SAMPLE_PREVIEWS.expression;
+    const branch = SAMPLE_BRANCHES[profileKey] ?? SAMPLE_BRANCHES.fp16;
+    const url = `https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/${branch}/samples/${sample.filename}`;
+    const cacheKey = `${profileKey}:${sampleId}`;
     this.#stopSample();
-    this.elements.sampleButton.disabled = true;
-    this.elements.sampleStatus.textContent = this.sampleAssetBytes.has(profileKey)
-      ? `${profile.title} をメモリから再生します。`
-      : `${profile.title} の試聴WAVを取得しています。`;
+    for (const button of this.elements.sampleButtons) button.disabled = true;
+    this.elements.sampleStatus.textContent = this.sampleAssetBytes.has(cacheKey)
+      ? `${profile.title} の試聴 ${sample.label} をメモリから再生します。`
+      : `${profile.title} の試聴 ${sample.label} を取得しています。`;
 
     try {
       const view = this.document.defaultView ?? globalThis;
@@ -561,28 +570,28 @@ export class TutorialController {
       if (!AudioContextCtor) throw new Error("このブラウザでは試聴を再生できません。");
       this.sampleAudioContext ??= new AudioContextCtor();
       await this.sampleAudioContext.resume();
-      const bytes = await this.#getSampleAsset(profileKey, url);
-      let buffer = this.sampleBuffers.get(profileKey);
+      const bytes = await this.#getSampleAsset(cacheKey, url);
+      let buffer = this.sampleBuffers.get(cacheKey);
       if (!buffer) {
         buffer = await this.sampleAudioContext.decodeAudioData(bytes.slice(0));
-        this.sampleBuffers.set(profileKey, buffer);
+        this.sampleBuffers.set(cacheKey, buffer);
       }
       const source = this.sampleAudioContext.createBufferSource();
       source.buffer = buffer;
       source.connect(this.sampleAudioContext.destination);
       this.sampleSource = source;
-      this.elements.sampleStatus.textContent = `${profile.title} を再生中です（${this.#formatBytes(bytes.byteLength)}）。`;
+      this.elements.sampleStatus.textContent = `${profile.title} の試聴 ${sample.label} を再生中です（${this.#formatBytes(bytes.byteLength)}）。`;
       source.onended = () => {
         if (this.sampleSource === source) {
           this.sampleSource = null;
-          this.elements.sampleStatus.textContent = `${profile.title} の試聴が終わりました。何度でも再生できます。`;
+          this.elements.sampleStatus.textContent = `試聴 ${sample.label} が終わりました。どちらも何度でも再生できます。`;
         }
       };
       source.start();
     } catch (error) {
       this.elements.sampleStatus.textContent = error instanceof Error ? error.message : String(error);
     } finally {
-      this.elements.sampleButton.disabled = false;
+      for (const button of this.elements.sampleButtons) button.disabled = false;
     }
   }
 
@@ -602,23 +611,23 @@ export class TutorialController {
     }
   }
 
-  async #getSampleAsset(profileKey, url) {
-    const cached = this.sampleAssetBytes.get(profileKey);
+  async #getSampleAsset(cacheKey, url) {
+    const cached = this.sampleAssetBytes.get(cacheKey);
     if (cached) return cached;
-    const existing = this.sampleAssetPromises.get(profileKey);
+    const existing = this.sampleAssetPromises.get(cacheKey);
     if (existing) return existing;
     const request = (async () => {
       const response = await fetch(url, { cache: "force-cache" });
       if (!response.ok) throw new Error(`試聴WAVの取得に失敗しました (${response.status})`);
       const bytes = await response.arrayBuffer();
-      this.sampleAssetBytes.set(profileKey, bytes);
+      this.sampleAssetBytes.set(cacheKey, bytes);
       return bytes;
     })();
-    this.sampleAssetPromises.set(profileKey, request);
+    this.sampleAssetPromises.set(cacheKey, request);
     try {
       return await request;
     } finally {
-      this.sampleAssetPromises.delete(profileKey);
+      this.sampleAssetPromises.delete(cacheKey);
     }
   }
 
@@ -1311,7 +1320,7 @@ export class TutorialController {
       cancelDemo: byId("tutorial-cancel-demo"),
       conversationStatus: byId("tutorial-conversation-status"),
       freeStatus: byId("tutorial-free-status"),
-      sampleButton: byId("tutorial-sample-button"),
+      sampleButtons: [...this.document.querySelectorAll("[data-tutorial-sample]")],
       sampleStatus: byId("tutorial-sample-status"),
       downloadSize: byId("tutorial-download-size"),
       downloadAck: byId("tutorial-download-ack"),
