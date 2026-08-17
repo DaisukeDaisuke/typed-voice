@@ -498,19 +498,8 @@ body.tutorial-open.tutorial-scrollable { overflow: auto; }
 .tutorial-guide-arrow-head::before { transform: rotate(-34deg); }
 .tutorial-guide-arrow-head::after { transform: rotate(34deg); }
 .tutorial-attention-arrow {
-  position: absolute;
-  right: -12px;
-  bottom: calc(100% - 2px);
-  display: none;
-  width: 108px;
-  height: 88px;
-  filter: drop-shadow(0 4px 5px #42180755);
-  animation: tutorial-arrow-bob 1.15s ease-in-out infinite;
+  display: none !important;
 }
-.tutorial-attention-arrow .tutorial-guide-arrow-shape {
-  transform: translate(39px, 84px) rotate(-90deg) scale(0.45);
-}
-.tutorial-needs-attention .tutorial-attention-arrow { display: block; }
 @keyframes tutorial-arrow-bob {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-6px); }
@@ -528,12 +517,48 @@ body.tutorial-open.tutorial-scrollable { overflow: auto; }
   filter: drop-shadow(0 6px 7px #42180766);
   animation: tutorial-target-arrow-bob 1.15s ease-in-out infinite;
 }
+.tutorial-target-arrow .tutorial-guide-arrow-shape {
+  /* The V-shaped arrow tip is exactly (20px, 30px) inside this shape. */
+  transform: translate(-20px, -30px);
+}
 @keyframes tutorial-target-arrow-bob {
   0%, 100% { translate: 0 0; }
   50% { translate: 0 -6px; }
 }
 .tutorial-nav-button { min-width: 112px; }
-.tutorial-next-button { min-width: 220px; min-height: 56px; font-size: 1rem; background: #9d4d24; border-color: #8d421d; }
+.tutorial-next-button { position: relative; min-width: 220px; min-height: 56px; font-size: 1rem; background: #9d4d24; border-color: #8d421d; }
+.tutorial-needs-attention .tutorial-next-button:not(:disabled)::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 19px);
+  width: 6px;
+  height: 38px;
+  border-radius: 999px;
+  background: #762b0c;
+  translate: -50% 0;
+  pointer-events: none;
+  filter: drop-shadow(0 4px 4px #42180755);
+  animation: tutorial-next-arrow-bob 1.15s ease-in-out infinite;
+}
+.tutorial-needs-attention .tutorial-next-button:not(:disabled)::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 7px);
+  width: 24px;
+  height: 17px;
+  background: #762b0c;
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+  translate: -50% 0;
+  pointer-events: none;
+  filter: drop-shadow(0 4px 4px #42180755);
+  animation: tutorial-next-arrow-bob 1.15s ease-in-out infinite;
+}
+@keyframes tutorial-next-arrow-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
 .tutorial-nav-button:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .tutorial-overlay.tutorial-live {

@@ -1166,7 +1166,7 @@ export class TutorialController {
     }
     if (step === "free") {
       this.elements.next.classList.add("tutorial-target");
-      primaryTarget = this.elements.next;
+      primaryTarget = null;
     }
     if (step === "download" && !this.downloadCompleted) {
       if (!this.downloadAcknowledged) {
@@ -1195,19 +1195,12 @@ export class TutorialController {
       return;
     }
 
-    const viewportWidth = globalThis.innerWidth || this.document.documentElement.clientWidth;
-    const viewportHeight = globalThis.innerHeight || this.document.documentElement.clientHeight;
-    // The visual tip is where the two arrow-head strokes meet, not the
-    // top-left corner of the fixed arrow box. Keep that tip on the target.
-    const tipOffsetX = 20;
-    const tipOffsetY = 30;
-    const desiredTipX = rect.right + 4;
-    const desiredTipY = rect.top + rect.height / 2;
-    const x = Math.max(8, Math.min(viewportWidth - 112, desiredTipX - tipOffsetX));
-    const y = Math.max(8, Math.min(viewportHeight - 210, desiredTipY - tipOffsetY));
-
-    arrow.style.setProperty("--tutorial-target-arrow-x", `${Math.round(x)}px`);
-    arrow.style.setProperty("--tutorial-target-arrow-y", `${Math.round(y)}px`);
+    // CSS makes the arrow-head tip the local origin. JS only supplies the
+    // actual point to indicate, so there is no hidden geometry offset here.
+    const desiredTipX = rect.right + 5;
+    const desiredTipY = rect.top + rect.height / 2 + 3;
+    arrow.style.setProperty("--tutorial-target-arrow-x", `${Math.round(desiredTipX)}px`);
+    arrow.style.setProperty("--tutorial-target-arrow-y", `${Math.round(desiredTipY)}px`);
     arrow.hidden = false;
   }
 
