@@ -42,6 +42,7 @@ export class UiOrchestrator {
     this.pendingTicker = null;
     this.tutorialExampleMode = false;
     this.tutorialPendingIds = new Set();
+    this.tutorialTransientMessages = [];
     this.tutorialMaxRevisionable = null;
     this.tutorialConversationDemo = null;
     this.tutorialConversationActive = false;
@@ -227,6 +228,7 @@ export class UiOrchestrator {
     if (this.tutorialExampleMode) return;
     this.tutorialExampleMode = true;
     this.tutorialPendingIds.clear();
+    this.tutorialTransientMessages = [];
     if (this.utterances) {
       this.tutorialMaxRevisionable = this.utterances.maxRevisionable;
       this.utterances.maxRevisionable = Number.MAX_SAFE_INTEGER;
@@ -316,6 +318,7 @@ export class UiOrchestrator {
     const ids = [...this.tutorialPendingIds];
     for (const id of ids) await this.utterances?.cancel(id);
     this.tutorialPendingIds.clear();
+    this.tutorialTransientMessages = [];
     this.tutorialExampleMode = false;
     if (this.utterances && this.tutorialMaxRevisionable != null) {
       this.utterances.maxRevisionable = this.tutorialMaxRevisionable;
@@ -352,11 +355,25 @@ export class UiOrchestrator {
 
   async forceQueueHead() {
     if (!this.currentSession) return;
-    const pending = await this.repository.listPending(this.currentSession.id);
+    const allPending = await this.repository.listPending(this.currentSession.id);
+    const pending = this.tutorialExampleMode
+      ? allPending.filter((item) => item.tutorialExample)
+      : allPending;
     const target = [...pending]
       .filter((item) => this.utterances.jobs.has(item.id))
       .sort((left, right) => left.createdAt - right.createdAt)[0];
     if (!target) throw new Error("今すぐ読み上げできる文章がありません。");
+    if (this.tutorialExampleMode) {
+      await this.utterances.cancel(target.id);
+      this.tutorialPendingIds.delete(target.id);
+      this.tutorialTransientMessages.push({
+        text: target.text,
+        createdAt: Date.now(),
+      });
+      this.elements.status.textContent = "チュートリアルでは音を出さず、読み上げ履歴へ移しました。";
+      await this.refreshAll();
+      return;
+    }
     await this.utterances.forceReady(target.id);
     this.elements.status.textContent = "読み上げ待ち時間を終了しました。";
     await this.refreshAll();
@@ -449,6 +466,17 @@ export class UiOrchestrator {
 
   #renderMessages(messages) {
     const fragment = document.createDocumentFragment();
+    if (this.tutorialExampleMode && !this.tutorialConversationActive) {
+      for (const message of [...this.tutorialTransientMessages].reverse()) {
+        const node = this.elements.messageTemplate.content.firstElementChild.cloneNode(true);
+        node.classList.add("tutorial-transient-message");
+        node.querySelector(".message-text").textContent = message.text;
+        const time = node.querySelector(".message-time");
+        time.dateTime = new Date(message.createdAt).toISOString();
+        time.textContent = "いま";
+        fragment.append(node);
+      }
+    }
     for (const message of [...messages].reverse()) {
       const node = this.elements.messageTemplate.content.firstElementChild.cloneNode(true);
       node.querySelector(".message-text").textContent = message.text;
@@ -458,7 +486,8 @@ export class UiOrchestrator {
       fragment.append(node);
     }
     this.elements.messageList.replaceChildren(fragment);
-    this.elements.emptyTimeline.hidden = messages.length > 0;
+    this.elements.emptyTimeline.hidden = messages.length > 0
+      || (this.tutorialExampleMode && !this.tutorialConversationActive && this.tutorialTransientMessages.length > 0);
   }
 
   #renderPending(pending) {

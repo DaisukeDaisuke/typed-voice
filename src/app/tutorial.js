@@ -374,6 +374,12 @@ export class TutorialController {
     }
     const blockedAction = event.target.closest?.("#voice-enable, #force-speak-button, #new-conversation");
     if (blockedAction && !this.elements.overlay.contains(blockedAction)) {
+      if (blockedAction.id === "force-speak-button" && this.elements.overlay.dataset.step === "free") {
+        if (this.elements.freeStatus) {
+          this.elements.freeStatus.textContent = "音は出さず、読み上げ待ちの文章をチュートリアル用の読み上げ履歴へ移します。";
+        }
+        return;
+      }
       event.preventDefault();
       event.stopImmediatePropagation();
       if (this.elements.freeStatus) {

@@ -1,5 +1,4 @@
 :root {
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #26231f;
   background: #f3f1ed;
   font-synthesis: none;
@@ -411,41 +410,36 @@ body.tutorial-window-dragging * { cursor: grabbing !important; }
   background: #b98a6b;
   translate: -50% 0;
 }
-.tutorial-scroll-finger {
+.tutorial-tablet-camera {
   position: absolute;
-  left: 48px;
-  top: 26px;
-  width: 18px;
-  height: 52px;
-  border: 4px solid #762b0c;
-  border-radius: 12px 12px 9px 9px;
-  background: #ffd9bd;
+  z-index: 2;
+  left: 50%;
+  top: 5px;
+  width: 9px;
+  height: 9px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #bca89a;
+  border-radius: 50%;
+  background: #fffaf5;
+  translate: -50% 0;
+}
+.tutorial-tablet-camera i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #76513a;
+}
+.tutorial-scroll-hand {
+  position: absolute;
+  z-index: 3;
+  left: 39px;
+  top: 15px;
+  width: 39px;
+  height: 51px;
+  overflow: visible;
   transform-origin: 50% 82%;
   animation: tutorial-scroll-finger 1.2s ease-in-out infinite;
-}
-.tutorial-scroll-finger::before {
-  content: "";
-  position: absolute;
-  left: -16px;
-  bottom: -4px;
-  width: 32px;
-  height: 22px;
-  border: 4px solid #762b0c;
-  border-right: 0;
-  border-radius: 18px 0 0 18px;
-  background: #ffd9bd;
-  transform: rotate(18deg);
-  transform-origin: right center;
-}
-.tutorial-scroll-finger::after {
-  content: "";
-  position: absolute;
-  left: 3px;
-  top: 5px;
-  width: 6px;
-  height: 8px;
-  border-radius: 50%;
-  background: #f5b98f;
 }
 .tutorial-scroll-track {
   position: relative;
@@ -487,6 +481,23 @@ body.tutorial-window-dragging * { cursor: grabbing !important; }
 .tutorial-character-card strong { color: #762b0c; font-size: 1.5rem; }
 .tutorial-character-card span { color: #654839; }
 .tutorial-official-url { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
+.tutorial-character-terms {
+  width: 100%;
+  max-width: 68ch;
+  max-height: 310px;
+  overflow: auto;
+  margin: 18px 0;
+  padding: 16px;
+  border: 1px solid #d8c8ba;
+  border-radius: 14px;
+  background: #fffaf5;
+  color: #4f463f;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  font-size: 0.84rem;
+  line-height: 1.65;
+}
 .tutorial-demo-button { min-height: 50px; margin-top: 12px; padding: 10px 16px; border: 1px solid #8d421d; border-radius: 14px; color: #fff; background: #9d4d24; font: inherit; font-weight: 800; cursor: pointer; }
 .tutorial-demo-button:disabled { opacity: 0.58; cursor: wait; }
 .tutorial-sample-row { margin-top: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
