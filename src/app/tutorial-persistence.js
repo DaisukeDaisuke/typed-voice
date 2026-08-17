@@ -3,6 +3,26 @@ import { IndexedDbConversationRepository, openConversationDatabase } from "./sto
 
 export const TUTORIAL_STORAGE_KEY = "typed-voice-tutorial-v1-complete";
 export const TUTORIAL_DATABASE_KEY = "tutorialCompleteV1";
+export const TUTORIAL_CONVERSATION_PRACTICE_COUNT_KEY = "typed-voice-tutorial-conversation-practice-count-v1";
+
+export function readConversationPracticeCount(storage = globalThis.localStorage) {
+  try {
+    const value = Number.parseInt(storage?.getItem(TUTORIAL_CONVERSATION_PRACTICE_COUNT_KEY) ?? "0", 10);
+    return Number.isSafeInteger(value) && value > 0 ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function recordConversationPractice(storage = globalThis.localStorage) {
+  const next = readConversationPracticeCount(storage) + 1;
+  try {
+    storage?.setItem(TUTORIAL_CONVERSATION_PRACTICE_COUNT_KEY, String(next));
+  } catch {
+    return next;
+  }
+  return next;
+}
 
 function localComplete(storage) {
   try {

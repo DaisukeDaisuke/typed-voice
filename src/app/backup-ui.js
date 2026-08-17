@@ -29,34 +29,6 @@ export class BackupUiController {
       if (event.target === this.elements.restartDialog) this.#closeRestartDialog();
     });
 
-    this.elements.tutorialExport.addEventListener("click", () => void this.#downloadBackup(this.elements.tutorialStatus));
-    this.elements.tutorialImport.addEventListener("change", () => {
-      const [file] = this.elements.tutorialImport.files ?? [];
-      if (file) void this.#restoreFile(file, this.elements.tutorialStatus);
-      this.elements.tutorialImport.value = "";
-    });
-    this.elements.tutorialDrop.addEventListener("click", () => this.elements.tutorialImport.click());
-    this.elements.tutorialDrop.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter" && event.key !== " ") return;
-      event.preventDefault();
-      this.elements.tutorialImport.click();
-    });
-    for (const type of ["dragenter", "dragover"]) {
-      this.elements.tutorialDrop.addEventListener(type, (event) => {
-        event.preventDefault();
-        this.elements.tutorialDrop.classList.add("is-dragover");
-      });
-    }
-    for (const type of ["dragleave", "drop"]) {
-      this.elements.tutorialDrop.addEventListener(type, (event) => {
-        event.preventDefault();
-        this.elements.tutorialDrop.classList.remove("is-dragover");
-      });
-    }
-    this.elements.tutorialDrop.addEventListener("drop", (event) => {
-      const [file] = event.dataTransfer?.files ?? [];
-      if (file) void this.#restoreFile(file, this.elements.tutorialStatus);
-    });
 
     this.document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && !this.elements.restartDialog.hidden) this.#closeRestartDialog();
@@ -150,10 +122,6 @@ export class BackupUiController {
       restartStatus: byId("tutorial-restart-status"),
       restartCancel: byId("tutorial-restart-cancel"),
       restartConfirm: byId("tutorial-restart-confirm"),
-      tutorialExport: byId("tutorial-backup-export"),
-      tutorialImport: byId("tutorial-backup-import"),
-      tutorialDrop: byId("tutorial-backup-drop"),
-      tutorialStatus: byId("tutorial-backup-status"),
     };
   }
 }

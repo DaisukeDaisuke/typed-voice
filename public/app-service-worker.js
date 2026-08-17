@@ -8,6 +8,7 @@ const MODEL_CACHE = "typed-voice-model-assets-v2";
 const KANALIZER_MODEL_CACHE = "typed-voice-kanalizer-model-v1";
 const SOURCE_CACHE_KEY = new URL(self.location.href).searchParams.get("source-cache") || "legacy-v4";
 const SOURCE_CACHE = `typed-voice-source-${SOURCE_CACHE_KEY}`;
+const HUGGINGFACE_RESOLVE_CACHE = `typed-voice-huggingface-resolve-${SOURCE_CACHE_KEY}`;
 const MODEL_PREFIX = new URL("__typed_voice_assets/", self.registration.scope).pathname;
 const MODEL_CHUNK_QUERY = "__typed_voice_part";
 const DEV_MODE = new URL(self.location.href).searchParams.get("dev") === "1";
@@ -45,7 +46,7 @@ self.addEventListener("activate", (event) => {
       caches.keys().then((keys) =>
         Promise.all(
           keys
-            .filter((key) => key.startsWith("typed-voice-") && key !== SOURCE_CACHE && key !== MODEL_CACHE && key !== KANALIZER_MODEL_CACHE)
+            .filter((key) => key.startsWith("typed-voice-") && key !== SOURCE_CACHE && key !== MODEL_CACHE && key !== KANALIZER_MODEL_CACHE && key !== HUGGINGFACE_RESOLVE_CACHE)
             .map((key) => caches.delete(key))
         )
       ),
@@ -72,6 +73,10 @@ self.addEventListener("message", (event) => {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
+  if (isHuggingFaceResolveUrl(url) && event.request.cache !== "no-store") {
+    event.respondWith(readHuggingFaceResolveAsset(event.request));
+    return;
+  }
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith(MODEL_PREFIX)) {
     event.respondWith(readPreparedModelAsset(event.request));
@@ -83,6 +88,26 @@ self.addEventListener("fetch", (event) => {
   }
   event.respondWith(readShellAsset(event.request));
 });
+
+function isHuggingFaceResolveUrl(url) {
+  if (url.origin !== "https://huggingface.co") return false;
+  return /^\/RabbitDaisuke\/tsukuyomichan-omnivoice-full-finetune-onnx\/resolve\/[^/]+\/.+/.test(url.pathname);
+}
+
+async function readHuggingFaceResolveAsset(request) {
+  const cache = await caches.open(HUGGINGFACE_RESOLVE_CACHE);
+  const cached = await cache.match(request);
+  if (cached) return cached;
+  const response = await fetch(request);
+  if (response.ok) {
+    try {
+      await cache.put(request, response.clone());
+    } catch {
+      // A successful network response must remain usable even if this browser rejects caching it.
+    }
+  }
+  return response;
+}
 
 async function readPreparedModelAsset(request) {
   const cache = await caches.open(MODEL_CACHE);

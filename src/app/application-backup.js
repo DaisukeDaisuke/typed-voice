@@ -1,6 +1,9 @@
 const BACKUP_FORMAT = "typed-voice-backup";
 const BACKUP_VERSION = 1;
 const LOCAL_STORAGE_PREFIX = "typed-voice-";
+const RESET_PRESERVED_LOCAL_STORAGE_KEYS = Object.freeze([
+  "typed-voice-tutorial-conversation-practice-count-v1",
+]);
 const CONVERSATION_DATA_STORES = Object.freeze([
   "sessions",
   "messages",
@@ -258,7 +261,7 @@ export async function clearAllApplicationData({ db, storage = globalThis.localSt
   const done = transactionDone(transaction);
   for (const storeName of storeNames) transaction.objectStore(storeName).clear();
   await done;
-  clearTypedVoiceLocalStorage(storage);
+  clearTypedVoiceLocalStorage(storage, { preserveKeys: RESET_PRESERVED_LOCAL_STORAGE_KEYS });
 }
 
 export async function clearConversationData(db) {

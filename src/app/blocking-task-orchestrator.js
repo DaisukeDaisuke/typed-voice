@@ -13,6 +13,9 @@ export class BlockingTaskOrchestrator {
     this.running = 0;
     this.finished = false;
     this.fadeTimer = null;
+    this.dragState = null;
+    this.position = null;
+    this.#bindDrag();
     this.#render();
   }
 
@@ -111,6 +114,45 @@ export class BlockingTaskOrchestrator {
     elements.fill.style.inlineSize = `${clampRatio(value, total) * 100}%`;
   }
 
+  #bindDrag() {
+    const handle = this.elements.dragHandle;
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+      const rect = this.elements.root.getBoundingClientRect();
+      this.dragState = {
+        pointerId: event.pointerId,
+        offsetX: event.clientX - rect.left,
+        offsetY: event.clientY - rect.top,
+      };
+      handle.classList.add("is-dragging");
+      handle.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+    });
+    handle.addEventListener("pointermove", (event) => {
+      if (!this.dragState || event.pointerId !== this.dragState.pointerId) return;
+      const rect = this.elements.root.getBoundingClientRect();
+      const viewportWidth = globalThis.innerWidth || this.document.documentElement.clientWidth;
+      const viewportHeight = globalThis.innerHeight || this.document.documentElement.clientHeight;
+      const margin = 8;
+      this.position = {
+        x: Math.max(margin, Math.min(viewportWidth - rect.width - margin, event.clientX - this.dragState.offsetX)),
+        y: Math.max(margin, Math.min(viewportHeight - rect.height - margin, event.clientY - this.dragState.offsetY)),
+      };
+      this.elements.root.style.left = `${Math.round(this.position.x)}px`;
+      this.elements.root.style.top = `${Math.round(this.position.y)}px`;
+      this.elements.root.style.transform = "none";
+      event.preventDefault();
+    });
+    const finishDrag = (event) => {
+      if (!this.dragState || event.pointerId !== this.dragState.pointerId) return;
+      handle.releasePointerCapture?.(event.pointerId);
+      handle.classList.remove("is-dragging");
+      this.dragState = null;
+    };
+    handle.addEventListener("pointerup", finishDrag);
+    handle.addEventListener("pointercancel", finishDrag);
+  }
+
   #resolveElements() {
     const byId = (id) => {
       const element = this.document.getElementById(id);
@@ -125,6 +167,7 @@ export class BlockingTaskOrchestrator {
     });
     return {
       root: byId("blocking-loader"),
+      dragHandle: byId("blocking-loader-drag-handle"),
       cells: byId("blocking-loader-cells"),
       count: byId("blocking-loader-count"),
       label: byId("blocking-loader-label"),

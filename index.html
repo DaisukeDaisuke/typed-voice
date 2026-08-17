@@ -6,14 +6,21 @@
   <meta name="theme-color" content="#f3f1ed">
   <title>typed-voice</title>
   <style>
-    #blocking-loader{position:fixed;z-index:2000;left:50%;top:max(14px,env(safe-area-inset-top));width:min(720px,calc(100vw - 28px));padding:18px 20px;transform:translateX(-50%);border:1px solid #34312d;border-radius:20px;background:#050505;color:#f7f4ef;box-shadow:0 20px 70px #0007;opacity:1;transition:opacity 1s ease}#blocking-loader[hidden]{display:none}#blocking-loader.is-fading{opacity:0;pointer-events:none}.blocking-loader-card{width:100%;display:grid;gap:14px}.blocking-loader-title{margin:0;font-size:clamp(1.2rem,3vw,1.8rem)}.blocking-loader-cells{display:grid;grid-template-columns:repeat(auto-fit,minmax(24px,1fr));gap:8px}.blocking-loader-cell{height:20px;border:1px solid #716d67;border-radius:6px;background:#181716}.blocking-loader-cell.is-running{border-color:#e28b4c;background:#633213}.blocking-loader-cell.is-done{border-color:#d3b08f;background:#a14f1e}.blocking-loader-cell.is-skipped{border-color:#777;background:#363432}.blocking-loader-cell.is-error{border-color:#ef8d8d;background:#671e1e}.blocking-loader-summary{display:flex;align-items:baseline;justify-content:space-between;gap:16px}.blocking-loader-count{font-size:1.05rem;font-variant-numeric:tabular-nums}.blocking-loader-detail{margin:0;color:#bbb5ad;line-height:1.5}.blocking-detail-progress{display:grid;gap:7px}.blocking-detail-progress[hidden]{display:none}.blocking-detail-progress-head{display:flex;justify-content:space-between;gap:12px;color:#d8d1ca;font-size:.82rem}.blocking-detail-track{height:10px;overflow:hidden;border:1px solid #5c5751;border-radius:999px;background:#171615}.blocking-detail-fill{block-size:100%;inline-size:0;background:#c86628;transition:inline-size 120ms linear}
+    #blocking-loader{position:fixed;z-index:2000;left:50%;top:max(14px,env(safe-area-inset-top));width:min(620px,calc(100vw - 28px));transform:translateX(-50%);border:1px solid #d7d0c7;border-radius:24px;background:#fffdfa;color:#2f2b27;box-shadow:0 28px 100px #16120d66;overflow:hidden;opacity:1;transition:opacity 1s ease}#blocking-loader[hidden]{display:none}#blocking-loader.is-fading{opacity:0;pointer-events:none}.blocking-loader-card{width:100%;display:grid;gap:14px;padding:18px 24px 22px}.blocking-loader-header{display:flex;align-items:center;gap:16px;padding:16px 18px 12px 24px;border-bottom:1px solid #e4ded6}.blocking-loader-header-copy{display:grid;gap:5px}.blocking-loader-brand{color:#8b6a55;font-size:.74rem;font-weight:800}.blocking-loader-title{margin:0;font-size:1.22rem}.blocking-loader-drag-handle{margin-left:auto;width:78px;height:58px;padding:10px 14px;border:1px solid #d7c5b6;border-radius:15px;background:#f8eee5;cursor:grab;touch-action:none}.blocking-loader-drag-handle:active,.blocking-loader-drag-handle.is-dragging{cursor:grabbing;background:#ead9cb;border-color:#b98b6b}.blocking-loader-drag-handle span{display:block;width:42px;height:4px;margin:4px auto;border-radius:999px;background:#76513a}.blocking-loader-cells{display:grid;grid-template-columns:repeat(auto-fit,minmax(24px,1fr));gap:8px}.blocking-loader-cell{height:20px;border:1px solid #c5b8ab;border-radius:6px;background:#f2ebe4}.blocking-loader-cell.is-running{border-color:#b85f28;background:#f0b17d}.blocking-loader-cell.is-done{border-color:#a85a2d;background:#c96d34}.blocking-loader-cell.is-skipped{border-color:#b9b1a8;background:#d8d3cd}.blocking-loader-cell.is-error{border-color:#b94b42;background:#f0b7b2}.blocking-loader-summary{display:flex;align-items:baseline;justify-content:space-between;gap:16px}.blocking-loader-count{font-size:1.05rem;font-variant-numeric:tabular-nums}.blocking-loader-detail{margin:0;color:#746c62;line-height:1.5}.blocking-detail-progress{display:grid;gap:7px}.blocking-detail-progress[hidden]{display:none}.blocking-detail-progress-head{display:flex;justify-content:space-between;gap:12px;color:#66594f;font-size:.82rem}.blocking-detail-track{height:10px;overflow:hidden;border:1px solid #d1bca9;border-radius:999px;background:#f2ebe4}.blocking-detail-fill{block-size:100%;inline-size:0;background:#c86628;transition:inline-size 120ms linear}
   </style>
 </head>
 <body>
   <section id="blocking-loader" role="status" aria-live="polite" aria-label="typed-voiceを読み込んでいます">
+    <header class="blocking-loader-header">
+      <div class="blocking-loader-header-copy">
+        <span class="blocking-loader-brand">typed-voice</span>
+        <h1 class="blocking-loader-title">読み込んでいます</h1>
+      </div>
+      <button id="blocking-loader-drag-handle" class="blocking-loader-drag-handle" type="button" aria-label="読み込みウィンドウを移動" title="ドラッグして移動">
+        <span></span><span></span><span></span>
+      </button>
+    </header>
     <div class="blocking-loader-card">
-      <p class="eyebrow">typed-voice</p>
-      <h1 class="blocking-loader-title">読み込んでいます</h1>
       <div id="blocking-loader-cells" class="blocking-loader-cells" aria-label="起動タスク"></div>
       <div class="blocking-loader-summary"><strong id="blocking-loader-label">起動準備</strong><strong id="blocking-loader-count" class="blocking-loader-count">0 / 0</strong></div>
       <p id="blocking-loader-detail" class="blocking-loader-detail">起動準備中…</p>
@@ -40,8 +47,19 @@
     <nav class="topbar-actions" aria-label="アプリメニュー">
       <button id="voice-enable" class="quiet-button" type="button">音声を有効化</button>
       <button id="focus-composer" class="quiet-button" type="button">入力する</button>
-      <button id="timeline-view" class="quiet-button" type="button" aria-pressed="true">履歴</button>
-      <button id="conversation-view" class="quiet-button" type="button" aria-pressed="false">会話一覧</button>
+      <div class="view-toggle" role="group" aria-label="右側の表示">
+        <button id="timeline-view" class="view-toggle-button" type="button" aria-pressed="true">読み上げ履歴</button>
+        <button id="conversation-view" class="view-toggle-button" type="button" aria-pressed="false">会話一覧</button>
+      </div>
+      <details class="topbar-backup-menu">
+        <summary class="quiet-button">バックアップ</summary>
+        <div class="topbar-backup-popover">
+          <button id="backup-export-button" class="quiet-button" type="button">書き出す</button>
+          <button id="backup-import-button" class="quiet-button" type="button">読み込む</button>
+          <input id="backup-import-input" type="file" accept="application/json,.json" hidden>
+          <p id="backup-settings-status" aria-live="polite">会話・履歴・設定・統計をJSONで保存します。音声モデル本体は含みません。</p>
+        </div>
+      </details>
       <button id="settings-button" class="quiet-button" type="button" aria-expanded="false" aria-controls="settings-panel">設定</button>
       <a class="quiet-link" href="./poc.html">音声テスト</a>
       <a class="quiet-link" href="./licenses.html">ライセンス</a>
@@ -76,20 +94,14 @@
       <p class="model-profile-warning" data-model-profile-warning hidden>推奨モデル以外では、品質やダウンロード容量を保証できません。</p>
       <p class="settings-note">モデル選択は現在プレビューです。</p>
     </div>
-    <div class="settings-data-actions" aria-label="バックアップと復元">
-      <button id="backup-export-button" class="quiet-button" type="button">バックアップを書き出す</button>
-      <button id="backup-import-button" class="quiet-button" type="button">バックアップを読み込む</button>
-      <input id="backup-import-input" type="file" accept="application/json,.json" hidden>
-      <p id="backup-settings-status" class="settings-note" aria-live="polite">会話・履歴・設定・統計をJSONで保存できます。ダウンロード済み音声モデル本体は含みません。</p>
-    </div>
-    <button id="restart-tutorial" class="quiet-button settings-tutorial-button" type="button">チュートリアルをもう一度見る<span>先に完全バックアップを保存してから初期化します。モデルキャッシュは保持します</span></button>
+    <button id="restart-tutorial" class="quiet-button settings-tutorial-button" type="button">チュートリアルをもう一度見る<span>先に完全バックアップを保存してから初期化します。モデルキャッシュは保持します。やり直しにはインターネット接続が必要です</span></button>
   </section>
 
   <section id="tutorial-restart-dialog" class="backup-dialog-backdrop" hidden>
     <div class="backup-dialog-card" role="dialog" aria-modal="true" aria-labelledby="tutorial-restart-dialog-title" aria-describedby="tutorial-restart-dialog-description">
       <p class="eyebrow">チュートリアルをやり直す</p>
       <h2 id="tutorial-restart-dialog-title">現在のデータを先に保存します</h2>
-      <p id="tutorial-restart-dialog-description">チュートリアルは本物の会話データベースを使います。現在の会話・履歴・読み上げ待ち・設定・統計を復元できるバックアップを保存してから、初期状態でやり直します。音声モデルのキャッシュは消しません。</p>
+      <p id="tutorial-restart-dialog-description">チュートリアルは本物の会話データベースを使います。現在の会話・履歴・読み上げ待ち・設定・統計を復元できるバックアップを保存してから、初期状態でやり直します。音声モデルのキャッシュは消しません。やり直しにはインターネット接続が必要です。</p>
       <button id="tutorial-restart-backup" class="quiet-button backup-dialog-download" type="button">バックアップをダウンロード</button>
       <p id="tutorial-restart-status" class="backup-dialog-status" aria-live="polite">バックアップをダウンロードすると、初期化ボタンを押せるようになります。</p>
       <div class="backup-dialog-actions">
@@ -394,6 +406,13 @@ https://tyc.rei-yumesaki.net
           <p id="tutorial-conversation-status" class="tutorial-demo-status" aria-live="polite">まずは上の「会話一覧」を押してみましょう。</p>
         </section>
 
+        <section class="tutorial-page" data-tutorial-step="conversation-open" data-tutorial-live="true" hidden>
+          <p class="tutorial-kicker">前の会話へ戻る</p>
+          <h3>保存されている会話は、その場で開き直せます</h3>
+          <p>「会話一覧」を開いて、いま表示しているものとは別の会話を1つ選んでください。ページを再読み込みせず、履歴ごと切り替わります。</p>
+          <p id="tutorial-conversation-open-status" class="tutorial-demo-status" aria-live="polite">まずは上の「会話一覧」を押してください。</p>
+        </section>
+
         <section class="tutorial-page" data-tutorial-step="finish" hidden>
           <p class="tutorial-kicker">あとから見直せます</p>
           <h3>気になるところだけ、もう一度見てみましょう</h3>
@@ -403,28 +422,14 @@ https://tyc.rei-yumesaki.net
             <button type="button" data-tutorial-jump="correction"><strong>訂正</strong>読む前なら直せます</button>
             <button type="button" data-tutorial-jump="wait"><strong>待ち時間</strong>直すための時間</button>
             <button type="button" data-tutorial-jump="cancel"><strong>取り消し</strong>読む前なら止められます</button>
-            <button type="button" data-tutorial-jump="conversations"><strong>会話一覧</strong>履歴を切り替えられます</button>
+            <button type="button" data-tutorial-jump="conversations"><strong>新しい会話</strong>一覧から新しく始められます</button>
+            <button type="button" data-tutorial-jump="conversation-open"><strong>会話を開く</strong>前の履歴へ戻れます</button>
           </div>
-          <div class="tutorial-backup-card">
-            <strong>バックアップと復元</strong>
-            <p>会話・履歴・設定・統計はいつでもJSONへ書き出せます。別のバックアップへ戻すときは、下へファイルをドロップしてください。</p>
-            <button id="tutorial-backup-export" class="quiet-button" type="button">今の状態をバックアップ</button>
-            <div id="tutorial-backup-drop" class="tutorial-backup-drop" role="button" tabindex="0" aria-controls="tutorial-backup-import">バックアップJSONをここへドロップ<br><span>またはクリックして選択</span></div>
-            <input id="tutorial-backup-import" type="file" accept="application/json,.json" hidden>
-            <p id="tutorial-backup-status" class="tutorial-demo-status" aria-live="polite">復元すると保存時点の会話・履歴・設定・統計へ戻ります。</p>
-          </div>
-        </section>
-
-        <section class="tutorial-page" data-tutorial-step="free" data-tutorial-live="true" hidden>
-          <p class="tutorial-kicker">ひと休み</p>
-          <h3>自由に使ってみましょう！</h3>
-          <p>入力、改行、訂正、取り消し、会話の切り替え。ここまでの操作を好きに触ってみてください。</p>
-          <p class="tutorial-callout"><strong>まだ読み上げはできません！</strong> ここでは操作だけ試せます。音声データは次のページで、容量を確認してからダウンロードします。</p>
-          <p id="tutorial-free-status" class="tutorial-demo-status" aria-live="polite">気が済んだら、右下から音声データの準備へ進みましょう。</p>
+          <p class="tutorial-callout">バックアップは画面上部の「バックアップ」からいつでも書き出し・復元できます。</p>
         </section>
 
         <section class="tutorial-page" data-tutorial-step="download" hidden>
-          <p class="tutorial-kicker">最後に</p>
+          <p class="tutorial-kicker">音声データ</p>
           <h3>音声データをこの端末へ保存します</h3>
           <p>オフラインでも使えるように、音声データをこの端末へ保存します。実際の容量を確認してから、ダウンロードするか選べます。</p>
           <div class="tutorial-download-warning" role="note" aria-label="大容量ダウンロードの注意">
@@ -449,11 +454,46 @@ https://tyc.rei-yumesaki.net
           </div>
         </section>
 
+        <section class="tutorial-page" data-tutorial-step="download-ready" hidden>
+          <p class="tutorial-kicker">保存完了</p>
+          <h3>音声データを端末へ保存できました</h3>
+          <p>ここから先は、保存したデータを音声エンジンへ読み込みます。ネットワークから同じモデルをもう一度ダウンロードはしません。</p>
+          <p class="tutorial-callout">次へ進むと、このチュートリアルの枠のまま読み込み状況を表示します。</p>
+        </section>
+
+        <section class="tutorial-page tutorial-model-load-page" data-tutorial-step="model-load" data-tutorial-live="true" hidden>
+          <p class="tutorial-kicker">端末内で準備中</p>
+          <h3>保存した音声モデルを読み込んでいます</h3>
+          <p>会話や入力は使えます。読み込みが終わると音声も有効になり、このまま次へ進めます。</p>
+          <div class="tutorial-model-load-row">
+            <div class="tutorial-model-load-head"><span>モデルデータ</span><strong id="tutorial-model-load-primary-value">開始待ち</strong></div>
+            <div id="tutorial-model-load-primary-cells" class="tutorial-model-load-cells" aria-hidden="true"></div>
+          </div>
+          <div class="tutorial-model-load-row">
+            <div class="tutorial-model-load-head"><span>音声エンジン</span><strong id="tutorial-model-load-secondary-value">開始待ち</strong></div>
+            <div id="tutorial-model-load-secondary-cells" class="tutorial-model-load-cells" aria-hidden="true"></div>
+          </div>
+          <label class="voice-load-replay-toggle" for="tutorial-model-load-replay-after-load">
+            <input id="tutorial-model-load-replay-after-load" type="checkbox" checked>
+            <span>ロード中に送った文章は、準備完了後に順番に読み上げる</span>
+          </label>
+          <p id="tutorial-model-load-status" class="tutorial-demo-status" aria-live="polite">保存済みモデルを確認しています。</p>
+        </section>
+
+        <section class="tutorial-page" data-tutorial-step="free" data-tutorial-live="true" hidden>
+          <p class="tutorial-kicker">実際に使ってみる</p>
+          <h3>自由に使ってみましょう！</h3>
+          <p>入力、改行、訂正、取り消し、会話の切り替え。ここまでの操作を好きに触ってみてください。</p>
+          <p class="tutorial-callout"><strong>読み上げも有効です。</strong> ここからは実際の音声で操作を確認できます。</p>
+          <p id="tutorial-free-status" class="tutorial-demo-status" aria-live="polite">気が済んだら、右下から最後の確認へ進みましょう。</p>
+        </section>
+
         <section class="tutorial-page" data-tutorial-step="offline-ready" hidden>
           <p class="tutorial-kicker">セットアップ完了</p>
           <h3>ここまで終われば、オフラインでも使えます</h3>
-          <p>チュートリアルとモデルのフルダウンロードが終われば、インターネットに接続していなくても、typed-voiceを利用できるようになっています。</p>
+          <p>チュートリアルと音声データの保存・読み込みが終われば、インターネットに接続していなくても、typed-voiceを利用できるようになっています。</p>
           <p class="tutorial-callout"><strong>次回からは通信なしでも起動できます。</strong> この端末に保存したアプリと音声データを使って、会話・入力・音声合成を端末内で行います。</p>
+          <p>「使い始める」を押すとチュートリアルを終了します。</p>
         </section>
       </div>
 
@@ -469,7 +509,7 @@ https://tyc.rei-yumesaki.net
                   <span class="tutorial-guide-arrow-head"></span>
                 </span>
               </span>
-              <strong id="tutorial-progress" class="tutorial-progress" aria-live="polite">1 / 13</strong>
+              <strong id="tutorial-progress" class="tutorial-progress" aria-live="polite">1 / 16</strong>
             </div>
           </div>
         </div>

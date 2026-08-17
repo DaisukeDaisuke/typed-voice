@@ -1,4 +1,8 @@
 import { MODEL_PROFILES } from "./model-profile-ui.js";
+import {
+  readConversationPracticeCount,
+  recordConversationPractice,
+} from "./tutorial-persistence.js";
 const SAMPLE_BRANCHES = Object.freeze({
   fp32: "main",
   fp16: "fp16",
@@ -78,7 +82,14 @@ export class TutorialController {
     this.downloadProgressLast = null;
     this.targetArrowTarget = null;
     this.summaryReturnIndex = null;
-    this.conversationTutorialCompleted = false;
+    this.conversationPracticeCount = readConversationPracticeCount();
+    this.conversationTutorialCompleted = this.conversationPracticeCount > 0;
+    this.conversationPracticeActive = false;
+    this.conversationOpenCompleted = false;
+    this.conversationOpenStartSessionId = null;
+    this.modelLoadStarted = false;
+    this.modelLoadComplete = false;
+    this.modelLoadAudioUnlock = null;
     this.liveWindowPosition = null;
     this.dragState = null;
     this.elements = this.#resolveElements();
@@ -111,6 +122,15 @@ export class TutorialController {
       globalThis.setTimeout(() => this.#handleConversationListOpened(), 0);
     });
     this.elements.conversationRepeat.addEventListener("click", () => this.#repeatConversationTutorial());
+    this.elements.modelLoadReplayAfterLoad.addEventListener("change", () => {
+      this.app?.setReplayAfterVoiceLoad?.(this.elements.modelLoadReplayAfterLoad.checked);
+    });
+    this.elements.conversationList.addEventListener("click", (event) => {
+      if (this.elements.overlay.dataset.step !== "conversation-open") return;
+      const row = event.target.closest?.(".conversation-row");
+      if (!row) return;
+      globalThis.setTimeout(() => void this.#handleConversationOpened(row.dataset.sessionId), 0);
+    });
     this.elements.composer.addEventListener("input", (event) => {
       if (this.elements.overlay.dataset.step !== "conversations") return;
       if (event.inputType !== "insertLineBreak" && event.inputType !== "insertParagraph") return;
@@ -152,7 +172,15 @@ export class TutorialController {
     this.#renderDownloadDisclosure();
     this.#resetDownloadProgress();
     this.summaryReturnIndex = null;
-    this.conversationTutorialCompleted = false;
+    this.conversationPracticeCount = readConversationPracticeCount();
+    this.conversationTutorialCompleted = this.conversationPracticeCount > 0;
+    this.conversationPracticeActive = false;
+    this.conversationOpenCompleted = false;
+    this.modelLoadStarted = false;
+    this.modelLoadComplete = false;
+    this.modelLoadAudioUnlock = null;
+    this.elements.modelLoadReplayAfterLoad.checked = true;
+    this.app?.setReplayAfterVoiceLoad?.(true);
     this.dragState = null;
     this.document.body.classList.remove("tutorial-window-dragging");
     this.elements.dragHandle.classList.remove("is-dragging");
@@ -164,7 +192,9 @@ export class TutorialController {
   }
 
   async previous() {
-    await this.#prepareStageChange();
+    const currentStep = this.elements.pages[this.stepIndex]?.dataset.tutorialStep;
+    if (currentStep === "model-load" || currentStep === "free") this.#cleanupDemo();
+    else await this.#prepareStageChange();
     this.#scrollPageToTop();
     if (this.summaryReturnIndex != null && this.stepIndex !== this.summaryReturnIndex) {
       await this.#returnToSummary();
@@ -176,7 +206,16 @@ export class TutorialController {
   }
 
   async next() {
-    await this.#prepareStageChange();
+    const currentStep = this.elements.pages[this.stepIndex]?.dataset.tutorialStep;
+    const nextPage = this.elements.pages[this.stepIndex + 1];
+    if (nextPage?.dataset.tutorialStep === "model-load" && !this.modelLoadAudioUnlock) {
+      this.modelLoadAudioUnlock = Promise.resolve(this.app?.unlockVoiceAudio?.()).then(
+        () => null,
+        (error) => error
+      );
+    }
+    if (currentStep === "model-load" || currentStep === "free") this.#cleanupDemo();
+    else await this.#prepareStageChange();
     if (this.summaryReturnIndex != null && this.stepIndex !== this.summaryReturnIndex) {
       this.#scrollPageToTop();
       await this.#returnToSummary();
@@ -194,11 +233,9 @@ export class TutorialController {
   async complete() {
     if (this.completing) return;
     this.completing = true;
-    const profile = this.modelProfileUi?.profile ?? "fp16";
     this.elements.next.disabled = true;
     this.#cleanupDemo();
     try {
-      await this.app?.finishTutorialData?.();
       await this.app?.markTutorialComplete?.();
       this.tutorialComplete = true;
       this.elements.overlay.hidden = true;
@@ -207,7 +244,6 @@ export class TutorialController {
       this.dragState = null;
       this.#stopSample({ close: true });
       this.elements.composer.focus({ preventScroll: true });
-      void this.app?.initializePreparedVoice?.(profile, { enableAudio: false }).catch(() => {});
     } catch (error) {
       this.elements.downloadStatus.textContent = error instanceof Error ? error.message : String(error);
       this.elements.next.disabled = false;
@@ -230,6 +266,9 @@ export class TutorialController {
     this.document.body.classList.toggle("tutorial-scrollable", freeInteraction);
 
     this.elements.progress.textContent = `${this.stepIndex + 1} / ${this.elements.pages.length}`;
+    this.elements.headerBrand.textContent = page.dataset.tutorialStep === "model-load"
+      ? "モデルロード中"
+      : "はじめての typed-voice";
     this.elements.overlay.classList.add("tutorial-needs-attention");
     this.elements.back.disabled = this.stepIndex === 0;
     this.elements.back.textContent = this.summaryReturnIndex != null && this.stepIndex !== this.summaryReturnIndex
@@ -237,16 +276,20 @@ export class TutorialController {
       : "戻る";
     this.elements.next.textContent = this.summaryReturnIndex != null && this.stepIndex !== this.summaryReturnIndex
       ? `${this.summaryReturnIndex + 1} / ${this.elements.pages.length}へ戻る`
-      : page.dataset.tutorialStep === "free"
-        ? "次に、音声データをダウンロードしてみる"
+      : page.dataset.tutorialStep === "model-load"
+        ? this.modelLoadComplete ? "自由に使ってみる" : "読み込み中"
         : this.stepIndex === this.elements.pages.length - 1 ? "使い始める" : "次へ";
     this.elements.next.disabled = (page.dataset.tutorialStep === "download" && !this.downloadCompleted)
-      || (page.dataset.tutorialStep === "conversations" && !this.conversationTutorialCompleted);
+      || (page.dataset.tutorialStep === "conversations" && !this.conversationTutorialCompleted && this.conversationPracticeCount === 0)
+      || (page.dataset.tutorialStep === "conversation-open" && !this.conversationOpenCompleted)
+      || (page.dataset.tutorialStep === "model-load" && !this.modelLoadComplete);
     this.#updateHighlights(page.dataset.tutorialStep);
     if (page.dataset.tutorialStep === "wait") this.#syncWaitSetting();
     if (page.dataset.tutorialStep === "cancel") void this.#prepareCancelExample();
     if (page.dataset.tutorialStep === "conversations") void this.#prepareConversationTutorial();
+    if (page.dataset.tutorialStep === "conversation-open") void this.#prepareConversationOpenTutorial();
     if (page.dataset.tutorialStep === "download" && !this.downloadCompleted) void this.#loadActualDownloadPlan();
+    if (page.dataset.tutorialStep === "model-load") void this.#startModelLoad();
     this.elements.pagesContainer.scrollTop = 0;
     if (page.dataset.tutorialStep === "download" && !this.downloadCompleted && !this.downloadAcknowledged) {
       this.elements.downloadAck.focus({ preventScroll: true });
@@ -379,26 +422,33 @@ export class TutorialController {
       return;
     }
     const blockedAction = event.target.closest?.("#voice-enable");
-    if (blockedAction && !this.elements.overlay.contains(blockedAction)) {
+    const step = this.elements.overlay.dataset.step;
+    if (blockedAction && !this.elements.overlay.contains(blockedAction) && step !== "model-load" && step !== "free") {
       event.preventDefault();
       event.stopImmediatePropagation();
       if (this.elements.freeStatus) {
-        this.elements.freeStatus.textContent = "音声は次のページでデータを保存してから使えるようになります。";
+        this.elements.freeStatus.textContent = "音声はモデルの読み込みが終わると使えるようになります。";
       }
     }
   }
 
   async #prepareConversationTutorial() {
     if (this.elements.overlay.dataset.step !== "conversations") return;
-    this.elements.conversationRepeat.hidden = !this.conversationTutorialCompleted;
-    this.elements.conversationStatus.textContent = this.conversationTutorialCompleted
-      ? "新しい会話を作れました。会話一覧から別の会話を選ぶと、履歴も一緒に切り替わります。"
+    this.elements.conversationRepeat.hidden = this.conversationPracticeCount === 0;
+    this.elements.conversationStatus.textContent = this.conversationPracticeCount > 0 && !this.conversationPracticeActive
+      ? `この操作は ${this.conversationPracticeCount} 回できています。もう一度試しても、そのまま次へ進んでも大丈夫です。`
       : "まずは上の「会話一覧」を押してみましょう。";
     this.#updateHighlights("conversations");
   }
 
   #handleConversationListOpened() {
-    if (this.elements.overlay.dataset.step !== "conversations" || this.conversationTutorialCompleted) return;
+    if (this.elements.overlay.dataset.step === "conversation-open") {
+      this.elements.conversationOpenStatus.textContent = "一覧から、いま表示しているものとは別の会話を1つ選んでください。";
+      this.#updateHighlights("conversation-open");
+      return;
+    }
+    if (this.elements.overlay.dataset.step !== "conversations") return;
+    if (this.conversationTutorialCompleted && !this.conversationPracticeActive) return;
     this.conversationStartSessionId = this.app?.currentSession?.id ?? null;
     this.elements.conversationStatus.textContent = "一覧を開いたまま、左の入力欄へ文章を書いて改行してください。新しい会話を自動で作ります。";
     this.#updateHighlights("conversations");
@@ -413,21 +463,130 @@ export class TutorialController {
     );
     if (!this.app?.currentSession?.id || this.app.currentSession.id === this.conversationStartSessionId) return;
     this.conversationTutorialCompleted = true;
+    this.conversationPracticeActive = false;
+    this.conversationPracticeCount = recordConversationPractice();
     this.elements.next.disabled = false;
     this.elements.conversationRepeat.hidden = false;
-    this.elements.conversationStatus.textContent = "新しい会話へ切り替わりました。最初に送った文章が会話一覧のプレビューになります。";
+    this.elements.conversationStatus.textContent = `新しい会話へ切り替わりました。これで ${this.conversationPracticeCount} 回目です。最初に送った文章が会話一覧のプレビューになります。`;
     this.#updateHighlights("conversations");
   }
 
   #repeatConversationTutorial() {
     if (this.elements.overlay.dataset.step !== "conversations") return;
     this.conversationTutorialCompleted = false;
+    this.conversationPracticeActive = true;
     this.elements.next.disabled = true;
     this.elements.conversationRepeat.hidden = true;
     this.conversationStartSessionId = this.app?.currentSession?.id ?? null;
     this.elements.conversationStatus.textContent = "もう一度試せます。上の「会話一覧」を押し、左の入力欄へ新しい文章を書いて改行してください。";
-    this.elements.conversationView.click();
+    this.elements.timelineView.click();
     this.#updateHighlights("conversations");
+  }
+
+  async #prepareConversationOpenTutorial() {
+    if (this.elements.overlay.dataset.step !== "conversation-open") return;
+    this.conversationOpenCompleted = false;
+    this.conversationOpenStartSessionId = this.app?.currentSession?.id ?? null;
+    this.elements.next.disabled = true;
+    this.elements.conversationOpenStatus.textContent = "まずは上の「会話一覧」を押してください。別の会話があれば、1つ選んで開きます。";
+    await this.app?.refreshAll?.();
+    const availableOtherConversation = [...this.elements.conversationList.querySelectorAll(".conversation-row")]
+      .some((row) => row.dataset.sessionId && row.dataset.sessionId !== this.conversationOpenStartSessionId);
+    if (!availableOtherConversation) {
+      this.conversationOpenCompleted = true;
+      this.elements.next.disabled = false;
+      this.elements.conversationOpenStatus.textContent = "ほかに保存されている会話がないため、この確認は今回はスキップできます。";
+      this.#updateHighlights("conversation-open");
+      return;
+    }
+    this.elements.timelineView.click();
+    this.#updateHighlights("conversation-open");
+  }
+
+  async #handleConversationOpened(requestedSessionId) {
+    if (this.elements.overlay.dataset.step !== "conversation-open") return;
+    if (!requestedSessionId || requestedSessionId === this.conversationOpenStartSessionId) return;
+    await this.#waitForWithoutRunToken(() => this.app?.currentSession?.id === requestedSessionId, 2500);
+    if (this.app?.currentSession?.id !== requestedSessionId) return;
+    this.conversationOpenCompleted = true;
+    this.elements.next.disabled = false;
+    this.elements.conversationOpenStatus.textContent = "別の会話を履歴ごと開けました。ページの再読み込みはしていません。";
+    this.#updateHighlights("conversation-open");
+  }
+
+  async #startModelLoad() {
+    if (this.modelLoadStarted || this.modelLoadComplete || this.elements.overlay.dataset.step !== "model-load") return;
+    this.modelLoadStarted = true;
+    this.elements.next.disabled = true;
+    this.elements.modelLoadStatus.textContent = "チュートリアル用の会話を片付け、保存済みモデルを確認しています。";
+    this.#renderModelLoadCells(this.elements.modelLoadPrimaryCells, 0, 12);
+    this.#renderModelLoadCells(this.elements.modelLoadSecondaryCells, 0, 1);
+    try {
+      await this.app?.finishTutorialData?.();
+      if (this.modelLoadAudioUnlock) {
+        const audioUnlockError = await this.modelLoadAudioUnlock;
+        if (audioUnlockError) throw audioUnlockError;
+      } else {
+        await this.app?.unlockVoiceAudio?.();
+      }
+      const profile = this.modelProfileUi?.profile ?? "fp16";
+      await this.app?.initializePreparedVoice?.(profile, {
+        enableAudio: true,
+        showPanel: false,
+        onBlockingProgress: (update) => this.#renderModelLoadProgress(update),
+      });
+      this.modelLoadComplete = true;
+      this.#completeModelLoadCells(this.elements.modelLoadPrimaryCells);
+      this.#completeModelLoadCells(this.elements.modelLoadSecondaryCells);
+      this.elements.modelLoadPrimaryValue.textContent = "準備済み";
+      this.elements.modelLoadSecondaryValue.textContent = "完了";
+      this.elements.modelLoadStatus.textContent = "読み込みが終わりました。音声も有効です。";
+      this.elements.next.disabled = false;
+      this.elements.next.textContent = "自由に使ってみる";
+    } catch (error) {
+      this.modelLoadStarted = false;
+      this.elements.modelLoadStatus.textContent = `読み込みに失敗しました: ${error instanceof Error ? error.message : String(error)}。戻ってからもう一度進むと再試行できます。`;
+    }
+  }
+
+  #renderModelLoadProgress(update = {}) {
+    if (update.primary) {
+      const value = Number(update.primary.value || 0);
+      const total = Number(update.primary.total || 0);
+      this.#renderModelLoadCells(this.elements.modelLoadPrimaryCells, value, total);
+      this.elements.modelLoadPrimaryValue.textContent = update.primary.text || `${Math.min(value, total)} / ${total}`;
+    }
+    if (update.secondary) {
+      const value = Number(update.secondary.value || 0);
+      const total = Number(update.secondary.total || 0);
+      this.#renderModelLoadCells(this.elements.modelLoadSecondaryCells, value, total);
+      this.elements.modelLoadSecondaryValue.textContent = update.secondary.text || `${Math.min(value, total)} / ${total}`;
+    }
+    if (update.detail) this.elements.modelLoadStatus.textContent = update.detail;
+  }
+
+  #renderModelLoadCells(container, value, total) {
+    const denominator = Math.max(1, Number(total) || 1);
+    const numerator = Math.max(0, Math.min(denominator, Number(value) || 0));
+    const count = denominator <= 16 ? Math.max(1, Math.round(denominator)) : 12;
+    const completed = Math.max(0, Math.min(count, Math.floor(numerator / denominator * count)));
+    const fragment = this.document.createDocumentFragment();
+    for (let index = 0; index < count; index += 1) {
+      const cell = this.document.createElement("i");
+      cell.className = "tutorial-model-load-cell";
+      if (index < completed) cell.classList.add("is-done");
+      else if (index === completed && numerator < denominator) cell.classList.add("is-running");
+      fragment.append(cell);
+    }
+    container.replaceChildren(fragment);
+  }
+
+  #completeModelLoadCells(container) {
+    if (!container.children.length) this.#renderModelLoadCells(container, 1, 1);
+    for (const cell of container.children) {
+      cell.classList.remove("is-running");
+      cell.classList.add("is-done");
+    }
   }
 
   async #jumpFromSummary(stepName) {
@@ -660,6 +819,8 @@ export class TutorialController {
     this.elements.downloadStatus.textContent = this.downloadCompleted
       ? "音声データはすでに利用できます。"
       : "実際の容量を確認してから、ダウンロードを開始できます。";
+    this.elements.downloadAck.disabled = true;
+    this.elements.downloadAck.textContent = this.downloadCompleted ? "保存済み" : this.downloadAcknowledged ? "容量を確認しました" : "容量を確認しています…";
     this.elements.downloadButton.disabled = this.downloadCompleted || !this.downloadAcknowledged;
     this.elements.downloadButton.textContent = this.downloadCompleted ? "音声データは準備済み" : "音声データをダウンロード";
   }
@@ -1275,6 +1436,12 @@ export class TutorialController {
         primaryTarget = target;
       }
     }
+    if (step === "conversation-open" && !this.conversationOpenCompleted) {
+      const conversationPanelVisible = !this.elements.conversationPanel.hidden;
+      const target = conversationPanelVisible ? this.elements.conversationList : this.elements.conversationView;
+      target.classList.add("tutorial-target");
+      primaryTarget = target;
+    }
     if (step === "free") {
       this.elements.next.classList.add("tutorial-target");
       primaryTarget = null;
@@ -1334,6 +1501,7 @@ export class TutorialController {
       overlay,
       focusAnchor: byId("tutorial-focus-anchor"),
       shell: overlay.querySelector(".tutorial-shell"),
+      headerBrand: overlay.querySelector(".tutorial-header-brand"),
       dragHandle: byId("tutorial-drag-handle"),
       pages: [...overlay.querySelectorAll("[data-tutorial-step]")],
       summaryJumpButtons: [...overlay.querySelectorAll("[data-tutorial-jump]")],
@@ -1347,6 +1515,7 @@ export class TutorialController {
       cancelDemo: byId("tutorial-cancel-demo"),
       conversationStatus: byId("tutorial-conversation-status"),
       conversationRepeat: byId("tutorial-conversation-repeat"),
+      conversationOpenStatus: byId("tutorial-conversation-open-status"),
       freeStatus: byId("tutorial-free-status"),
       sampleButtons: [...this.document.querySelectorAll("[data-tutorial-sample]")],
       sampleStatus: byId("tutorial-sample-status"),
@@ -1358,6 +1527,12 @@ export class TutorialController {
       downloadBytes: byId("tutorial-download-bytes"),
       downloadSpeed: byId("tutorial-download-speed"),
       downloadStatus: byId("tutorial-download-status"),
+      modelLoadPrimaryValue: byId("tutorial-model-load-primary-value"),
+      modelLoadPrimaryCells: byId("tutorial-model-load-primary-cells"),
+      modelLoadSecondaryValue: byId("tutorial-model-load-secondary-value"),
+      modelLoadSecondaryCells: byId("tutorial-model-load-secondary-cells"),
+      modelLoadStatus: byId("tutorial-model-load-status"),
+      modelLoadReplayAfterLoad: byId("tutorial-model-load-replay-after-load"),
       demoStatus: byId("tutorial-demo-status"),
       correctionStatus: byId("tutorial-correction-status"),
       waitSeconds: byId("tutorial-reasoning-seconds"),
@@ -1373,6 +1548,7 @@ export class TutorialController {
       timelineView: byId("timeline-view"),
       conversationView: byId("conversation-view"),
       conversationPanel: byId("conversation-panel"),
+      conversationList: byId("conversation-list"),
       pendingList: byId("pending-list"),
       messageList: byId("message-list"),
       targetArrow: byId("tutorial-target-arrow"),

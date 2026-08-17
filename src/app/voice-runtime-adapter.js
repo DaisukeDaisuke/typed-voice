@@ -130,6 +130,11 @@ export class VoiceRuntimeAdapter {
     return this.initializePrepared(profile, { enableAudio: true });
   }
 
+  async unlockAudio() {
+    await this.#enableAudioContext();
+    return true;
+  }
+
   get audioEnabled() {
     return Boolean(this.audioContext && this.audioContext.state !== "closed");
   }

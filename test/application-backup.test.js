@@ -91,6 +91,7 @@ test("バックアップは正規化storeとtyped-voice設定を同一スナッ�
   const db = createFakeDb(initialDatabase());
   const storage = createStorage({
     "typed-voice-tutorial-v1-complete": "1",
+    "typed-voice-tutorial-conversation-practice-count-v1": "2",
     "typed-voice-ui-model-profile-v1": "fp16",
     unrelated: "keep",
   });
@@ -100,6 +101,7 @@ test("バックアップは正規化storeとtyped-voice設定を同一スナッ�
   assert.deepEqual(Object.keys(backup.database.stores).sort(), Object.keys(initialDatabase()).sort());
   assert.deepEqual(backup.localStorage, {
     "typed-voice-tutorial-v1-complete": "1",
+    "typed-voice-tutorial-conversation-practice-count-v1": "2",
     "typed-voice-ui-model-profile-v1": "fp16",
   });
   assert.deepEqual(backup.uiState, uiState);
@@ -114,13 +116,17 @@ test("バックアップは正規化storeとtyped-voice設定を同一スナッ�
   assert.equal(cleared.settings.length, 0);
   assert.equal(cleared.statistics.length, 0);
   assert.deepEqual(cleared.assets, initialDatabase().assets);
-  assert.deepEqual(storage.snapshot(), { unrelated: "keep" });
+  assert.deepEqual(storage.snapshot(), {
+    unrelated: "keep",
+    "typed-voice-tutorial-conversation-practice-count-v1": "2",
+  });
 
   await restoreApplicationBackup({ db, storage }, roundTrip);
   assert.deepEqual(db.snapshot(), initialDatabase());
   assert.deepEqual(storage.snapshot(), {
     unrelated: "keep",
     "typed-voice-tutorial-v1-complete": "1",
+    "typed-voice-tutorial-conversation-practice-count-v1": "2",
     "typed-voice-ui-model-profile-v1": "fp16",
   });
 });

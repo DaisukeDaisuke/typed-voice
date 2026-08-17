@@ -79,7 +79,7 @@ export class UiOrchestrator {
       },
     });
     this.voiceProgressUnsubscribe = this.voiceRuntime?.subscribeProgress?.((message) => this.#handleVoiceProgress(message)) ?? null;
-    this.voiceRuntime?.setReplayAfterLoad?.(this.elements.voiceLoadReplayAfterLoad.checked);
+    this.setReplayAfterVoiceLoad(this.elements.voiceLoadReplayAfterLoad.checked);
     this.#bindEvents();
 
     const storedWait = Number(await this.repository.getSetting("reasoningSeconds", DEFAULT_REASONING_SECONDS));
@@ -301,7 +301,19 @@ export class UiOrchestrator {
     };
   }
 
-  async initializePreparedVoice(profile = this.getModelProfile(), { enableAudio = true, onBlockingProgress = null } = {}) {
+  async unlockVoiceAudio() {
+    if (!this.voiceRuntime?.unlockAudio) return false;
+    return this.voiceRuntime.unlockAudio();
+  }
+
+  setReplayAfterVoiceLoad(enabled) {
+    const value = Boolean(enabled);
+    this.elements.voiceLoadReplayAfterLoad.checked = value;
+    this.voiceRuntime?.setReplayAfterLoad?.(value);
+    return value;
+  }
+
+  async initializePreparedVoice(profile = this.getModelProfile(), { enableAudio = true, onBlockingProgress = null, showPanel = true } = {}) {
     if (!this.voiceRuntime?.initializePrepared) throw new Error("保存済み音声モデルを読み込めません。");
     if (this.voiceRuntime.ready && (!enableAudio || this.voiceRuntime.audioEnabled)) return { ready: true };
     const panel = this.elements.voiceLoadProgress;
@@ -311,7 +323,7 @@ export class UiOrchestrator {
     const modelValue = this.elements.voiceLoadModelValue;
     const engineProgress = this.elements.voiceLoadEngineProgress;
     const engineValue = this.elements.voiceLoadEngineValue;
-    panel.hidden = false;
+    if (showPanel) panel.hidden = false;
     progress.value = 0;
     modelValue.textContent = "確認中…";
     engineProgress.max = 1;
@@ -374,9 +386,11 @@ export class UiOrchestrator {
       detail.textContent = initialized?.backend ? `音声エンジン: ${initialized.backend}` : "準備完了";
       this.elements.voiceEnable.textContent = enableAudio ? "音声 有効" : "音声を有効化";
       this.elements.voiceEnable.disabled = false;
-      globalThis.setTimeout(() => {
-        if (status.textContent === "音声を利用できます。") panel.hidden = true;
-      }, 1600);
+      if (showPanel) {
+        globalThis.setTimeout(() => {
+          if (status.textContent === "音声を利用できます。") panel.hidden = true;
+        }, 1600);
+      }
       return initialized;
     } catch (error) {
       status.textContent = "音声モデルの読み込みに失敗しました。";
@@ -689,7 +703,7 @@ export class UiOrchestrator {
     });
     this.elements.voiceEnable.addEventListener("click", () => void this.#runUiTask(() => this.enableVoice()));
     this.elements.voiceLoadReplayAfterLoad.addEventListener("change", () => {
-      this.voiceRuntime?.setReplayAfterLoad?.(this.elements.voiceLoadReplayAfterLoad.checked);
+      this.setReplayAfterVoiceLoad(this.elements.voiceLoadReplayAfterLoad.checked);
     });
 
     this.elements.composer.addEventListener("beforeinput", (event) => {
