@@ -65,10 +65,11 @@ function safeWrite(storage, key, value) {
 }
 
 export class TutorialController {
-  constructor(documentRef = document, { modelProfileUi = null, app = null, storage = globalThis.localStorage } = {}) {
+  constructor(documentRef = document, { modelProfileUi = null, app = null, blocking = null, storage = globalThis.localStorage } = {}) {
     this.document = documentRef;
     this.modelProfileUi = modelProfileUi;
     this.app = app;
+    this.blocking = blocking;
     this.storage = storage;
     this.stepIndex = 0;
     this.demoSnapshot = null;
@@ -222,7 +223,17 @@ export class TutorialController {
       this.dragState = null;
       this.#stopSample({ close: true });
       this.elements.composer.focus({ preventScroll: true });
-      void this.app?.initializePreparedVoice?.(profile, { enableAudio: false }).catch(() => {});
+      if (this.blocking) {
+        await this.blocking.registerBlockingAsync("音声モデル", async ({ report }) => {
+          report({ detail: "保存したモデルを音声エンジンへ読み込んでいます。" });
+          await this.app?.initializePreparedVoice?.(profile, {
+            enableAudio: false,
+            onBlockingProgress: report,
+          });
+        }, { optional: true });
+      } else {
+        void this.app?.initializePreparedVoice?.(profile, { enableAudio: false }).catch(() => {});
+      }
     } catch (error) {
       this.elements.downloadStatus.textContent = error instanceof Error ? error.message : String(error);
       this.elements.next.disabled = false;

@@ -37,7 +37,7 @@ await blocking.registerBlockingAsync("会話データ", async ({ report }) => {
 await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
   report({ detail: "バックアップとチュートリアルを準備しています。" });
   initializeBackupUi(document, { app, modelProfileUi });
-  new TutorialController(document, { modelProfileUi, app }).initialize();
+  new TutorialController(document, { modelProfileUi, app, blocking }).initialize();
 });
 let tutorialComplete = false;
 try {
