@@ -10,6 +10,7 @@ import {
   createConversationFromSubmittedText,
   normalizeConversationId,
   resolveCurrentConversation,
+  selectBootstrapConversationId,
 } from "./conversation-session-policy.js";
 import {
   clearAllApplicationData,
@@ -21,6 +22,8 @@ import {
 const DEFAULT_REASONING_SECONDS = 2;
 const CONVERSATION_PARAM = "conversation";
 const RESTORED_UI_SESSION_KEY = "typed-voice-restored-ui-v1";
+const BOOTSTRAP_SESSION_KEY = "typed-voice-bootstrap-conversation-v1";
+const BOOTSTRAP_SESSION_MAX_AGE_MS = 10_000;
 
 function formatTime(timestamp) {
   return new Intl.DateTimeFormat("ja-JP", {
@@ -80,7 +83,14 @@ export class UiOrchestrator {
     if (session) {
       await this.openConversation(session.id, { replaceUrl: true });
     } else {
-      const bootstrapId = requestedId ?? crypto.randomUUID();
+      const navigationType = performance.getEntriesByType("navigation")[0]?.type ?? "navigate";
+      const storedBootstrap = this.#readBootstrapSession();
+      const bootstrapId = selectBootstrapConversationId({
+        requestedId,
+        reloadId: storedBootstrap?.id,
+        navigationType,
+      });
+      this.#writeBootstrapSession(bootstrapId);
       this.#writeUrl(bootstrapId, true);
       await this.ensureCurrentConversation({ replaceUrl: true, preferredId: bootstrapId });
       await this.refreshAll();
@@ -484,12 +494,23 @@ export class UiOrchestrator {
       const job = this.utterances.jobs.get(node.dataset.pendingId);
       if (!job) continue;
       const remaining = Math.max(0, job.reasoningDeadline - currentTime) / 1000;
-      node.querySelector(".pending-timer").textContent = remaining > 0 ? `${remaining.toFixed(1)}秒` : "確定待ち";
+      node.querySelector(".pending-timer").textContent = remaining > 0
+        ? `あと ${remaining.toFixed(1)} 秒で読み上げ`
+        : "読み上げを開始します";
       if (job.state === "editing") {
         node.querySelector(".pending-state").textContent = "訂正中";
         node.querySelector(".pending-timer").textContent = "入力待ち";
       } else {
-        node.querySelector(".pending-state").textContent = job.state === "voice-error" ? "音声エラー" : "読み上げ待ち";
+        const state = node.querySelector(".pending-state");
+        if (job.state === "voice-error") {
+          state.textContent = "音声エラー";
+        } else {
+          state.replaceChildren();
+          const dot = document.createElement("i");
+          dot.className = "pending-dot";
+          dot.setAttribute("aria-hidden", "true");
+          state.append(dot, document.createTextNode("送信済み"));
+        }
       }
     }
   }
@@ -612,6 +633,32 @@ export class UiOrchestrator {
     const end = Math.max(start, Math.min(composerValue.length, Number(restored.composerSelectionEnd) || start));
     this.elements.composer.setSelectionRange(start, end);
     this.#showSecondaryView(restored.secondaryView === "conversations" ? "conversations" : "timeline");
+  }
+
+  #readBootstrapSession() {
+    try {
+      const raw = sessionStorage.getItem(BOOTSTRAP_SESSION_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      const id = normalizeConversationId(parsed?.id);
+      const createdAt = Number(parsed?.createdAt);
+      if (!id || !Number.isFinite(createdAt) || Date.now() - createdAt > BOOTSTRAP_SESSION_MAX_AGE_MS) {
+        sessionStorage.removeItem(BOOTSTRAP_SESSION_KEY);
+        return null;
+      }
+      return { id, createdAt };
+    } catch {
+      sessionStorage.removeItem(BOOTSTRAP_SESSION_KEY);
+      return null;
+    }
+  }
+
+  #writeBootstrapSession(id) {
+    try {
+      sessionStorage.setItem(BOOTSTRAP_SESSION_KEY, JSON.stringify({ id, createdAt: Date.now() }));
+    } catch {
+      // The URL still remains the primary durable bootstrap identifier.
+    }
   }
 
   async #openFromUrl() {

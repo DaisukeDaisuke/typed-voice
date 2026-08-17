@@ -285,10 +285,13 @@ a { -webkit-tap-highlight-color: transparent; }
 .pending-section { margin-top: 24px; }
 .count-badge { min-width: 26px; padding: 3px 8px; border-radius: 999px; background: #dfdad2; text-align: center; font-size: 0.78rem; }
 .pending-list { display: grid; gap: 9px; }
-.pending-card { padding: 11px; border: 1px solid #d8cfc4; border-radius: 15px; background: #fffaf2; }
-.pending-meta { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 7px; color: #766c60; font-size: 0.76rem; }
-.pending-timer { font-variant-numeric: tabular-nums; }
+.pending-card { padding: 13px; border: 2px solid #c87843; border-radius: 15px; background: #fff7eb; box-shadow: 0 6px 20px #8f4d1c12; }
+.pending-meta { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; color: #6f3f23; font-size: 0.8rem; font-weight: 750; }
+.pending-state { display: inline-flex; align-items: center; gap: 7px; }
+.pending-dot { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 999px; background: #c45b21; box-shadow: 0 0 0 4px #f0c6aa; }
+.pending-timer { padding: 4px 8px; border-radius: 999px; background: #f3dcc9; color: #6f3515; font-variant-numeric: tabular-nums; }
 .pending-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
+.pending-help { margin: 8px 0 0; color: #7c6a5d; font-size: 0.74rem; line-height: 1.45; }
 .pending-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 8px; }
 .pending-error { margin: 7px 0 0; color: #8c302c; font-size: 0.78rem; }
 
@@ -399,12 +402,12 @@ body.tutorial-window-dragging * { cursor: grabbing !important; }
 }
 .tutorial-page h3 { margin: 4px 0 10px; font-size: clamp(1.6rem, 4vw, 2.35rem); line-height: 1.2; }
 .tutorial-page > p { max-width: 62ch; color: #675f56; line-height: 1.7; }
-.tutorial-page[data-tutorial-step="about"] > p { max-width: 54ch; }
+.tutorial-page[data-tutorial-step="about"] > p { max-width: none; }
 
 .tutorial-kicker { margin: 0 !important; color: #9d4d1e !important; font-size: 0.78rem; font-weight: 800; }
 .tutorial-model-picker { margin-top: 22px; }
 .tutorial-callout { padding: 12px 14px; border-left: 4px solid #b85f28; border-radius: 8px; background: #f7e3d1; color: #563220 !important; }
-.tutorial-privacy-callout { display: grid; gap: 10px; width: min(100%, 50ch); margin: 18px 0; }
+.tutorial-privacy-callout { display: grid; gap: 10px; width: 100%; margin: 18px 0; }
 .tutorial-privacy-callout strong { display: block; font-size: 1rem; }
 .tutorial-privacy-callout p { margin: 0; color: #563220; line-height: 1.7; }
 .tutorial-scroll-guide {
@@ -513,7 +516,7 @@ body.tutorial-window-dragging * { cursor: grabbing !important; }
 .tutorial-official-url { overflow-wrap: anywhere; }
 .tutorial-character-terms {
   width: 100%;
-  max-width: 68ch;
+  max-width: none;
   max-height: 310px;
   overflow: auto;
   margin: 18px 0;

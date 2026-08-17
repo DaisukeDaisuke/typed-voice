@@ -393,6 +393,13 @@ https://tyc.rei-yumesaki.net
             <p id="tutorial-download-status">ボタンを押すまでダウンロードは始まりません。</p>
           </div>
         </section>
+
+        <section class="tutorial-page" data-tutorial-step="offline-ready" hidden>
+          <p class="tutorial-kicker">セットアップ完了</p>
+          <h3>ここまで終われば、オフラインでも使えます</h3>
+          <p>チュートリアルとモデルのフルダウンロードが終われば、インターネットに接続していなくても、typed-voiceを利用できるようになっています。</p>
+          <p class="tutorial-callout"><strong>次回からは通信なしでも起動できます。</strong> この端末に保存したアプリと音声データを使って、会話・入力・音声合成を端末内で行います。</p>
+        </section>
       </div>
 
       <footer class="tutorial-footer">
@@ -407,7 +414,7 @@ https://tyc.rei-yumesaki.net
                   <span class="tutorial-guide-arrow-head"></span>
                 </span>
               </span>
-              <strong id="tutorial-progress" class="tutorial-progress" aria-live="polite">1 / 12</strong>
+              <strong id="tutorial-progress" class="tutorial-progress" aria-live="polite">1 / 13</strong>
             </div>
           </div>
         </div>
@@ -441,10 +448,11 @@ https://tyc.rei-yumesaki.net
   <template id="pending-template">
     <article class="pending-card">
       <div class="pending-meta">
-        <span class="pending-state">読み上げ待ち</span>
+        <span class="pending-state"><i class="pending-dot" aria-hidden="true"></i>送信済み</span>
         <span class="pending-timer"></span>
       </div>
       <p class="pending-text"></p>
+      <p class="pending-help">読み上げるまでの待ち時間です。この間は訂正・取り消しできます。</p>
       <p class="pending-error" hidden></p>
       <div class="pending-actions">
         <button class="pending-cancel danger-button" type="button">取り消し</button>

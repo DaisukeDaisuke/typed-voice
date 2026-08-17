@@ -5,6 +5,19 @@ export function normalizeConversationId(value) {
   return UUID_PATTERN.test(id) ? id : null;
 }
 
+export function selectBootstrapConversationId({
+  requestedId = null,
+  reloadId = null,
+  navigationType = "navigate",
+  createId = () => crypto.randomUUID(),
+} = {}) {
+  const requested = normalizeConversationId(requestedId);
+  if (requested) return requested;
+  const reload = normalizeConversationId(reloadId);
+  if (navigationType === "reload" && reload) return reload;
+  return createId();
+}
+
 export async function resolveCurrentConversation(repository, currentSession = null, { preferredId = null } = {}) {
   if (!repository) throw new Error("Conversation repository is unavailable.");
   if (currentSession?.id) {

@@ -152,6 +152,9 @@ export class TutorialController {
 
   start() {
     this.#cleanupDemo();
+    if (safeRead(this.storage, TUTORIAL_STORAGE_KEY) !== "1") {
+      this.modelProfileUi?.select?.("fp16");
+    }
     const voiceState = this.app?.voiceRuntimeState;
     this.downloadCompleted = Boolean(
       voiceState?.prepared

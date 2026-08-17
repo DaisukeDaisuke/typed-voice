@@ -5,6 +5,7 @@ import {
   createConversationFromSubmittedText,
   normalizeConversationId,
   resolveCurrentConversation,
+  selectBootstrapConversationId,
 } from "../src/app/conversation-session-policy.js";
 
 test("現在の会話がなければ即座に新しい会話を作る", async () => {
@@ -54,6 +55,24 @@ test("初期化前に決めたUUIDをそのまま新しい会話IDとして使�
 test("会話IDとして不正なURL値はUUIDとして採用しない", () => {
   assert.equal(normalizeConversationId("not-a-uuid"), null);
   assert.equal(normalizeConversationId("123e4567-e89b-42d3-a456-426614174000"), "123e4567-e89b-42d3-a456-426614174000");
+});
+
+test("初回reloadでは直前に確保したUUIDを再利用する", () => {
+  const reloadId = "123e4567-e89b-42d3-a456-426614174000";
+  assert.equal(selectBootstrapConversationId({
+    reloadId,
+    navigationType: "reload",
+    createId: () => "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  }), reloadId);
+});
+
+test("通常navigateではreload用UUIDを新規会話へ流用しない", () => {
+  const created = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  assert.equal(selectBootstrapConversationId({
+    reloadId: "123e4567-e89b-42d3-a456-426614174000",
+    navigationType: "navigate",
+    createId: () => created,
+  }), created);
 });
 
 test("新しい会話の作成時に手元の1行目をプレビューへ即時保存できる", async () => {
