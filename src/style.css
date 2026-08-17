@@ -300,6 +300,25 @@ a { -webkit-tap-highlight-color: transparent; }
   backdrop-filter: none;
 }
 body.tutorial-open { overflow: hidden; }
+.voice-load-progress {
+  position: fixed;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 8800;
+  width: min(360px, calc(100vw - 36px));
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid #d5c1af;
+  border-radius: 16px;
+  background: #fff8f1f2;
+  box-shadow: 0 16px 46px #2e190d2e;
+  backdrop-filter: blur(10px);
+}
+.voice-load-progress[hidden] { display: none; }
+.voice-load-progress strong { color: #4d3020; font-size: 0.9rem; }
+.voice-load-progress progress { width: 100%; height: 12px; accent-color: #9d4d24; }
+.voice-load-progress span { color: #74685d; font-size: 0.74rem; font-variant-numeric: tabular-nums; }
 .tutorial-shell {
   width: min(760px, 100%);
   max-height: min(760px, calc(100vh - 36px));
@@ -322,7 +341,89 @@ body.tutorial-open { overflow: hidden; }
 .tutorial-callout { padding: 12px 14px; border-left: 4px solid #b85f28; border-radius: 8px; background: #f7e3d1; color: #563220 !important; }
 .tutorial-demo-button { min-height: 50px; margin-top: 12px; padding: 10px 16px; border: 1px solid #8d421d; border-radius: 14px; color: #fff; background: #9d4d24; font: inherit; font-weight: 800; cursor: pointer; }
 .tutorial-demo-button:disabled { opacity: 0.58; cursor: wait; }
+.tutorial-sample-row { margin-top: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.tutorial-sample-row .tutorial-demo-button { margin-top: 0; }
+.tutorial-sample-row .tutorial-demo-status { margin: 0; flex: 1 1 260px; }
+.tutorial-download-disclosure {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 18px;
+  padding: 18px;
+  border: 2px solid #b85f28;
+  border-radius: 18px;
+  background: #fff4e9;
+}
+.tutorial-download-disclosure > span { color: #654839; font-size: 0.9rem; line-height: 1.55; }
+.tutorial-download-disclosure > strong { color: #762b0c; font-size: clamp(1.65rem, 4vw, 2.35rem); line-height: 1; white-space: nowrap; }
+.tutorial-download-ack {
+  grid-column: 1 / -1;
+  min-height: 54px;
+  padding: 11px 16px;
+  border: 1px solid #7b310f;
+  border-radius: 14px;
+  color: #fff;
+  background: #9d4d24;
+  font: inherit;
+  font-weight: 850;
+  cursor: pointer;
+}
+.tutorial-download-ack:disabled { color: #5d3d2e; background: #ead2bd; border-color: #d2a982; cursor: default; }
+.tutorial-download-button {
+  width: 100%;
+  min-height: 64px;
+  margin-top: 18px;
+  border: 1px solid #71300f;
+  border-radius: 16px;
+  color: #fff;
+  background: #9d4d24;
+  font: inherit;
+  font-size: 1.05rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+.tutorial-download-button:disabled { opacity: 0.62; cursor: wait; }
+.tutorial-download-progress { margin-top: 16px; display: grid; gap: 9px; }
+.tutorial-download-progress progress { width: 100%; height: 18px; accent-color: #9d4d24; }
+.tutorial-download-progress-meta { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; color: #645d55; font-size: 0.82rem; }
+.tutorial-download-progress-meta strong { color: #762b0c; font-size: 1rem; }
+.tutorial-download-progress-meta span:last-child { min-width: 88px; text-align: right; font-variant-numeric: tabular-nums; }
+.tutorial-download-progress p { margin: 0; color: #746c62; font-size: 0.8rem; line-height: 1.5; }
+.tutorial-demo-press {
+  transform: translateY(2px) scale(0.985) !important;
+  color: #fff !important;
+  background: #7b310f !important;
+  border-color: #642408 !important;
+  box-shadow: inset 0 3px 8px #3b120766, 0 0 0 5px #e7a36a99 !important;
+}
 .tutorial-demo-status { margin: 10px 0 0; color: #7c746a !important; font-size: 0.78rem; }
+.tutorial-wait-setting {
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 15px 16px;
+  border: 2px solid #c77943;
+  border-radius: 16px;
+  background: #fff3e8;
+  color: #553321;
+  font-weight: 780;
+}
+.tutorial-wait-setting input {
+  width: 86px;
+  min-height: 44px;
+  padding: 6px 8px;
+  border: 1px solid #a95b2d;
+  border-radius: 10px;
+  background: #fffdfa;
+  color: #40281b;
+  font: inherit;
+  font-size: 1.05rem;
+  font-weight: 800;
+  text-align: right;
+}
 .tutorial-summary-grid { margin-top: 20px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
 .tutorial-summary-grid span { min-height: 86px; display: grid; align-content: center; gap: 4px; padding: 12px; border: 1px solid #ddd6cd; border-radius: 14px; background: #faf9f7; color: #746c62; font-size: 0.8rem; }
 .tutorial-summary-grid strong { display: block; color: #2f2b27; font-size: 0.92rem; }
@@ -431,7 +532,6 @@ body.tutorial-open { overflow: hidden; }
   box-shadow: 0 0 0 10px #efad72c7, 0 0 26px #6e250b47 !important;
 }
 .tutorial-demo-pending { border-color: #983b12; background: #f7dfca; }
-.tutorial-demo-message.tutorial-target { border: 1px solid #a94a1d; background: #fff0e2; }
 .tutorial-demo-active { transition: box-shadow 150ms ease; }
 
 @media (max-width: 1050px) {

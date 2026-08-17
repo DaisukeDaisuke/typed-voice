@@ -152,6 +152,12 @@ https://tyc.rei-yumesaki.net
     </section>
   </main>
 
+  <aside id="voice-load-progress" class="voice-load-progress" aria-live="polite" hidden>
+    <strong id="voice-load-status">音声モデルを読み込んでいます。</strong>
+    <progress id="voice-load-progress-bar" max="100" value="0">0%</progress>
+    <span id="voice-load-detail">準備中…</span>
+  </aside>
+
   <section id="tutorial-overlay" class="tutorial-overlay" role="dialog" aria-modal="true" aria-labelledby="tutorial-title" hidden>
     <div class="tutorial-shell">
       <header class="tutorial-header">
@@ -159,8 +165,16 @@ https://tyc.rei-yumesaki.net
       </header>
 
       <div class="tutorial-pages">
+        <section class="tutorial-page" data-tutorial-step="about">
+          <p class="tutorial-kicker">まず最初に</p>
+          <h3>このツールについて</h3>
+          <p>typed-voiceは、入力した文章をその場で声にするためのツールです。話してほしい内容をキーボードで書いて、改行を合図に順番に読み上げます。</p>
+          <p class="tutorial-callout"><strong>プライバシーも大切にします。</strong>会話と入力内容はこのブラウザ内に保存し、音声合成も端末内で行います。外部へ通信するのは、モデルや試聴用WAVなど配布アセットを取得するときです。</p>
+          <p>音声を使わずに会話や入力だけ試すこともできます。モデルの準備は、この次に選べます。</p>
+        </section>
+
         <section class="tutorial-page" data-tutorial-step="model">
-          <p class="tutorial-kicker">最初にひとつだけ</p>
+          <p class="tutorial-kicker">声の準備</p>
           <h3>まずは、声の設定を選びましょう</h3>
           <p>迷ったら「推奨」のままで大丈夫です。あとから設定で変えられます。この段階ではモデルを読み込みません。</p>
           <div class="model-profile-picker tutorial-model-picker" data-model-profile-control>
@@ -181,6 +195,15 @@ https://tyc.rei-yumesaki.net
             </div>
             <p class="model-profile-warning" data-model-profile-warning hidden>推奨モデル以外では、品質やダウンロード容量を保証できません。</p>
           </div>
+          <div class="tutorial-sample-row">
+            <button id="tutorial-sample-button" class="tutorial-demo-button" type="button">この声を試聴する</button>
+            <span id="tutorial-sample-status" class="tutorial-demo-status" aria-live="polite">選んだモデルの短いWAVを取得して再生します。</span>
+          </div>
+          <div class="tutorial-download-disclosure">
+            <span>この設定のダウンロード容量の目安です。チュートリアルの最後に、実際に取得する容量も確認してからダウンロードします。</span>
+            <strong id="tutorial-download-size">約1.56 GiB</strong>
+            <button id="tutorial-download-ack" class="tutorial-download-ack" type="button">あとでダウンロードされます。了解した</button>
+          </div>
         </section>
 
         <section class="tutorial-page" data-tutorial-step="linebreak" data-tutorial-live="true" hidden>
@@ -196,25 +219,55 @@ https://tyc.rei-yumesaki.net
           <h3>ちょっと直したいときも、まだ間に合います</h3>
           <p>読み上げる前なら、入力欄の文章を直して「現在の文章で訂正する」を押せば、その内容に差し替えられます。</p>
           <p class="tutorial-callout">言い直すために、もう一度送り直さなくて大丈夫です。</p>
+          <button id="tutorial-correction-demo" class="tutorial-demo-button" type="button">実際の動きを見てみる</button>
+          <p id="tutorial-correction-status" class="tutorial-demo-status" aria-live="polite">例文を1文字ずつ直して、実際の訂正ボタンを押します。</p>
+        </section>
+
+        <section class="tutorial-page" data-tutorial-step="wait" data-tutorial-live="true" hidden>
+          <p class="tutorial-kicker">読み上げる前に</p>
+          <h3>少しだけ、直すための時間があります</h3>
+          <p>Enterで送った文章は、すぐには読み上げず、設定した時間だけ待ちます。その間なら、さっきの訂正や次の「取り消す」が間に合います。</p>
+          <label class="tutorial-wait-setting" for="tutorial-reasoning-seconds">
+            <span>読み上げ待ち時間</span>
+            <span><input id="tutorial-reasoning-seconds" type="number" min="0" max="30" step="0.5" value="2"> 秒</span>
+          </label>
+          <button id="tutorial-wait-demo" class="tutorial-demo-button" type="button">待っているところを見てみる</button>
+          <p id="tutorial-wait-status" class="tutorial-demo-status" aria-live="polite">ここで変えた値は、そのまま本体の設定にも反映されます。</p>
         </section>
 
         <section class="tutorial-page" data-tutorial-step="cancel" data-tutorial-live="true" hidden>
           <p class="tutorial-kicker">取り消し</p>
           <h3>やっぱり読ませたくない、も大丈夫です</h3>
-          <p>読み上げる前なら「取り消す」で止められます。待ち一覧から、その文章だけを選んで取り消すこともできます。</p>
-          <button id="tutorial-cancel-demo" class="tutorial-demo-button" type="button">取り消す動きを見てみる</button>
-          <p id="tutorial-cancel-status" class="tutorial-demo-status" aria-live="polite">デモ用の読み上げ待ちだけを消します。</p>
+          <p>このページに入ると、取り消すための例文を自動で送ります。読み上げ待ちに入ったら、上の「取り消す」が使えるようになります。</p>
+          <button id="tutorial-cancel-demo" class="tutorial-demo-button" type="button">取り消してみる</button>
+          <p id="tutorial-cancel-status" class="tutorial-demo-status" aria-live="polite">まず、取り消すための文章を送ります。</p>
         </section>
 
         <section class="tutorial-page" data-tutorial-step="finish" hidden>
           <p class="tutorial-kicker">準備完了</p>
-          <h3>ひと通り、これで大丈夫です</h3>
-          <p>モデルは右上の「設定」からいつでも変えられます。この案内もあとから見直せます。</p>
+          <h3>ひと通り、操作はこれで大丈夫です</h3>
+          <p>モデルは右上の「設定」からいつでも変えられます。この案内もあとから見直せます。次のページで音声データを端末へ保存します。</p>
           <div class="tutorial-summary-grid">
             <span><strong>Enter</strong>改行すると読み上げ</span>
             <span><strong>訂正</strong>読む前なら直せます</span>
             <span><strong>取り消し</strong>読む前なら止められます</span>
             <span><strong>履歴 / 会話一覧</strong>あとからいつでも見返せます</span>
+          </div>
+        </section>
+
+        <section class="tutorial-page" data-tutorial-step="download" hidden>
+          <p class="tutorial-kicker">最後に</p>
+          <h3>音声データをこの端末へ保存します</h3>
+          <p>ここで初めて大きな音声データを取得し、検証してオフラインCacheへ保存します。モデル本体の読み込みは、このチュートリアルを閉じた次の画面で行います。</p>
+          <button id="tutorial-download-button" class="tutorial-download-button" type="button">音声データをダウンロード</button>
+          <div class="tutorial-download-progress" aria-live="polite">
+            <progress id="tutorial-download-progress" max="100" value="0">0%</progress>
+            <div class="tutorial-download-progress-meta">
+              <strong id="tutorial-download-percent">0%</strong>
+              <span id="tutorial-download-bytes">開始前</span>
+              <span id="tutorial-download-speed">-- MB/s</span>
+            </div>
+            <p id="tutorial-download-status">ボタンを押すまでダウンロードは始まりません。</p>
           </div>
         </section>
       </div>
@@ -232,7 +285,7 @@ https://tyc.rei-yumesaki.net
                   <span class="tutorial-guide-arrow-head"></span>
                 </span>
               </span>
-              <strong id="tutorial-progress" class="tutorial-progress" aria-live="polite">1 / 5</strong>
+              <strong id="tutorial-progress" class="tutorial-progress" aria-live="polite">1 / 8</strong>
             </div>
           </div>
         </div>

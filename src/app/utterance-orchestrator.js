@@ -32,7 +32,7 @@ export class UtteranceOrchestrator {
     this.reasoningSignals = new Map();
   }
 
-  async submit({ sessionId, text, reasoningSeconds }) {
+  async submit({ sessionId, text, reasoningSeconds, tutorialExample = false }) {
     const trimmed = text.trim();
     if (!trimmed) throw new Error("読み上げる文章を入力してください。");
     const createdAt = this.now();
@@ -46,6 +46,7 @@ export class UtteranceOrchestrator {
       state: "reasoning",
       error: null,
     };
+    if (tutorialExample) pending.tutorialExample = true;
     await this.repository.savePending(pending);
     this.jobs.set(pending.id, pending);
     this.onChange({ type: "pending-added", pending: structuredClone(pending) });

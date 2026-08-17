@@ -5,6 +5,7 @@ import {
   retainRecentSubmittedLines,
 } from "./composer-policy.js";
 import { planComposerRevisions } from "./revision-target.js";
+import { prepareKanalizerOffline } from "../text/kanalizer-normalizer.js";
 
 const DEFAULT_REASONING_SECONDS = 2;
 const CONVERSATION_PARAM = "conversation";
@@ -28,9 +29,10 @@ function isInteractiveTarget(target) {
 }
 
 export class UiOrchestrator {
-  constructor(documentRef = document, { voiceRuntime = null } = {}) {
+  constructor(documentRef = document, { voiceRuntime = null, getModelProfile = () => "fp16" } = {}) {
     this.document = documentRef;
     this.voiceRuntime = voiceRuntime;
+    this.getModelProfile = getModelProfile;
     this.repository = null;
     this.utterances = null;
     this.currentSession = null;
@@ -38,6 +40,9 @@ export class UiOrchestrator {
     this.typingStartedAt = null;
     this.deletedChars = 0;
     this.pendingTicker = null;
+    this.tutorialExampleMode = false;
+    this.tutorialPendingIds = new Set();
+    this.tutorialMaxRevisionable = null;
     this.elements = this.#resolveElements();
   }
 
@@ -100,7 +105,10 @@ export class UiOrchestrator {
     const composer = this.elements.composer;
     const line = getComposerLineAtCaret(composer.value, composer.selectionStart);
     if (!line.trim()) return;
-    const pending = await this.repository.listPending(this.currentSession.id);
+    const allPending = await this.repository.listPending(this.currentSession.id);
+    const pending = this.tutorialExampleMode
+      ? allPending.filter((item) => item.tutorialExample)
+      : allPending;
     if (pending.some((item) => item.text.trim() === line.trim())) {
       throw new Error("この行はすでに読み上げ待ちです。訂正する場合は上の訂正ボタンを使ってください。");
     }
@@ -114,11 +122,158 @@ export class UiOrchestrator {
     this.elements.composer.focus({ preventScroll: true });
   }
 
+  async enableVoice() {
+    if (!this.voiceRuntime) throw new Error("音声エンジンを利用できません。");
+    if (this.voiceRuntime.ready && this.voiceRuntime.audioEnabled) return { ready: true };
+    this.elements.voiceEnable.disabled = true;
+    try {
+      const initialized = await this.voiceRuntime.enable(this.getModelProfile());
+      this.elements.voiceEnable.textContent = "音声 有効";
+      return initialized;
+    } finally {
+      if (!this.voiceRuntime.ready) this.elements.voiceEnable.disabled = false;
+    }
+  }
+
+  getReasoningSeconds() {
+    const value = Number(this.elements.reasoningSeconds.value);
+    return Number.isFinite(value) ? Math.min(30, Math.max(0, value)) : DEFAULT_REASONING_SECONDS;
+  }
+
+  async setReasoningSeconds(value) {
+    const normalized = Number.isFinite(Number(value))
+      ? Math.min(30, Math.max(0, Number(value)))
+      : DEFAULT_REASONING_SECONDS;
+    this.elements.reasoningSeconds.value = String(normalized);
+    await this.repository?.setSetting("reasoningSeconds", normalized);
+    return normalized;
+  }
+
+  get voiceRuntimeState() {
+    return {
+      ready: Boolean(this.voiceRuntime?.ready),
+      prepared: Boolean(this.voiceRuntime?.prepared),
+      profile: this.voiceRuntime?.activeProfile ?? null,
+    };
+  }
+
+  async getVoiceProfilePlan(profile = this.getModelProfile()) {
+    if (!this.voiceRuntime?.getProfilePlan) throw new Error("音声モデル情報を取得できません。");
+    return this.voiceRuntime.getProfilePlan(profile);
+  }
+
+  async prepareOfflineVoice(profile = this.getModelProfile(), { onKanalizerStatus = () => {} } = {}) {
+    if (!this.voiceRuntime?.prepare) throw new Error("音声データを準備できません。");
+    const voice = await this.voiceRuntime.prepare(profile);
+    const kanalizer = await prepareKanalizerOffline({ onStatus: onKanalizerStatus });
+    return {
+      profile,
+      voice,
+      kanalizer,
+      totalBytes: Number(voice?.totalBytes || 0)
+        + Number(kanalizer?.modelBytes || 0)
+        + Number(kanalizer?.dictionaryBytes || 0)
+        + Number(kanalizer?.wasmBytes || 0),
+    };
+  }
+
+  async initializePreparedVoice(profile = this.getModelProfile(), { enableAudio = true } = {}) {
+    if (!this.voiceRuntime?.initializePrepared) throw new Error("保存済み音声モデルを読み込めません。");
+    if (this.voiceRuntime.ready && (!enableAudio || this.voiceRuntime.audioEnabled)) return { ready: true };
+    const panel = this.elements.voiceLoadProgress;
+    const progress = this.elements.voiceLoadProgressBar;
+    const status = this.elements.voiceLoadStatus;
+    const detail = this.elements.voiceLoadDetail;
+    panel.hidden = false;
+    progress.value = 0;
+    status.textContent = "保存済みモデルを読み込んでいます。";
+    detail.textContent = "キャッシュを確認中…";
+    const unsubscribe = this.voiceRuntime.subscribeProgress((message) => {
+      if (message.stage !== "initialize") return;
+      const loaded = Number(message.loadedBytes || 0);
+      const total = Number(message.totalBytes || 0);
+      if (total > 0) {
+        const percent = Math.max(0, Math.min(100, loaded / total * 100));
+        progress.value = percent;
+        detail.textContent = `${percent.toFixed(1)}% · ${(loaded / 1024 / 1024).toFixed(1)} / ${(total / 1024 / 1024).toFixed(1)} MiB`;
+      } else if (message.phase) {
+        detail.textContent = message.backend ? `${message.phase} · ${message.backend}` : message.phase;
+      }
+    });
+    try {
+      const initialized = await this.voiceRuntime.initializePrepared(profile, { enableAudio });
+      progress.value = 100;
+      status.textContent = "音声モデルを読み込みました。";
+      detail.textContent = initialized?.backend ? `backend: ${initialized.backend}` : "準備完了";
+      this.elements.voiceEnable.textContent = enableAudio ? "音声 有効" : "音声を有効化";
+      this.elements.voiceEnable.disabled = false;
+      globalThis.setTimeout(() => {
+        if (status.textContent === "音声モデルを読み込みました。") panel.hidden = true;
+      }, 1600);
+      return initialized;
+    } catch (error) {
+      status.textContent = "音声モデルの読み込みに失敗しました。";
+      detail.textContent = error instanceof Error ? error.message : String(error);
+      throw error;
+    } finally {
+      unsubscribe?.();
+    }
+  }
+
+  beginTutorialExamples() {
+    if (this.tutorialExampleMode) return;
+    this.tutorialExampleMode = true;
+    this.tutorialPendingIds.clear();
+    if (this.utterances) {
+      this.tutorialMaxRevisionable = this.utterances.maxRevisionable;
+      this.utterances.maxRevisionable = Number.MAX_SAFE_INTEGER;
+    }
+  }
+
+  get tutorialPendingCount() {
+    return [...this.tutorialPendingIds].filter((id) => this.utterances?.jobs.has(id)).length;
+  }
+
+  get latestTutorialPendingText() {
+    return [...this.tutorialPendingIds]
+      .map((id) => this.utterances?.jobs.get(id))
+      .filter(Boolean)
+      .sort((left, right) => right.createdAt - left.createdAt)[0]?.text ?? null;
+  }
+
+  async cancelLatestTutorialPending() {
+    const jobs = [...this.tutorialPendingIds]
+      .map((id) => this.utterances?.jobs.get(id))
+      .filter(Boolean)
+      .sort((left, right) => right.createdAt - left.createdAt);
+    const latest = jobs[0];
+    if (!latest) return false;
+    const cancelled = await this.utterances.cancel(latest.id);
+    this.tutorialPendingIds.delete(latest.id);
+    await this.refreshAll();
+    return cancelled;
+  }
+
+  async endTutorialExamples() {
+    const ids = [...this.tutorialPendingIds];
+    for (const id of ids) await this.utterances?.cancel(id);
+    this.tutorialPendingIds.clear();
+    this.tutorialExampleMode = false;
+    if (this.utterances && this.tutorialMaxRevisionable != null) {
+      this.utterances.maxRevisionable = this.tutorialMaxRevisionable;
+    }
+    this.tutorialMaxRevisionable = null;
+    await this.refreshAll();
+  }
+
   async applyCorrectionFromComposer() {
     if (!this.currentSession) return;
     const text = this.elements.composer.value;
     if (!text.trim()) throw new Error("訂正する文章を入力してください。");
-    const pending = await this.repository.listPending(this.currentSession.id);
+    const allPending = await this.repository.listPending(this.currentSession.id);
+    const pending = this.tutorialExampleMode
+      ? allPending.filter((item) => item.tutorialExample)
+      : allPending;
     const revisions = planComposerRevisions(
       text,
       pending,
@@ -149,10 +304,14 @@ export class UiOrchestrator {
 
   async cancelCurrentPending() {
     if (!this.currentSession) return;
-    const pending = await this.repository.listPending(this.currentSession.id);
+    const allPending = await this.repository.listPending(this.currentSession.id);
+    const pending = this.tutorialExampleMode
+      ? allPending.filter((item) => item.tutorialExample)
+      : allPending;
     const target = [...pending].sort((left, right) => right.createdAt - left.createdAt)[0];
     if (!target) throw new Error("取り消せる読み上げ待ちがありません。");
     await this.utterances.cancel(target.id);
+    this.tutorialPendingIds.delete(target.id);
     this.elements.status.textContent = "読み上げ待ちを取り消しました。";
     await this.refreshAll();
     this.#broadcast();
@@ -174,9 +333,17 @@ export class UiOrchestrator {
       this.repository.listMessages(this.currentSession.id),
       this.repository.listPending(this.currentSession.id),
     ]);
-    for (const item of pending) await this.utterances.resume(item);
+    const visiblePending = [];
+    for (const item of pending) {
+      if (item.tutorialExample && !this.tutorialExampleMode) {
+        await this.repository.deletePending(item.id);
+        continue;
+      }
+      await this.utterances.resume(item);
+      visiblePending.push(item);
+    }
     this.#renderMessages(messages);
-    this.#renderPending(pending);
+    this.#renderPending(visiblePending);
     this.elements.conversationTitle.textContent = this.currentSession.firstMessagePreview || "新しい会話";
 
   }
@@ -206,7 +373,7 @@ export class UiOrchestrator {
 
   #renderMessages(messages) {
     const fragment = document.createDocumentFragment();
-    for (const message of messages) {
+    for (const message of [...messages].reverse()) {
       const node = this.elements.messageTemplate.content.firstElementChild.cloneNode(true);
       node.querySelector(".message-text").textContent = message.text;
       const time = node.querySelector(".message-time");
@@ -240,9 +407,12 @@ export class UiOrchestrator {
     }
     this.elements.pendingList.replaceChildren(fragment);
     this.elements.pendingCount.textContent = String(pending.length);
-    const hasRevisionable = pending.some((item) => this.utterances.isRevisionable(item.id));
+    const actionablePending = this.tutorialExampleMode
+      ? pending.filter((item) => item.tutorialExample)
+      : pending;
+    const hasRevisionable = actionablePending.some((item) => this.utterances.isRevisionable(item.id));
     this.elements.correctionButton.disabled = !hasRevisionable;
-    this.elements.cancelCurrentButton.disabled = pending.length === 0;
+    this.elements.cancelCurrentButton.disabled = actionablePending.length === 0;
     this.elements.forceSpeakButton.disabled = pending.length === 0;
     this.#updatePendingTimers();
   }
@@ -252,6 +422,11 @@ export class UiOrchestrator {
     for (const node of this.elements.pendingList.querySelectorAll(".pending-card")) {
       const job = this.utterances.jobs.get(node.dataset.pendingId);
       if (!job) continue;
+      if (this.tutorialExampleMode && this.tutorialPendingIds.has(job.id)) {
+        node.querySelector(".pending-state").textContent = job.state === "editing" ? "訂正中（チュートリアル）" : "読み上げ待ち（チュートリアル）";
+        node.querySelector(".pending-timer").textContent = job.state === "editing" ? "入力待ち" : "例なので制限なし";
+        continue;
+      }
       const remaining = Math.max(0, job.reasoningDeadline - currentTime) / 1000;
       node.querySelector(".pending-timer").textContent = remaining > 0 ? `${remaining.toFixed(1)}秒` : "確定待ち";
       if (job.state === "editing") {
@@ -273,9 +448,7 @@ export class UiOrchestrator {
     this.elements.timelineView.addEventListener("click", () => this.#showSecondaryView("timeline"));
     this.elements.conversationView.addEventListener("click", () => this.#showSecondaryView("conversations"));
     this.elements.reasoningSeconds.addEventListener("change", () => {
-      const value = this.#reasoningSeconds();
-      this.elements.reasoningSeconds.value = String(value);
-      void this.repository.setSetting("reasoningSeconds", value);
+      void this.setReasoningSeconds(this.elements.reasoningSeconds.value);
     });
     this.elements.speechSpeed.addEventListener("change", () => {
       try {
@@ -286,16 +459,7 @@ export class UiOrchestrator {
         this.elements.status.textContent = error instanceof Error ? error.message : String(error);
       }
     });
-    this.elements.voiceEnable.addEventListener("click", () => void this.#runUiTask(async () => {
-      if (!this.voiceRuntime) throw new Error("音声エンジンを利用できません。");
-      this.elements.voiceEnable.disabled = true;
-      try {
-        await this.voiceRuntime.enable();
-        this.elements.voiceEnable.textContent = "音声 有効";
-      } finally {
-        if (!this.voiceRuntime.ready) this.elements.voiceEnable.disabled = false;
-      }
-    }));
+    this.elements.voiceEnable.addEventListener("click", () => void this.#runUiTask(() => this.enableVoice()));
 
     this.elements.composer.addEventListener("beforeinput", (event) => {
       if (this.typingStartedAt == null) this.typingStartedAt = performance.now();
@@ -321,8 +485,8 @@ export class UiOrchestrator {
   }
 
   #reasoningSeconds() {
-    const value = Number(this.elements.reasoningSeconds.value);
-    return Number.isFinite(value) ? Math.min(30, Math.max(0, value)) : DEFAULT_REASONING_SECONDS;
+    if (this.tutorialExampleMode) return 24 * 60 * 60;
+    return this.getReasoningSeconds();
   }
 
   async #finalizeComposerLineBreak() {
@@ -331,16 +495,22 @@ export class UiOrchestrator {
     const completed = getCompletedLineFromLineBreak(composer.value, composer.selectionStart);
     if (!completed.trim()) return;
     const typingMs = this.typingStartedAt == null ? 0 : Math.max(0, performance.now() - this.typingStartedAt);
-    await this.repository.recordInputStatistics({
-      typedChars: completed.length,
-      deletedChars: this.deletedChars,
-      typingMs,
-    });
-    await this.utterances.submit({
+    if (!this.tutorialExampleMode) {
+      await this.repository.recordInputStatistics({
+        typedChars: completed.length,
+        deletedChars: this.deletedChars,
+        typingMs,
+      });
+    }
+    const pending = await this.utterances.submit({
       sessionId: this.currentSession.id,
       text: completed,
       reasoningSeconds: this.#reasoningSeconds(),
+      tutorialExample: this.tutorialExampleMode,
     });
+    if (this.tutorialExampleMode) {
+      this.tutorialPendingIds.add(pending.id);
+    }
     const retained = retainRecentSubmittedLines(composer.value, composer.selectionStart, 2);
     if (retained.value !== composer.value || retained.caret !== composer.selectionStart) {
       composer.value = retained.value;
@@ -391,6 +561,10 @@ export class UiOrchestrator {
       speechSpeed: byId("speech-speed"),
       submitButton: byId("submit-button"),
       voiceEnable: byId("voice-enable"),
+      voiceLoadProgress: byId("voice-load-progress"),
+      voiceLoadProgressBar: byId("voice-load-progress-bar"),
+      voiceLoadStatus: byId("voice-load-status"),
+      voiceLoadDetail: byId("voice-load-detail"),
       focusComposer: byId("focus-composer"),
       status: byId("app-status"),
       conversationTitle: byId("conversation-title"),
