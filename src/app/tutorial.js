@@ -179,6 +179,7 @@ export class TutorialController {
   }
 
   previous() {
+    this.#scrollPageToTop();
     if (this.summaryReturnIndex != null && this.stepIndex !== this.summaryReturnIndex) {
       this.#returnToSummary();
       return;
@@ -190,6 +191,7 @@ export class TutorialController {
 
   next() {
     if (this.summaryReturnIndex != null && this.stepIndex !== this.summaryReturnIndex) {
+      this.#scrollPageToTop();
       this.#returnToSummary();
       return;
     }
@@ -197,6 +199,7 @@ export class TutorialController {
       this.complete();
       return;
     }
+    this.#scrollPageToTop();
     this.stepIndex += 1;
     this.#showStep();
   }
@@ -207,7 +210,7 @@ export class TutorialController {
     this.#cleanupDemo();
     void this.app?.endTutorialExamples?.();
     this.elements.overlay.hidden = true;
-    this.document.body.classList.remove("tutorial-open");
+    this.document.body.classList.remove("tutorial-open", "tutorial-scrollable");
     this.#stopSample({ close: true });
     this.elements.composer.focus({ preventScroll: true });
     void this.app?.initializePreparedVoice?.(profile, { enableAudio: false }).catch(() => {});
@@ -222,6 +225,7 @@ export class TutorialController {
     this.elements.overlay.classList.toggle("tutorial-live", page.dataset.tutorialLive === "true");
     this.elements.overlay.setAttribute("aria-modal", page.dataset.tutorialLive === "true" ? "false" : "true");
     this.elements.overlay.dataset.step = page.dataset.tutorialStep;
+    this.document.body.classList.toggle("tutorial-scrollable", this.stepIndex >= 2);
     if (page.dataset.tutorialStep !== "conversations") {
       void this.app?.closeTutorialConversationDemo?.({ remove: true });
     }
@@ -255,6 +259,12 @@ export class TutorialController {
 
   #acknowledgeStep() {
     this.elements.overlay.classList.remove("tutorial-needs-attention");
+  }
+
+  #scrollPageToTop() {
+    const scrollingElement = this.document.scrollingElement ?? this.document.documentElement;
+    scrollingElement.scrollTop = 0;
+    this.document.body.scrollTop = 0;
   }
 
   #guardTutorialNavigation(event) {

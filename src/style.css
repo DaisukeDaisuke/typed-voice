@@ -300,6 +300,7 @@ a { -webkit-tap-highlight-color: transparent; }
   backdrop-filter: none;
 }
 body.tutorial-open { overflow: hidden; }
+body.tutorial-open.tutorial-scrollable { overflow: auto; }
 .voice-load-progress {
   position: fixed;
   right: max(18px, env(safe-area-inset-right));
