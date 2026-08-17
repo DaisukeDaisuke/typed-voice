@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   clearAllApplicationData,
+  clearConversationData,
   createApplicationBackup,
   parseApplicationBackup,
   restoreApplicationBackup,
@@ -126,4 +127,18 @@ test("バックアップは正規化storeとtyped-voice設定を同一スナッ�
 
 test("別形式のJSONはtyped-voiceバックアップとして復元しない", () => {
   assert.throws(() => parseApplicationBackup('{"format":"other","version":1}'), /対応バックアップ/);
+});
+
+test("チュートリアル終了時は会話データだけ消し設定とasset metadataを残す", async () => {
+  const db = createFakeDb(initialDatabase());
+
+  await clearConversationData(db);
+  const current = db.snapshot();
+
+  assert.equal(current.sessions.length, 0);
+  assert.equal(current.messages.length, 0);
+  assert.equal(current.pendingUtterances.length, 0);
+  assert.equal(current.statistics.length, 0);
+  assert.deepEqual(current.settings, initialDatabase().settings);
+  assert.deepEqual(current.assets, initialDatabase().assets);
 });

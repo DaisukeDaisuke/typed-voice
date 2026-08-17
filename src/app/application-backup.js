@@ -5,8 +5,11 @@ const CONVERSATION_DATA_STORES = Object.freeze([
   "sessions",
   "messages",
   "pendingUtterances",
-  "settings",
   "statistics",
+]);
+const TUTORIAL_RESET_DATA_STORES = Object.freeze([
+  ...CONVERSATION_DATA_STORES,
+  "settings",
 ]);
 
 function requestValue(request) {
@@ -250,7 +253,7 @@ export async function restoreApplicationBackup({ db, storage = globalThis.localS
 
 export async function clearAllApplicationData({ db, storage = globalThis.localStorage } = {}) {
   if (!db) throw new Error("IndexedDB connection is unavailable.");
-  const storeNames = CONVERSATION_DATA_STORES.filter((name) => db.objectStoreNames.contains(name));
+  const storeNames = TUTORIAL_RESET_DATA_STORES.filter((name) => db.objectStoreNames.contains(name));
   const transaction = db.transaction(storeNames, "readwrite");
   const done = transactionDone(transaction);
   for (const storeName of storeNames) transaction.objectStore(storeName).clear();
