@@ -90,6 +90,7 @@ export class TutorialController {
     this.modelLoadStarted = false;
     this.modelLoadComplete = false;
     this.modelLoadAudioUnlock = null;
+    this.deviceLabelPromise = null;
     this.liveWindowPosition = null;
     this.dragState = null;
     this.elements = this.#resolveElements();
@@ -310,25 +311,31 @@ export class TutorialController {
   }
 
   async #updateDeviceSynthesisCopy() {
-    const uaData = globalThis.navigator?.userAgentData;
-    if (!uaData?.getHighEntropyValues) return;
-    try {
-      const values = await uaData.getHighEntropyValues(["platform", "model", "formFactors"]);
-      const formFactors = Array.isArray(values.formFactors)
-        ? values.formFactors.map((value) => String(value).toLowerCase())
-        : [];
-      let device = "端末";
-      if (formFactors.some((value) => value.includes("tablet"))) {
-        device = "タブレット";
-      } else if (formFactors.some((value) => value.includes("mobile")) || (uaData.mobile && values.model)) {
-        device = "スマートフォン";
-      } else if (formFactors.some((value) => value.includes("desktop")) || /windows|macos|linux|chrome os/i.test(String(values.platform || ""))) {
-        device = "コンピューター";
+    const device = await this.#getDeviceLabel();
+    this.elements.deviceSynthesisCopy.textContent = `あなたの${device}で、あなたのために音声が合成されます。そのため、読み上げが想定外に遅延することがあります。`;
+  }
+
+  async #getDeviceLabel() {
+    if (this.deviceLabelPromise) return this.deviceLabelPromise;
+    this.deviceLabelPromise = (async () => {
+      const uaData = globalThis.navigator?.userAgentData;
+      if (!uaData?.getHighEntropyValues) return "端末";
+      try {
+        const values = await uaData.getHighEntropyValues(["platform", "model", "formFactors"]);
+        const formFactors = Array.isArray(values.formFactors)
+          ? values.formFactors.map((value) => String(value).toLowerCase())
+          : [];
+        if (formFactors.some((value) => value.includes("tablet"))) return "タブレット";
+        if (formFactors.some((value) => value.includes("mobile")) || (uaData.mobile && values.model)) return "スマートフォン";
+        if (formFactors.some((value) => value.includes("desktop")) || /windows|macos|linux|chrome os/i.test(String(values.platform || ""))) {
+          return "コンピューター";
+        }
+      } catch {
+        // UA Client Hints are optional; keep the generic wording when unavailable.
       }
-      this.elements.deviceSynthesisCopy.textContent = `あなたの${device}で、あなたのために音声が合成されます。そのため、読み上げが想定外に遅延することがあります。`;
-    } catch {
-      // UA Client Hints are optional; keep the generic wording when unavailable.
-    }
+      return "端末";
+    })();
+    return this.deviceLabelPromise;
   }
 
   #scrollPageToTop() {
@@ -842,10 +849,11 @@ export class TutorialController {
       const totalBytes = Number(plan?.totalBytes || 0);
       if (totalBytes > 0 && !this.downloadRunning && !this.downloadCompleted) {
         const formatted = this.#formatBytes(totalBytes);
+        const device = await this.#getDeviceLabel();
         this.elements.downloadSize.textContent = formatted;
         this.elements.downloadBytes.textContent = `予定 ${formatted}`;
         this.elements.downloadAck.disabled = false;
-        this.elements.downloadAck.textContent = `この ${formatted} を保存する。了解した`;
+        this.elements.downloadAck.textContent = `私は ${formatted} をダウンロードして私の${device}に ${formatted} を保存することに同意する。了解した`;
         this.elements.downloadStatus.textContent = `実際に保存する容量は ${formatted} です。確認するまでダウンロードは始まりません。`;
         this.#updateHighlights("download");
       }

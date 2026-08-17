@@ -1,4 +1,8 @@
 import { EngineClient } from "../engine/engine-client.js";
+import {
+  hasKanalizerCandidate,
+  normalizeAsciiLetterRuns,
+} from "../text/kanalizer-normalizer.js";
 import { queryPreparedModelCache } from "./service-worker-required.js";
 
 const REMOTE_MANIFEST_URLS = Object.freeze({
@@ -132,14 +136,22 @@ export class VoiceRuntimeAdapter {
 
   async unlockAudio() {
     await this.#enableAudioContext();
+    if (this.ready) this.#releaseDeferredSynthesis(true);
     return true;
   }
 
   get audioEnabled() {
-    return Boolean(this.audioContext && this.audioContext.state !== "closed");
+    return this.audioContext?.state === "running";
   }
 
   async synthesize({ utteranceId, generation, text }, { fromDeferred = false } = {}) {
+    if (this.ready && !this.audioEnabled) {
+      try {
+        await this.#enableAudioContext();
+      } catch {
+        // User activation can be required. The normal deferred path below remains the fallback.
+      }
+    }
     if (!this.ready || !this.audioEnabled) {
       if (this.replayAfterLoad && (this.loading || this.ready)) {
         const phase = this.loading ? "waiting-for-model" : "waiting-for-audio";
@@ -153,10 +165,17 @@ export class VoiceRuntimeAdapter {
       return { skipped: true, durationMs: 0 };
     }
     try {
+      let synthesisText = text;
+      if (hasKanalizerCandidate(text)) {
+        this.#emitProgress({ stage: "normalize", phase: "kanalizer", utteranceId, generation, completed: 0, totalSteps: 1 });
+        const normalized = await normalizeAsciiLetterRuns(text);
+        synthesisText = normalized.text;
+        this.#emitProgress({ stage: "normalize", phase: "kanalizer", utteranceId, generation, completed: 1, totalSteps: 1 });
+      }
       const result = await this.client.synthesize({
         utteranceId,
         generation,
-        text,
+        text: synthesisText,
         options: {
           language: "ja",
           speed: this.speed,

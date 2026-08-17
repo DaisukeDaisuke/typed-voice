@@ -63,7 +63,7 @@ async function prepareKanalizerWasmOffline(onStatus, signal) {
   return buffer.byteLength;
 }
 
-export async function normalizeAsciiLetterRunsForPoc(text, { onStatus = () => {} } = {}) {
+export async function normalizeAsciiLetterRuns(text, { onStatus = () => {} } = {}) {
   const matches = [...text.matchAll(/[A-Za-z]+/g)];
   if (matches.length === 0) {
     return { text, replacements: [], modelRevision: null };
@@ -110,6 +110,9 @@ export async function normalizeAsciiLetterRunsForPoc(text, { onStatus = () => {}
     modelRevision: runtime?.revision ?? null,
   };
 }
+
+// PoCと本番で同じ変換実装を使う。既存PoCのimport名は互換性のため残す。
+export const normalizeAsciiLetterRunsForPoc = normalizeAsciiLetterRuns;
 
 function findPronunciationBoundaries(source) {
   const boundaries = new Map();

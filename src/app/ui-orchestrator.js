@@ -631,6 +631,16 @@ export class UiOrchestrator {
         value: 0,
         total: 1,
       });
+    } else if (message.stage === "normalize") {
+      const total = Math.max(1, Number(message.totalSteps || 1));
+      const value = Math.max(0, Math.min(total, Number(message.completed || 0)));
+      this.synthesisProgress.set(utteranceId, {
+        generation: message.generation,
+        status: "running",
+        phase: "normalize",
+        value,
+        total,
+      });
     } else if (message.stage === "generate") {
       const total = Math.max(0, Number(message.totalSteps || 0));
       const value = Math.max(0, Math.min(total || Number(message.completed || 0), Number(message.completed || 0)));
@@ -664,6 +674,8 @@ export class UiOrchestrator {
     }
     label.textContent = synthesis?.phase === "waiting-for-model" || synthesis?.phase === "waiting-for-audio"
       ? synthesis.phase === "waiting-for-audio" ? "音声の有効化待ち" : "モデルのロード完了待ち"
+      : synthesis?.phase === "normalize"
+      ? "英字を読み上げ用に変換中"
       : synthesis?.phase === "decode"
       ? `${value} / ${total} · 波形を作成中`
       : synthesis?.status === "done"
@@ -681,10 +693,19 @@ export class UiOrchestrator {
   }
 
   #bindEvents() {
-    this.elements.submitButton.addEventListener("click", () => void this.#runUiTask(() => this.submitComposer()));
-    this.elements.correctionButton.addEventListener("click", () => void this.#runUiTask(() => this.applyCorrectionFromComposer()));
+    this.elements.submitButton.addEventListener("click", () => {
+      this.#unlockVoiceFromUserGesture();
+      void this.#runUiTask(() => this.submitComposer());
+    });
+    this.elements.correctionButton.addEventListener("click", () => {
+      this.#unlockVoiceFromUserGesture();
+      void this.#runUiTask(() => this.applyCorrectionFromComposer());
+    });
     this.elements.cancelCurrentButton.addEventListener("click", () => void this.#runUiTask(() => this.cancelCurrentPending()));
-    this.elements.forceSpeakButton.addEventListener("click", () => void this.#runUiTask(() => this.forceQueueHead()));
+    this.elements.forceSpeakButton.addEventListener("click", () => {
+      this.#unlockVoiceFromUserGesture();
+      void this.#runUiTask(() => this.forceQueueHead());
+    });
     this.elements.newConversation.addEventListener("click", () => void this.#runUiTask(() => this.createConversation()));
     this.elements.focusComposer.addEventListener("click", () => this.focusComposer());
     this.elements.timelineView.addEventListener("click", () => this.#showSecondaryView("timeline"));
@@ -712,12 +733,18 @@ export class UiOrchestrator {
     });
     this.elements.composer.addEventListener("input", (event) => {
       if (event.inputType === "insertLineBreak" || event.inputType === "insertParagraph") {
+        this.#unlockVoiceFromUserGesture();
         void this.#runUiTask(() => this.#finalizeComposerLineBreak());
       }
     });
     this.elements.composerPanel.addEventListener("click", (event) => {
       if (!isInteractiveTarget(event.target)) this.focusComposer();
     });
+  }
+
+  #unlockVoiceFromUserGesture() {
+    if (!this.voiceRuntime || this.voiceRuntime.audioEnabled) return;
+    void this.voiceRuntime.unlockAudio?.().catch(() => {});
   }
 
   async #runUiTask(task) {
