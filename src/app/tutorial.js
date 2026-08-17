@@ -103,6 +103,8 @@ export class TutorialController {
     this.targetArrowTarget = null;
     this.summaryReturnIndex = null;
     this.conversationTutorialCompleted = false;
+    this.liveWindowPosition = null;
+    this.dragState = null;
     this.elements = this.#resolveElements();
   }
 
@@ -110,8 +112,12 @@ export class TutorialController {
     this.elements.overlay.addEventListener("pointerdown", () => this.#acknowledgeStep());
     this.elements.overlay.addEventListener("keydown", () => this.#acknowledgeStep());
     this.document.addEventListener("click", (event) => this.#guardTutorialNavigation(event), true);
-    globalThis.addEventListener?.("resize", () => this.#refreshTargetArrow(), { passive: true });
+    globalThis.addEventListener?.("resize", () => this.#handleViewportResize(), { passive: true });
     this.document.addEventListener("scroll", () => this.#refreshTargetArrow(), { capture: true, passive: true });
+    this.elements.dragHandle.addEventListener("pointerdown", (event) => this.#startWindowDrag(event));
+    this.elements.dragHandle.addEventListener("pointermove", (event) => this.#moveWindowDrag(event));
+    this.elements.dragHandle.addEventListener("pointerup", (event) => this.#endWindowDrag(event));
+    this.elements.dragHandle.addEventListener("pointercancel", (event) => this.#endWindowDrag(event));
     this.elements.back.addEventListener("click", () => this.previous());
     this.elements.next.addEventListener("click", () => this.next());
     this.elements.restart.addEventListener("click", async () => {
@@ -172,6 +178,9 @@ export class TutorialController {
     this.#resetDownloadProgress();
     this.summaryReturnIndex = null;
     this.conversationTutorialCompleted = false;
+    this.dragState = null;
+    this.document.body.classList.remove("tutorial-window-dragging");
+    this.elements.dragHandle.classList.remove("is-dragging");
     this.stepIndex = 0;
     this.#scrollPageToTop();
     this.elements.overlay.hidden = false;
@@ -211,7 +220,9 @@ export class TutorialController {
     this.#cleanupDemo();
     void this.app?.endTutorialExamples?.();
     this.elements.overlay.hidden = true;
-    this.document.body.classList.remove("tutorial-open", "tutorial-scrollable");
+    this.document.body.classList.remove("tutorial-open", "tutorial-scrollable", "tutorial-window-dragging");
+    this.elements.dragHandle.classList.remove("is-dragging");
+    this.dragState = null;
     this.#stopSample({ close: true });
     this.elements.composer.focus({ preventScroll: true });
     void this.app?.initializePreparedVoice?.(profile, { enableAudio: false }).catch(() => {});
@@ -227,6 +238,7 @@ export class TutorialController {
     this.elements.overlay.classList.toggle("tutorial-live", freeInteraction);
     this.elements.overlay.setAttribute("aria-modal", freeInteraction ? "false" : "true");
     this.elements.overlay.dataset.step = page.dataset.tutorialStep;
+    this.#applyLiveWindowPosition();
     this.document.body.classList.toggle("tutorial-scrollable", this.stepIndex >= 2);
     if (page.dataset.tutorialStep !== "conversations") {
       void this.app?.closeTutorialConversationDemo?.({ remove: true });
@@ -272,6 +284,80 @@ export class TutorialController {
     const scrollingElement = this.document.scrollingElement ?? this.document.documentElement;
     scrollingElement.scrollTop = 0;
     this.document.body.scrollTop = 0;
+  }
+
+  #startWindowDrag(event) {
+    if (this.stepIndex < 2 || (event.pointerType === "mouse" && event.button !== 0)) return;
+    const rect = this.elements.shell.getBoundingClientRect();
+    this.dragState = {
+      pointerId: event.pointerId,
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+    };
+    this.elements.dragHandle.classList.add("is-dragging");
+    this.document.body.classList.add("tutorial-window-dragging");
+    this.elements.dragHandle.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+  }
+
+  #moveWindowDrag(event) {
+    if (!this.dragState || event.pointerId !== this.dragState.pointerId) return;
+    const position = this.#clampLiveWindowPosition(
+      event.clientX - this.dragState.offsetX,
+      event.clientY - this.dragState.offsetY
+    );
+    this.liveWindowPosition = position;
+    this.#applyLiveWindowPosition();
+    this.#refreshTargetArrow();
+    event.preventDefault();
+  }
+
+  #endWindowDrag(event) {
+    if (!this.dragState || event.pointerId !== this.dragState.pointerId) return;
+    this.elements.dragHandle.releasePointerCapture?.(event.pointerId);
+    this.elements.dragHandle.classList.remove("is-dragging");
+    this.document.body.classList.remove("tutorial-window-dragging");
+    this.dragState = null;
+  }
+
+  #applyLiveWindowPosition() {
+    const shell = this.elements.shell;
+    if (this.stepIndex < 2) {
+      shell.style.removeProperty("left");
+      shell.style.removeProperty("top");
+      shell.style.removeProperty("right");
+      shell.style.removeProperty("bottom");
+      return;
+    }
+    if (!this.liveWindowPosition) {
+      shell.style.removeProperty("left");
+      shell.style.removeProperty("top");
+      shell.style.removeProperty("right");
+      shell.style.removeProperty("bottom");
+      return;
+    }
+    const position = this.#clampLiveWindowPosition(this.liveWindowPosition.x, this.liveWindowPosition.y);
+    this.liveWindowPosition = position;
+    shell.style.left = `${Math.round(position.x)}px`;
+    shell.style.top = `${Math.round(position.y)}px`;
+    shell.style.right = "auto";
+    shell.style.bottom = "auto";
+  }
+
+  #clampLiveWindowPosition(x, y) {
+    const rect = this.elements.shell.getBoundingClientRect();
+    const viewportWidth = globalThis.innerWidth || this.document.documentElement.clientWidth;
+    const viewportHeight = globalThis.innerHeight || this.document.documentElement.clientHeight;
+    const margin = 8;
+    return {
+      x: Math.max(margin, Math.min(viewportWidth - rect.width - margin, x)),
+      y: Math.max(margin, Math.min(viewportHeight - rect.height - margin, y)),
+    };
+  }
+
+  #handleViewportResize() {
+    if (this.liveWindowPosition) this.#applyLiveWindowPosition();
+    this.#refreshTargetArrow();
   }
 
   #guardTutorialNavigation(event) {
@@ -1195,12 +1281,20 @@ export class TutorialController {
       return;
     }
 
-    // CSS makes the arrow-head tip the local origin. JS only supplies the
-    // actual point to indicate, so there is no hidden geometry offset here.
-    const desiredTipX = rect.right + 5;
-    const desiredTipY = rect.top + rect.height / 2 + 3;
-    arrow.style.setProperty("--tutorial-target-arrow-x", `${Math.round(desiredTipX)}px`);
-    arrow.style.setProperty("--tutorial-target-arrow-y", `${Math.round(desiredTipY)}px`);
+    // Position the whole "<" arrow-head box beside the target. The head is
+    // 38x38px at (16, 11) inside the 112x210 arrow shape.
+    const arrowHeadLeft = 16;
+    const arrowHeadTop = 11;
+    const arrowHeadHeight = 38;
+    const headGap = 8;
+    const desiredX = rect.right + headGap - arrowHeadLeft;
+    const desiredY = rect.top + rect.height / 2 - arrowHeadTop - arrowHeadHeight / 2;
+    const viewportWidth = globalThis.innerWidth || this.document.documentElement.clientWidth;
+    const viewportHeight = globalThis.innerHeight || this.document.documentElement.clientHeight;
+    const x = Math.max(8, Math.min(viewportWidth - 112, desiredX));
+    const y = Math.max(8, Math.min(viewportHeight - 210, desiredY));
+    arrow.style.setProperty("--tutorial-target-arrow-x", `${Math.round(x)}px`);
+    arrow.style.setProperty("--tutorial-target-arrow-y", `${Math.round(y)}px`);
     arrow.hidden = false;
   }
 
@@ -1213,6 +1307,8 @@ export class TutorialController {
     const overlay = byId("tutorial-overlay");
     return {
       overlay,
+      shell: overlay.querySelector(".tutorial-shell"),
+      dragHandle: byId("tutorial-drag-handle"),
       pages: [...overlay.querySelectorAll("[data-tutorial-step]")],
       summaryJumpButtons: [...overlay.querySelectorAll("[data-tutorial-jump]")],
       pagesContainer: overlay.querySelector(".tutorial-pages"),
