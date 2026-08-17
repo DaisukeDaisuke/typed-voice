@@ -391,23 +391,61 @@ body.tutorial-window-dragging * { cursor: grabbing !important; }
   background: #fff3e8;
   color: #762b0c;
 }
-.tutorial-scroll-mouse {
+.tutorial-scroll-tablet {
   position: relative;
-  width: 62px;
-  height: 96px;
+  width: 116px;
+  height: 82px;
   border: 5px solid #762b0c;
-  border-radius: 31px;
+  border-radius: 20px;
+  background: #fffaf5;
+  box-shadow: inset 0 0 0 3px #f0d6c2;
 }
-.tutorial-scroll-wheel {
+.tutorial-scroll-tablet::after {
+  content: "";
   position: absolute;
   left: 50%;
-  top: 16px;
-  width: 8px;
-  height: 28px;
+  bottom: 5px;
+  width: 20px;
+  height: 3px;
   border-radius: 999px;
-  background: #762b0c;
+  background: #b98a6b;
   translate: -50% 0;
-  animation: tutorial-scroll-wheel 1.2s ease-in-out infinite;
+}
+.tutorial-scroll-finger {
+  position: absolute;
+  left: 48px;
+  top: 26px;
+  width: 18px;
+  height: 52px;
+  border: 4px solid #762b0c;
+  border-radius: 12px 12px 9px 9px;
+  background: #ffd9bd;
+  transform-origin: 50% 82%;
+  animation: tutorial-scroll-finger 1.2s ease-in-out infinite;
+}
+.tutorial-scroll-finger::before {
+  content: "";
+  position: absolute;
+  left: -16px;
+  bottom: -4px;
+  width: 32px;
+  height: 22px;
+  border: 4px solid #762b0c;
+  border-right: 0;
+  border-radius: 18px 0 0 18px;
+  background: #ffd9bd;
+  transform: rotate(18deg);
+  transform-origin: right center;
+}
+.tutorial-scroll-finger::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 5px;
+  width: 6px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f5b98f;
 }
 .tutorial-scroll-track {
   position: relative;
@@ -427,9 +465,9 @@ body.tutorial-window-dragging * { cursor: grabbing !important; }
   animation: tutorial-scroll-thumb 1.2s ease-in-out infinite;
 }
 .tutorial-scroll-arrows { font-size: 2rem; font-weight: 900; line-height: 1.15; text-align: center; }
-@keyframes tutorial-scroll-wheel {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(28px); }
+@keyframes tutorial-scroll-finger {
+  0%, 100% { transform: translateY(9px); }
+  50% { transform: translateY(-15px); }
 }
 @keyframes tutorial-scroll-thumb {
   0%, 100% { transform: translateY(0); }
