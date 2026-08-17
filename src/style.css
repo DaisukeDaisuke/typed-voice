@@ -172,6 +172,7 @@ a { -webkit-tap-highlight-color: transparent; }
 .model-profile-summary > strong { display: block; margin-bottom: 8px; font-size: 0.96rem; }
 .model-profile-facts { display: flex; flex-wrap: wrap; gap: 6px; }
 .model-profile-facts span { padding: 4px 8px; border-radius: 999px; background: #ece8e2; color: #625b52; font-size: 0.72rem; font-weight: 650; }
+.tutorial-focus-anchor { position: absolute; top: 0; left: 0; width: 0; height: 0; overflow: hidden; opacity: 0; pointer-events: none; }
 .model-profile-facts [data-model-profile-size] {
   background: #f1cfb1;
   color: #502c17;

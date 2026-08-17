@@ -4,6 +4,7 @@ const DEFAULT_MODEL_PROFILE = "fp16";
 export const MODEL_PROFILES = Object.freeze({
   fp32: Object.freeze({
     title: "最高品質",
+    speed: "高速合成（サポートしている場合）",
     device: "GPU",
     quality: "最高音質",
     precision: "FP32",
@@ -12,6 +13,7 @@ export const MODEL_PROFILES = Object.freeze({
   }),
   fp16: Object.freeze({
     title: "推奨（おすすめ）",
+    speed: "高速合成（サポートしている場合）",
     device: "GPU",
     quality: "高い",
     precision: "FP16",
@@ -20,6 +22,7 @@ export const MODEL_PROFILES = Object.freeze({
   }),
   "mobile-int8": Object.freeze({
     title: "低メモリ向け",
+    speed: "低速合成",
     device: "CPU",
     quality: "劣化あり",
     precision: "INT8",
@@ -28,6 +31,7 @@ export const MODEL_PROFILES = Object.freeze({
   }),
   "mobile-int4": Object.freeze({
     title: "非推奨",
+    speed: "低速合成",
     device: "CPU",
     quality: "劣化あり",
     precision: "INT4",
@@ -124,6 +128,7 @@ export class ModelProfileUi {
         input.checked = input.value === this.profile;
       }
       control.querySelector("[data-model-profile-title]").textContent = profile.title;
+      control.querySelector("[data-model-profile-speed]").textContent = profile.speed;
       control.querySelector("[data-model-profile-device]").textContent = profile.device;
       control.querySelector("[data-model-profile-quality]").textContent = profile.quality;
       control.querySelector("[data-model-profile-precision]").textContent = profile.precision;

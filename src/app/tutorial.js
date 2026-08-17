@@ -108,8 +108,8 @@ export class TutorialController {
     this.elements.dragHandle.addEventListener("pointermove", (event) => this.#moveWindowDrag(event));
     this.elements.dragHandle.addEventListener("pointerup", (event) => this.#endWindowDrag(event));
     this.elements.dragHandle.addEventListener("pointercancel", (event) => this.#endWindowDrag(event));
-    this.elements.back.addEventListener("click", () => this.previous());
-    this.elements.next.addEventListener("click", () => this.next());
+    this.elements.back.addEventListener("click", () => void this.previous());
+    this.elements.next.addEventListener("click", () => void this.next());
     this.elements.linebreakDemo.addEventListener("click", () => void this.#runLinebreakDemo());
     this.elements.correctionDemo.addEventListener("click", () => void this.#runCorrectionDemo());
     this.elements.cancelDemo.addEventListener("click", () => void this.#runCancelDemo());
@@ -127,7 +127,7 @@ export class TutorialController {
       globalThis.setTimeout(() => void this.#handleConversationSubmission(), 0);
     });
     for (const button of this.elements.summaryJumpButtons) {
-      button.addEventListener("click", () => this.#jumpFromSummary(button.dataset.tutorialJump));
+      button.addEventListener("click", () => void this.#jumpFromSummary(button.dataset.tutorialJump));
     }
     this.document.addEventListener("typed-voice:model-profile-ui-change", () => {
       this.#stopSample();
@@ -172,10 +172,11 @@ export class TutorialController {
     this.#showStep();
   }
 
-  previous() {
+  async previous() {
+    await this.#prepareStageChange();
     this.#scrollPageToTop();
     if (this.summaryReturnIndex != null && this.stepIndex !== this.summaryReturnIndex) {
-      this.#returnToSummary();
+      await this.#returnToSummary();
       return;
     }
     if (this.stepIndex === 0) return;
@@ -183,10 +184,11 @@ export class TutorialController {
     this.#showStep();
   }
 
-  next() {
+  async next() {
+    await this.#prepareStageChange();
     if (this.summaryReturnIndex != null && this.stepIndex !== this.summaryReturnIndex) {
       this.#scrollPageToTop();
-      this.#returnToSummary();
+      await this.#returnToSummary();
       return;
     }
     if (this.stepIndex >= this.elements.pages.length - 1) {
@@ -262,7 +264,7 @@ export class TutorialController {
       this.elements.composer.focus({ preventScroll: true });
       this.#moveCaretToEnd();
     } else if (freeInteraction) {
-      this.document.activeElement?.blur?.();
+      this.elements.focusAnchor.focus({ preventScroll: true });
     } else {
       this.elements.next.focus({ preventScroll: true });
     }
@@ -403,21 +405,52 @@ export class TutorialController {
     this.#updateHighlights("conversations");
   }
 
-  #jumpFromSummary(stepName) {
+  async #jumpFromSummary(stepName) {
     const summaryIndex = this.elements.pages.findIndex((page) => page.dataset.tutorialStep === "finish");
     const targetIndex = this.elements.pages.findIndex((page) => page.dataset.tutorialStep === stepName);
     if (summaryIndex < 0 || targetIndex < 0) return;
+    await this.#prepareStageChange();
     this.summaryReturnIndex = summaryIndex;
     this.stepIndex = targetIndex;
     this.#showStep();
   }
 
-  #returnToSummary() {
+  async #returnToSummary() {
     if (this.summaryReturnIndex == null) return;
     const target = this.summaryReturnIndex;
     this.summaryReturnIndex = null;
     this.stepIndex = target;
     this.#showStep();
+  }
+
+  async #prepareStageChange() {
+    this.#cleanupDemo();
+    await this.#discardPendingViaNormalUi();
+  }
+
+  async #discardPendingViaNormalUi() {
+    let attempts = 0;
+    while ((this.app?.currentPendingCount ?? 0) > 0 && attempts < 64) {
+      attempts += 1;
+      const before = this.app?.currentPendingCount ?? 0;
+      if (this.elements.cancelCurrentButton.disabled) await this.app?.refreshAll?.();
+      if (this.elements.cancelCurrentButton.disabled) break;
+      this.elements.cancelCurrentButton.click();
+      const removed = await this.#waitForWithoutRunToken(
+        () => (this.app?.currentPendingCount ?? 0) < before,
+        1800
+      );
+      if (!removed) break;
+    }
+  }
+
+  async #waitForWithoutRunToken(predicate, timeoutMs) {
+    const deadline = performance.now() + timeoutMs;
+    while (performance.now() < deadline) {
+      if (predicate()) return true;
+      await this.#sleep(30);
+    }
+    return false;
   }
 
   #syncWaitSetting() {
@@ -1262,6 +1295,7 @@ export class TutorialController {
     const overlay = byId("tutorial-overlay");
     return {
       overlay,
+      focusAnchor: byId("tutorial-focus-anchor"),
       shell: overlay.querySelector(".tutorial-shell"),
       dragHandle: byId("tutorial-drag-handle"),
       pages: [...overlay.querySelectorAll("[data-tutorial-step]")],

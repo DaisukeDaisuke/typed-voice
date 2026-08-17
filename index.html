@@ -7,6 +7,7 @@
   <title>typed-voice</title>
 </head>
 <body>
+  <div id="tutorial-focus-anchor" class="tutorial-focus-anchor" tabindex="-1"></div>
   <div id="service-worker-required" class="service-worker-required" role="alertdialog" aria-modal="true" aria-labelledby="service-worker-required-title" hidden>
     <div class="service-worker-required-card">
       <h1 id="service-worker-required-title">サービスワーカの登録を許可してください。このページでは必須です</h1>
@@ -43,6 +44,7 @@
       <div class="model-profile-summary" aria-live="polite">
         <strong data-model-profile-title></strong>
         <div class="model-profile-facts">
+          <span data-model-profile-speed></span>
           <span data-model-profile-device></span>
           <span data-model-profile-quality></span>
           <span data-model-profile-precision></span>
@@ -219,6 +221,7 @@ https://tyc.rei-yumesaki.net
             <div class="model-profile-summary" aria-live="polite">
               <strong data-model-profile-title></strong>
               <div class="model-profile-facts">
+                <span data-model-profile-speed></span>
                 <span data-model-profile-device></span>
                 <span data-model-profile-quality></span>
                 <span data-model-profile-precision></span>
