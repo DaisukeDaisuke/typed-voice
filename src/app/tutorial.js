@@ -275,9 +275,7 @@ export class TutorialController {
   }
 
   #scrollPageToTop() {
-    const scrollingElement = this.document.scrollingElement ?? this.document.documentElement;
-    scrollingElement.scrollTop = 0;
-    this.document.body.scrollTop = 0;
+    this.elements.pagesContainer.scrollTop = 0;
   }
 
   #startWindowDrag(event) {
