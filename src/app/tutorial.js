@@ -274,7 +274,6 @@ export class TutorialController {
       primaryTarget = this.elements.composer;
     }
     if (step === "correction") {
-      this.elements.composer.classList.add("tutorial-target");
       this.elements.correctionButton.classList.add("tutorial-target");
       primaryTarget = this.elements.correctionButton;
     }
@@ -301,39 +300,15 @@ export class TutorialController {
       return;
     }
 
-    const shellRect = this.elements.overlay.querySelector(".tutorial-shell")?.getBoundingClientRect();
-    if (!shellRect) {
-      arrow.hidden = true;
-      return;
-    }
-
     const viewportWidth = globalThis.innerWidth || this.document.documentElement.clientWidth;
     const viewportHeight = globalThis.innerHeight || this.document.documentElement.clientHeight;
-    const targetCenterX = rect.left + rect.width / 2;
-    const targetCenterY = rect.top + rect.height / 2;
-    const sourceCenterX = shellRect.left + shellRect.width / 2;
-    const sourceCenterY = shellRect.top + shellRect.height / 2;
-    const dx = targetCenterX - sourceCenterX;
-    const dy = targetCenterY - sourceCenterY;
-    const desiredAngle = Math.atan2(dy, dx) * 180 / Math.PI;
-    const rotation = desiredAngle - 180;
-
-    let anchorX = targetCenterX;
-    let anchorY = targetCenterY;
-    if (Math.abs(dx) >= Math.abs(dy)) {
-      anchorX = dx < 0 ? rect.right + 12 : rect.left - 12;
-    } else {
-      anchorY = dy < 0 ? rect.bottom + 12 : rect.top - 12;
-    }
-
-    const headX = 18;
-    const headY = 21;
-    const x = Math.max(-120, Math.min(viewportWidth - 30, anchorX - headX));
-    const y = Math.max(-100, Math.min(viewportHeight - 30, anchorY - headY));
+    const headX = 16;
+    const headY = 26;
+    const x = Math.max(8, Math.min(viewportWidth - 112, rect.right + 12 - headX));
+    const y = Math.max(8, Math.min(viewportHeight - 210, rect.top + rect.height / 2 - headY));
 
     arrow.style.setProperty("--tutorial-target-arrow-x", `${Math.round(x)}px`);
     arrow.style.setProperty("--tutorial-target-arrow-y", `${Math.round(y)}px`);
-    arrow.style.setProperty("--tutorial-target-arrow-rotation", `${rotation.toFixed(1)}deg`);
     arrow.hidden = false;
   }
 
