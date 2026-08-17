@@ -64,7 +64,8 @@ export class ModelProfileUi {
   constructor(documentRef = document, storage = globalThis.localStorage) {
     this.document = documentRef;
     this.storage = storage;
-    this.profile = normalizeProfile(safeRead(storage, MODEL_PROFILE_STORAGE_KEY));
+    this.committedProfile = normalizeProfile(safeRead(storage, MODEL_PROFILE_STORAGE_KEY));
+    this.profile = this.committedProfile;
     this.controls = [];
     this.settingsButton = null;
     this.settingsPanel = null;
@@ -73,9 +74,14 @@ export class ModelProfileUi {
   initialize() {
     this.controls = [...this.document.querySelectorAll("[data-model-profile-control]")];
     for (const control of this.controls) {
+      const readOnly = control.hasAttribute("data-model-profile-readonly");
+      for (const input of control.querySelectorAll('input[type="radio"]')) input.disabled = readOnly;
+      if (readOnly) continue;
       control.addEventListener("change", (event) => {
         const input = event.target.closest('input[type="radio"]');
-        if (input) this.select(input.value);
+        if (!input) return;
+        const persist = !control.hasAttribute("data-model-profile-deferred");
+        this.select(input.value, { persist });
       });
     }
     this.#bindSettingsPanel();
@@ -83,12 +89,43 @@ export class ModelProfileUi {
     return this;
   }
 
-  select(profile) {
+  select(profile, { persist = true } = {}) {
     this.profile = normalizeProfile(profile);
-    safeWrite(this.storage, MODEL_PROFILE_STORAGE_KEY, this.profile);
+    if (persist) {
+      this.committedProfile = this.profile;
+      safeWrite(this.storage, MODEL_PROFILE_STORAGE_KEY, this.profile);
+    }
     this.#render();
     this.document.dispatchEvent(new CustomEvent("typed-voice:model-profile-ui-change", {
-      detail: { profile: this.profile },
+      detail: {
+        profile: this.profile,
+        committedProfile: this.committedProfile,
+        persisted: persist,
+      },
+    }));
+    return this.profile;
+  }
+
+  commitSelection() {
+    this.committedProfile = normalizeProfile(this.profile);
+    safeWrite(this.storage, MODEL_PROFILE_STORAGE_KEY, this.committedProfile);
+    this.#render();
+    this.document.dispatchEvent(new CustomEvent("typed-voice:model-profile-committed", {
+      detail: { profile: this.committedProfile },
+    }));
+    return this.committedProfile;
+  }
+
+  restoreCommittedSelection() {
+    this.profile = this.committedProfile;
+    this.#render();
+    this.document.dispatchEvent(new CustomEvent("typed-voice:model-profile-ui-change", {
+      detail: {
+        profile: this.profile,
+        committedProfile: this.committedProfile,
+        persisted: true,
+        restored: true,
+      },
     }));
     return this.profile;
   }
@@ -122,10 +159,13 @@ export class ModelProfileUi {
   }
 
   #render() {
-    const profile = MODEL_PROFILES[this.profile];
     for (const control of this.controls) {
+      const readOnly = control.hasAttribute("data-model-profile-readonly");
+      const selectedProfile = readOnly ? this.committedProfile : this.profile;
+      const profile = MODEL_PROFILES[selectedProfile];
       for (const input of control.querySelectorAll('input[type="radio"]')) {
-        input.checked = input.value === this.profile;
+        input.checked = input.value === selectedProfile;
+        input.disabled = readOnly;
       }
       control.querySelector("[data-model-profile-title]").textContent = profile.title;
       control.querySelector("[data-model-profile-speed]").textContent = profile.speed;

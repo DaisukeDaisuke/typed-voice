@@ -249,8 +249,6 @@ export class VoiceRuntimeAdapter {
       return;
     }
     if (this.ready && this.activeProfile !== normalized) {
-      await this.audioContext?.close().catch(() => {});
-      this.audioContext = null;
       this.ready = false;
     }
     await this.client?.dispose().catch(() => {});

@@ -87,23 +87,32 @@ function initialDatabase() {
   };
 }
 
-test("バックアップは正規化storeとtyped-voice設定を同一スナップショットへ保存し復元できる", async () => {
+test("バックアップはユーザーデータだけを保存しasset metadataを含めず復元でも保持する", async () => {
   const db = createFakeDb(initialDatabase());
   const storage = createStorage({
     "typed-voice-tutorial-v1-complete": "1",
     "typed-voice-tutorial-conversation-practice-count-v1": "2",
     "typed-voice-ui-model-profile-v1": "fp16",
+    "typed-voice-internal-cache-state": "do-not-export",
     unrelated: "keep",
   });
   const uiState = { currentSessionId: "session-1", composerValue: "draft", secondaryView: "timeline" };
   const backup = await createApplicationBackup({ db, storage, uiState });
 
-  assert.deepEqual(Object.keys(backup.database.stores).sort(), Object.keys(initialDatabase()).sort());
+  assert.deepEqual(Object.keys(backup.database.stores).sort(), [
+    "messages",
+    "pendingUtterances",
+    "sessions",
+    "settings",
+    "statistics",
+  ]);
+  assert.equal(Object.hasOwn(backup.database.stores, "assets"), false);
   assert.deepEqual(backup.localStorage, {
     "typed-voice-tutorial-v1-complete": "1",
     "typed-voice-tutorial-conversation-practice-count-v1": "2",
     "typed-voice-ui-model-profile-v1": "fp16",
   });
+  assert.equal(Object.hasOwn(backup.localStorage, "typed-voice-internal-cache-state"), false);
   assert.deepEqual(backup.uiState, uiState);
   assert.equal(backup.cacheStorageIncluded, false);
 
@@ -129,6 +138,19 @@ test("バックアップは正規化storeとtyped-voice設定を同一スナッ�
     "typed-voice-tutorial-conversation-practice-count-v1": "2",
     "typed-voice-ui-model-profile-v1": "fp16",
   });
+});
+
+test("旧v1バックアップにassetsが含まれていても復元せず現在端末のasset metadataを保持する", async () => {
+  const current = initialDatabase();
+  current.assets = [{ key: "voice:new", manifestId: "voice", assetId: "new", version: "new", sha256: "new", size: 9 }];
+  const db = createFakeDb(current);
+  const storage = createStorage();
+  const backup = await createApplicationBackup({ db: createFakeDb(initialDatabase()), storage });
+  backup.database.stores.assets = initialDatabase().assets;
+
+  await restoreApplicationBackup({ db, storage }, backup);
+
+  assert.deepEqual(db.snapshot().assets, current.assets);
 });
 
 test("別形式のJSONはtyped-voiceバックアップとして復元しない", () => {

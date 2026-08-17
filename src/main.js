@@ -42,11 +42,75 @@ await blocking.registerBlockingAsync("会話データ", async ({ report }) => {
 await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
   report({ detail: "バックアップとチュートリアルを準備しています。" });
   initializeBackupUi(document, { app, modelProfileUi });
-  new TutorialController(document, {
+  const tutorial = new TutorialController(document, {
     modelProfileUi,
     app,
     tutorialComplete: tutorialState.complete,
   }).initialize();
+
+  const endTutorialProfile = Object.freeze({
+    terminal: true,
+  });
+
+  const fullTutorialProfile = Object.freeze({
+    route: "all",
+    headerBrand: "はじめての typed-voice",
+    completionLabel: "使い始める",
+    completeTo: "end",
+    lockBackDuringModelLoad: true,
+    onOpen({ controller, modelProfileUi: profileUi }) {
+      if (!controller.tutorialComplete) profileUi.select("fp16", { persist: false });
+    },
+    async onStageChange({ discardPending }) {
+      await discardPending();
+    },
+    async onEnterStep({ stepId, app: tutorialApp }) {
+      if (stepId === "model-load") await tutorialApp.finishTutorialData();
+    },
+    async onComplete({ controller, app: tutorialApp, modelProfileUi: profileUi }) {
+      profileUi.commitSelection();
+      await tutorialApp.markTutorialComplete();
+      controller.tutorialComplete = true;
+    },
+  });
+
+  const modelPickerProfile = Object.freeze({
+    route: Object.freeze([
+      Object.freeze({ step: "model", id: "choose-model", nextLabel: "容量を確認する", backLabel: "閉じる" }),
+      Object.freeze({ step: "download", id: "download-model", nextLabel: "ダウンロード完了", backLabel: "モデル選択へ戻る" }),
+      Object.freeze({ step: "download-ready", id: "download-ready", nextLabel: "モデルを読み込む", backLabel: "ダウンロードへ戻る" }),
+      Object.freeze({ step: "model-load", id: "load-model", nextLabel: "モデル変更を完了", backLabel: "戻る" }),
+    ]),
+    headerBrand: "音声モデルを変更",
+    completionLabel: "モデル変更を完了",
+    completeTo: "end",
+    cancelTo: "end",
+    closeOnBackAtStart: true,
+    lockBackDuringModelLoad: true,
+    onOpen({ modelProfileUi: profileUi, state }) {
+      state.completed = false;
+      profileUi.restoreCommittedSelection();
+    },
+    onComplete({ modelProfileUi: profileUi, state }) {
+      profileUi.commitSelection();
+      state.completed = true;
+    },
+    async onClose({ state, restoreCommittedModel }) {
+      if (!state.completed) await restoreCommittedModel();
+    },
+  });
+
+  tutorial
+    .registerProfile("end", endTutorialProfile)
+    .registerProfile("full", fullTutorialProfile)
+    .registerProfile("model-picker", modelPickerProfile);
+
+  await tutorial.openProfile(tutorialState.complete ? "end" : "full");
+
+  document.getElementById("settings-model-picker")?.addEventListener("click", () => {
+    modelProfileUi.closeSettings();
+    void tutorial.openProfile("model-picker");
+  });
 });
 const selectedModelCached = await blocking.registerBlockingAsync("音声キャッシュ", async ({ report }) => {
   report({ detail: "選択中の音声モデルがこの端末に保存済みか確認しています。" });

@@ -50,6 +50,79 @@ const CORRECTION_TEXTS = Object.freeze([
 const CANCEL_DEMO_TEXT = "やっぱり違うと思ったら、取り消すこともできます。";
 const WAIT_DEMO_TEXT = "この文章は、読み上げ待ち時間を確認するための例です。";
 
+export function createTutorialProfileDefinition(name, definition, availableStepIds) {
+  const profileName = String(name || "").trim();
+  if (!profileName) throw new TypeError("Tutorial profile name is required.");
+  if (!definition || typeof definition !== "object") throw new TypeError("Tutorial profile definition is required.");
+  const availableSteps = new Set([...availableStepIds].map((stepId) => String(stepId)));
+  const terminal = Boolean(definition.terminal);
+  const requestedRoute = definition.route ?? definition.steps;
+  if (terminal) {
+    for (const key of [
+      "route", "steps", "completeTo", "cancelTo",
+      "onOpen", "onStageChange", "onEnterStep", "onComplete", "onCancel", "onClose",
+    ]) {
+      if (definition[key] != null) throw new Error(`Terminal tutorial profile must not define ${key}.`);
+    }
+  }
+  const rawRoute = terminal
+    ? []
+    : requestedRoute === "all"
+      ? [...availableSteps]
+      : requestedRoute;
+  if (!terminal && (!Array.isArray(rawRoute) || rawRoute.length === 0)) {
+    throw new TypeError("Tutorial profile route must be 'all' or a non-empty array.");
+  }
+  const visitIds = new Set();
+  const route = rawRoute.map((entry, index) => {
+    const source = typeof entry === "string" ? { stepId: entry } : entry;
+    if (!source || typeof source !== "object") throw new TypeError(`Tutorial route entry ${index} is invalid.`);
+    const stepId = String(source.stepId ?? source.step ?? "").trim();
+    if (!availableSteps.has(stepId)) throw new Error(`Unknown tutorial step ID: ${stepId}`);
+    const visitId = String(source.visitId ?? source.id ?? `${stepId}@${index}`).trim();
+    if (!visitId) throw new TypeError(`Tutorial route visit ID is required at index ${index}.`);
+    if (visitIds.has(visitId)) throw new Error(`Duplicate tutorial route visit ID: ${visitId}`);
+    visitIds.add(visitId);
+    for (const hook of ["onEnter", "onLeave"]) {
+      if (source[hook] != null && typeof source[hook] !== "function") {
+        throw new TypeError(`Tutorial route ${hook} must be a function.`);
+      }
+    }
+    return Object.freeze({
+      visitId,
+      stepId,
+      nextLabel: source.nextLabel == null ? null : String(source.nextLabel),
+      backLabel: source.backLabel == null ? null : String(source.backLabel),
+      onEnter: source.onEnter ?? null,
+      onLeave: source.onLeave ?? null,
+    });
+  });
+  for (const hook of ["onOpen", "onStageChange", "onEnterStep", "onComplete", "onCancel", "onClose"]) {
+    if (definition[hook] != null && typeof definition[hook] !== "function") {
+      throw new TypeError(`Tutorial profile ${hook} must be a function.`);
+    }
+  }
+  return Object.freeze({
+    name: profileName,
+    terminal,
+    route: Object.freeze(route),
+    headerBrand: String(definition.headerBrand || "はじめての typed-voice"),
+    completionLabel: String(definition.completionLabel || "使い始める"),
+    completeTo: definition.completeTo == null ? null : String(definition.completeTo),
+    cancelTo: definition.cancelTo == null ? null : String(definition.cancelTo),
+    closeOnBackAtStart: Boolean(definition.closeOnBackAtStart),
+    lockBackDuringModelLoad: Boolean(definition.lockBackDuringModelLoad),
+    onOpen: definition.onOpen ?? null,
+    onStageChange: definition.onStageChange ?? null,
+    onEnterStep: definition.onEnterStep ?? null,
+    onComplete: definition.onComplete ?? null,
+    onCancel: definition.onCancel ?? null,
+    // onClose is a handoff hook. Only the orchestrator calls it while replacing
+    // this profile; terminal profiles are never handed off/closed again.
+    onClose: definition.onClose ?? null,
+  });
+}
+
 export class TutorialController {
   constructor(documentRef = document, { modelProfileUi = null, app = null, tutorialComplete = false } = {}) {
     this.document = documentRef;
@@ -57,6 +130,16 @@ export class TutorialController {
     this.app = app;
     this.tutorialComplete = Boolean(tutorialComplete);
     this.stepIndex = 0;
+    this.activePages = [];
+    this.activeVisits = [];
+    this.visitStates = new Map();
+    this.profiles = new Map();
+    this.activeProfile = null;
+    this.profileTransitioning = false;
+    this.profileTransitionPromise = Promise.resolve();
+    this.navigationBusy = false;
+    this.enterStepPromise = Promise.resolve(null);
+    this.profileState = Object.create(null);
     this.demoSnapshot = null;
     this.demoRunToken = 0;
     this.demoRunning = false;
@@ -87,9 +170,6 @@ export class TutorialController {
     this.conversationPracticeActive = false;
     this.conversationOpenCompleted = false;
     this.conversationOpenStartSessionId = null;
-    this.modelLoadStarted = false;
-    this.modelLoadComplete = false;
-    this.modelLoadAudioUnlock = null;
     this.deviceLabelPromise = null;
     this.liveWindowPosition = null;
     this.dragState = null;
@@ -142,6 +222,14 @@ export class TutorialController {
     }
     this.document.addEventListener("typed-voice:model-profile-ui-change", () => {
       this.#stopSample();
+      for (const visit of this.activeVisits) {
+        if (visit.stepId !== "model-load") continue;
+        const state = this.visitStates.get(visit.visitId);
+        if (!state) continue;
+        state.modelLoadStarted = false;
+        state.modelLoadComplete = false;
+        state.modelLoadAudioUnlock = null;
+      }
       const voiceState = this.app?.voiceRuntimeState;
       this.downloadCompleted = Boolean(
         voiceState?.prepared
@@ -150,85 +238,202 @@ export class TutorialController {
       this.#resetDownloadAcknowledgement();
       this.#renderDownloadDisclosure();
       this.#resetDownloadProgress();
-      if (this.elements.overlay.dataset.step === "download") this.#showStep();
+      const currentStep = this.activePages[this.stepIndex]?.dataset.tutorialStep ?? null;
+      if (!this.profileTransitioning && !this.elements.overlay.hidden && currentStep === "download") {
+        this.#showStep();
+      }
     });
 
-    if (!this.tutorialComplete) {
-      this.start();
-    }
     return this;
   }
 
   start() {
-    this.#cleanupDemo();
-    if (!this.tutorialComplete) {
-      this.modelProfileUi?.select?.("fp16");
-    }
-    const voiceState = this.app?.voiceRuntimeState;
-    this.downloadCompleted = Boolean(
-      voiceState?.prepared
-      && voiceState.profile === (this.modelProfileUi?.profile ?? "fp16")
+    return this.openProfile("full");
+  }
+
+  registerProfile(name, definition) {
+    const profileName = String(name || "").trim();
+    if (!profileName) throw new TypeError("Tutorial profile name is required.");
+    if (this.profiles.has(profileName)) throw new Error(`Tutorial profile is already registered: ${profileName}`);
+    const profile = createTutorialProfileDefinition(
+      profileName,
+      definition,
+      this.elements.pages.map((page) => page.dataset.tutorialStep)
     );
-    this.#resetDownloadAcknowledgement();
-    this.#renderDownloadDisclosure();
-    this.#resetDownloadProgress();
-    this.summaryReturnIndex = null;
-    this.conversationPracticeCount = readConversationPracticeCount();
-    this.conversationTutorialCompleted = this.conversationPracticeCount > 0;
-    this.conversationPracticeActive = false;
-    this.conversationOpenCompleted = false;
-    this.modelLoadStarted = false;
-    this.modelLoadComplete = false;
-    this.modelLoadAudioUnlock = null;
-    this.elements.modelLoadReplayAfterLoad.checked = true;
-    this.app?.setReplayAfterVoiceLoad?.(true);
-    this.dragState = null;
-    this.document.body.classList.remove("tutorial-window-dragging");
-    this.elements.dragHandle.classList.remove("is-dragging");
-    this.stepIndex = 0;
-    this.#scrollPageToTop();
-    this.elements.overlay.hidden = false;
-    this.document.body.classList.add("tutorial-open");
-    this.#showStep();
+    this.profiles.set(profileName, profile);
+    return this;
+  }
+
+  openProfile(name) {
+    const profile = this.profiles.get(String(name));
+    if (!profile) throw new Error(`Unknown tutorial profile: ${name}`);
+    for (const [kind, target] of [["completeTo", profile.completeTo], ["cancelTo", profile.cancelTo]]) {
+      if (target != null && !this.profiles.has(target)) {
+        throw new Error(`Tutorial profile ${profile.name} has unknown ${kind}: ${target}`);
+      }
+    }
+    if (!profile.terminal && profile.completeTo == null) {
+      throw new Error(`Tutorial profile ${profile.name} must define completeTo.`);
+    }
+    if (profile.closeOnBackAtStart && profile.cancelTo == null) {
+      throw new Error(`Tutorial profile ${profile.name} must define cancelTo when closeOnBackAtStart is enabled.`);
+    }
+    // Profile handoffs are serialized by the orchestrator. Hooks must request
+    // their next destination through completeTo/cancelTo instead of recursively
+    // opening another profile themselves.
+    const transition = this.profileTransitionPromise.then(() => this.#openProfile(profile));
+    this.profileTransitionPromise = transition.catch(() => {});
+    return transition;
+  }
+
+  openSteps(stepIds) {
+    if (!Array.isArray(stepIds) || stepIds.length === 0) {
+      throw new TypeError("Tutorial step IDs must be a non-empty array.");
+    }
+    const name = `__adhoc_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    if (!this.profiles.has("end")) throw new Error("Tutorial terminal profile 'end' is not registered.");
+    this.registerProfile(name, {
+      route: stepIds,
+      completeTo: "end",
+      cancelTo: "end",
+      closeOnBackAtStart: true,
+    });
+    return this.openProfile(name).finally(() => {
+      this.profiles.delete(name);
+    });
+  }
+
+  async #openProfile(profile) {
+    const pagesById = new Map(this.elements.pages.map((page) => [page.dataset.tutorialStep, page]));
+    const activeVisits = profile.route;
+    const activePages = activeVisits.map((visit) => pagesById.get(visit.stepId));
+
+    this.profileTransitioning = true;
+    this.#cleanupDemo();
+    try {
+      // onClose is owned by the orchestrator and means "this profile is being
+      // replaced". Completion/cancellation may cause that handoff, but profiles
+      // never close themselves. A terminal profile is never closed again.
+      if (this.activeProfile && !this.activeProfile.terminal) {
+        await this.activeProfile.onClose?.(this.#profileContext({
+          reason: "handoff",
+          nextProfile: profile,
+        }));
+      }
+      this.activePages = activePages;
+      this.activeVisits = activeVisits;
+      this.visitStates = new Map(activeVisits.map((visit) => [visit.visitId, Object.create(null)]));
+      this.activeProfile = profile;
+      this.stepIndex = 0;
+      // profileState/visitStates are runtime-only. Persistent resume data must
+      // use a separate, explicitly serializable checkpoint contract.
+      this.profileState = Object.create(null);
+      if (profile.terminal) {
+        this.stepIndex = 0;
+        this.#hideFlowUi();
+        return this;
+      }
+      await profile.onOpen?.(this.#profileContext({ reason: "open" }));
+      const voiceState = this.app?.voiceRuntimeState;
+      this.downloadCompleted = Boolean(
+        voiceState?.prepared
+        && voiceState.profile === (this.modelProfileUi?.profile ?? "fp16")
+      );
+      this.#resetDownloadAcknowledgement();
+      this.#renderDownloadDisclosure();
+      this.#resetDownloadProgress();
+      this.summaryReturnIndex = null;
+      this.conversationPracticeCount = readConversationPracticeCount();
+      this.conversationTutorialCompleted = this.conversationPracticeCount > 0;
+      this.conversationPracticeActive = false;
+      this.conversationOpenCompleted = false;
+      this.elements.modelLoadReplayAfterLoad.checked = true;
+      this.app?.setReplayAfterVoiceLoad?.(true);
+      this.dragState = null;
+      this.document.body.classList.remove("tutorial-window-dragging");
+      this.elements.dragHandle.classList.remove("is-dragging");
+      this.#scrollPageToTop();
+      this.elements.runtimeStatus.hidden = true;
+      this.elements.runtimeStatus.textContent = "";
+      this.elements.overlay.hidden = false;
+      this.document.body.classList.add("tutorial-open");
+      this.#showStep();
+      return this;
+    } finally {
+      this.profileTransitioning = false;
+    }
   }
 
   async previous() {
-    const currentStep = this.elements.pages[this.stepIndex]?.dataset.tutorialStep;
-    if (currentStep === "model-load" || currentStep === "free") this.#cleanupDemo();
-    else await this.#prepareStageChange();
-    this.#scrollPageToTop();
-    if (this.summaryReturnIndex != null && this.stepIndex !== this.summaryReturnIndex) {
-      await this.#returnToSummary();
-      return;
+    if (this.navigationBusy) return;
+    this.navigationBusy = true;
+    try {
+      await this.#awaitEnterStep({ allowError: true });
+      const currentVisit = this.activeVisits[this.stepIndex] ?? null;
+      const currentVisitState = this.#visitState();
+      const currentStep = this.activePages[this.stepIndex]?.dataset.tutorialStep;
+      if (
+        this.activeProfile?.lockBackDuringModelLoad
+        && currentStep === "model-load"
+        && (currentVisitState.modelLoadStarted || currentVisitState.modelLoadComplete)
+      ) return;
+      if (currentStep === "model-load" || currentStep === "free") this.#cleanupDemo();
+      else await this.#prepareStageChange();
+      this.#scrollPageToTop();
+      if (this.summaryReturnIndex != null && this.stepIndex !== this.summaryReturnIndex) {
+        await this.#returnToSummary();
+        return;
+      }
+      if (this.stepIndex === 0) {
+        if (this.activeProfile?.closeOnBackAtStart) {
+          await currentVisit?.onLeave?.(this.#profileContext({ reason: "leave", direction: "cancel" }));
+          await this.activeProfile.onCancel?.(this.#profileContext({ reason: "cancel" }));
+          const targetProfile = this.activeProfile.cancelTo;
+          if (targetProfile) await this.openProfile(targetProfile);
+        }
+        return;
+      }
+      await currentVisit?.onLeave?.(this.#profileContext({ reason: "leave", direction: "back" }));
+      this.stepIndex -= 1;
+      this.#showStep();
+    } finally {
+      this.navigationBusy = false;
     }
-    if (this.stepIndex === 0) return;
-    this.stepIndex -= 1;
-    this.#showStep();
   }
 
   async next() {
-    const currentStep = this.elements.pages[this.stepIndex]?.dataset.tutorialStep;
-    const nextPage = this.elements.pages[this.stepIndex + 1];
-    if (nextPage?.dataset.tutorialStep === "model-load" && !this.modelLoadAudioUnlock) {
-      this.modelLoadAudioUnlock = Promise.resolve(this.app?.unlockVoiceAudio?.()).then(
-        () => null,
-        (error) => error
-      );
-    }
-    if (currentStep === "model-load" || currentStep === "free") this.#cleanupDemo();
-    else await this.#prepareStageChange();
-    if (this.summaryReturnIndex != null && this.stepIndex !== this.summaryReturnIndex) {
+    if (this.navigationBusy) return;
+    this.navigationBusy = true;
+    try {
+      if (!await this.#awaitEnterStep()) return;
+      const currentVisit = this.activeVisits[this.stepIndex] ?? null;
+      const currentStep = this.activePages[this.stepIndex]?.dataset.tutorialStep;
+      const nextPage = this.activePages[this.stepIndex + 1];
+      const nextVisitState = this.#visitState(this.stepIndex + 1);
+      if (nextPage?.dataset.tutorialStep === "model-load" && !nextVisitState.modelLoadAudioUnlock) {
+        nextVisitState.modelLoadAudioUnlock = Promise.resolve(this.app?.unlockVoiceAudio?.()).then(
+          () => null,
+          (error) => error
+        );
+      }
+      if (currentStep === "model-load" || currentStep === "free") this.#cleanupDemo();
+      else await this.#prepareStageChange();
+      if (this.summaryReturnIndex != null && this.stepIndex !== this.summaryReturnIndex) {
+        this.#scrollPageToTop();
+        await this.#returnToSummary();
+        return;
+      }
+      if (this.stepIndex >= this.activePages.length - 1) {
+        void this.complete();
+        return;
+      }
+      await currentVisit?.onLeave?.(this.#profileContext({ reason: "leave", direction: "next" }));
       this.#scrollPageToTop();
-      await this.#returnToSummary();
-      return;
+      this.stepIndex += 1;
+      this.#showStep();
+    } finally {
+      this.navigationBusy = false;
     }
-    if (this.stepIndex >= this.elements.pages.length - 1) {
-      void this.complete();
-      return;
-    }
-    this.#scrollPageToTop();
-    this.stepIndex += 1;
-    this.#showStep();
   }
 
   async complete() {
@@ -237,14 +442,11 @@ export class TutorialController {
     this.elements.next.disabled = true;
     this.#cleanupDemo();
     try {
-      await this.app?.markTutorialComplete?.();
-      this.tutorialComplete = true;
-      this.elements.overlay.hidden = true;
-      this.document.body.classList.remove("tutorial-open", "tutorial-scrollable", "tutorial-window-dragging");
-      this.elements.dragHandle.classList.remove("is-dragging");
-      this.dragState = null;
-      this.#stopSample({ close: true });
-      this.elements.composer.focus({ preventScroll: true });
+      if (!await this.#awaitEnterStep()) return;
+      await this.activeVisits[this.stepIndex]?.onLeave?.(this.#profileContext({ reason: "leave", direction: "complete" }));
+      await this.activeProfile?.onComplete?.(this.#profileContext({ reason: "complete" }));
+      const targetProfile = this.activeProfile?.completeTo;
+      if (targetProfile) await this.openProfile(targetProfile);
     } catch (error) {
       this.elements.downloadStatus.textContent = error instanceof Error ? error.message : String(error);
       this.elements.next.disabled = false;
@@ -255,42 +457,51 @@ export class TutorialController {
 
   #showStep() {
     if (this.summaryReturnIndex === this.stepIndex) this.summaryReturnIndex = null;
-    const page = this.elements.pages[this.stepIndex];
-    for (const [index, candidate] of this.elements.pages.entries()) {
-      candidate.hidden = index !== this.stepIndex;
-    }
-    const freeInteraction = this.stepIndex >= 2 && page.dataset.tutorialStep !== "tsukuyomichan";
+    const page = this.activePages[this.stepIndex];
+    const visit = this.activeVisits[this.stepIndex];
+    const visitState = this.#visitState();
+    if (!page) throw new Error("Tutorial flow has no active page.");
+    for (const candidate of this.elements.pages) candidate.hidden = candidate !== page;
+    const freeInteraction = page.hasAttribute("data-tutorial-live") && page.dataset.tutorialStep !== "tsukuyomichan";
     this.elements.overlay.classList.toggle("tutorial-live", freeInteraction);
     this.elements.overlay.setAttribute("aria-modal", freeInteraction ? "false" : "true");
     this.elements.overlay.dataset.step = page.dataset.tutorialStep;
     this.#applyLiveWindowPosition();
     this.document.body.classList.toggle("tutorial-scrollable", freeInteraction);
 
-    this.elements.progress.textContent = `${this.stepIndex + 1} / ${this.elements.pages.length}`;
+    this.elements.progress.textContent = `${this.stepIndex + 1} / ${this.activePages.length}`;
     this.elements.headerBrand.textContent = page.dataset.tutorialStep === "model-load"
       ? "モデルロード中"
-      : "はじめての typed-voice";
+      : this.activeProfile?.headerBrand ?? "はじめての typed-voice";
     this.elements.overlay.classList.add("tutorial-needs-attention");
-    this.elements.back.disabled = this.stepIndex === 0;
+    const scopedModelLoadLocked = this.activeProfile?.lockBackDuringModelLoad
+      && page.dataset.tutorialStep === "model-load"
+      && (visitState.modelLoadStarted || visitState.modelLoadComplete);
+    this.elements.back.disabled = (!this.activeProfile?.closeOnBackAtStart && this.stepIndex === 0) || scopedModelLoadLocked;
     this.elements.back.textContent = this.summaryReturnIndex != null && this.stepIndex !== this.summaryReturnIndex
-      ? `${this.summaryReturnIndex + 1} / ${this.elements.pages.length}へ戻る`
-      : "戻る";
+      ? `${this.summaryReturnIndex + 1} / ${this.activePages.length}へ戻る`
+      : visit?.backLabel
+        ?? (this.activeProfile?.closeOnBackAtStart && this.stepIndex === 0 ? "閉じる" : "戻る");
     this.elements.next.textContent = this.summaryReturnIndex != null && this.stepIndex !== this.summaryReturnIndex
-      ? `${this.summaryReturnIndex + 1} / ${this.elements.pages.length}へ戻る`
+      ? `${this.summaryReturnIndex + 1} / ${this.activePages.length}へ戻る`
       : page.dataset.tutorialStep === "model-load"
-        ? this.modelLoadComplete ? "自由に使ってみる" : "読み込み中"
-        : this.stepIndex === this.elements.pages.length - 1 ? "使い始める" : "次へ";
+        ? visitState.modelLoadComplete
+          ? visit?.nextLabel
+            ?? (this.stepIndex === this.activePages.length - 1 ? this.activeProfile?.completionLabel ?? "使い始める" : "自由に使ってみる")
+          : "読み込み中"
+        : visit?.nextLabel
+          ?? (this.stepIndex === this.activePages.length - 1 ? this.activeProfile?.completionLabel ?? "使い始める" : "次へ");
     this.elements.next.disabled = (page.dataset.tutorialStep === "download" && !this.downloadCompleted)
       || (page.dataset.tutorialStep === "conversations" && !this.conversationTutorialCompleted && this.conversationPracticeCount === 0)
       || (page.dataset.tutorialStep === "conversation-open" && !this.conversationOpenCompleted)
-      || (page.dataset.tutorialStep === "model-load" && !this.modelLoadComplete);
+      || (page.dataset.tutorialStep === "model-load" && !visitState.modelLoadComplete);
     this.#updateHighlights(page.dataset.tutorialStep);
     if (page.dataset.tutorialStep === "wait") this.#syncWaitSetting();
     if (page.dataset.tutorialStep === "cancel") void this.#prepareCancelExample();
     if (page.dataset.tutorialStep === "conversations") void this.#prepareConversationTutorial();
     if (page.dataset.tutorialStep === "conversation-open") void this.#prepareConversationOpenTutorial();
     if (page.dataset.tutorialStep === "download" && !this.downloadCompleted) void this.#loadActualDownloadPlan();
-    if (page.dataset.tutorialStep === "model-load") void this.#startModelLoad();
+    this.#beginEnterStep(page);
     this.elements.pagesContainer.scrollTop = 0;
     if (page.dataset.tutorialStep === "download" && !this.downloadCompleted && !this.downloadAcknowledged) {
       this.elements.downloadAck.focus({ preventScroll: true });
@@ -343,7 +554,7 @@ export class TutorialController {
   }
 
   #startWindowDrag(event) {
-    if (this.stepIndex < 2 || (event.pointerType === "mouse" && event.button !== 0)) return;
+    if (!this.elements.overlay.classList.contains("tutorial-live") || (event.pointerType === "mouse" && event.button !== 0)) return;
     const rect = this.elements.shell.getBoundingClientRect();
     this.dragState = {
       pointerId: event.pointerId,
@@ -522,16 +733,19 @@ export class TutorialController {
   }
 
   async #startModelLoad() {
-    if (this.modelLoadStarted || this.modelLoadComplete || this.elements.overlay.dataset.step !== "model-load") return;
-    this.modelLoadStarted = true;
+    const visitState = this.#visitState();
+    if (visitState.modelLoadStarted || visitState.modelLoadComplete || this.elements.overlay.dataset.step !== "model-load") return;
+    visitState.modelLoadStarted = true;
     this.elements.next.disabled = true;
-    this.elements.modelLoadStatus.textContent = "チュートリアル用の会話を片付け、保存済みモデルを確認しています。";
+    this.elements.back.disabled = Boolean(this.activeProfile?.lockBackDuringModelLoad);
+    this.elements.modelLoadStatus.textContent = "保存済みモデルを確認しています。";
+    this.elements.modelLoadPrimaryValue.textContent = "確認中…";
+    this.elements.modelLoadSecondaryValue.textContent = "開始待ち";
     this.#renderModelLoadCells(this.elements.modelLoadPrimaryCells, 0, 12);
     this.#renderModelLoadCells(this.elements.modelLoadSecondaryCells, 0, 1);
     try {
-      await this.app?.finishTutorialData?.();
-      if (this.modelLoadAudioUnlock) {
-        const audioUnlockError = await this.modelLoadAudioUnlock;
+      if (visitState.modelLoadAudioUnlock) {
+        const audioUnlockError = await visitState.modelLoadAudioUnlock;
         if (audioUnlockError) throw audioUnlockError;
       } else {
         await this.app?.unlockVoiceAudio?.();
@@ -542,16 +756,20 @@ export class TutorialController {
         showPanel: false,
         onBlockingProgress: (update) => this.#renderModelLoadProgress(update),
       });
-      this.modelLoadComplete = true;
+      visitState.modelLoadComplete = true;
       this.#completeModelLoadCells(this.elements.modelLoadPrimaryCells);
       this.#completeModelLoadCells(this.elements.modelLoadSecondaryCells);
       this.elements.modelLoadPrimaryValue.textContent = "準備済み";
       this.elements.modelLoadSecondaryValue.textContent = "完了";
       this.elements.modelLoadStatus.textContent = "読み込みが終わりました。音声も有効です。";
       this.elements.next.disabled = false;
-      this.elements.next.textContent = "自由に使ってみる";
+      this.elements.next.textContent = this.activeVisits[this.stepIndex]?.nextLabel
+        ?? (this.stepIndex === this.activePages.length - 1
+          ? this.activeProfile?.completionLabel ?? "使い始める"
+          : "自由に使ってみる");
     } catch (error) {
-      this.modelLoadStarted = false;
+      visitState.modelLoadStarted = false;
+      if (this.activeProfile?.lockBackDuringModelLoad) this.elements.back.disabled = false;
       this.elements.modelLoadStatus.textContent = `読み込みに失敗しました: ${error instanceof Error ? error.message : String(error)}。戻ってからもう一度進むと再試行できます。`;
     }
   }
@@ -596,27 +814,147 @@ export class TutorialController {
     }
   }
 
-  async #jumpFromSummary(stepName) {
-    const summaryIndex = this.elements.pages.findIndex((page) => page.dataset.tutorialStep === "finish");
-    const targetIndex = this.elements.pages.findIndex((page) => page.dataset.tutorialStep === stepName);
-    if (summaryIndex < 0 || targetIndex < 0) return;
-    await this.#prepareStageChange();
-    this.summaryReturnIndex = summaryIndex;
-    this.stepIndex = targetIndex;
-    this.#showStep();
+  async #jumpFromSummary(targetRef) {
+    if (this.navigationBusy) return;
+    this.navigationBusy = true;
+    try {
+      if (!await this.#awaitEnterStep()) return;
+      const summaryIndex = this.#findVisitIndex("finish");
+      const targetIndex = this.#findVisitIndex(targetRef);
+      if (summaryIndex < 0 || targetIndex < 0) return;
+      await this.activeVisits[this.stepIndex]?.onLeave?.(
+        this.#profileContext({ reason: "leave", direction: "jump" })
+      );
+      await this.#prepareStageChange();
+      this.summaryReturnIndex = summaryIndex;
+      this.stepIndex = targetIndex;
+      this.#showStep();
+    } finally {
+      this.navigationBusy = false;
+    }
   }
 
   async #returnToSummary() {
     if (this.summaryReturnIndex == null) return;
+    await this.activeVisits[this.stepIndex]?.onLeave?.(
+      this.#profileContext({ reason: "leave", direction: "summary-return" })
+    );
     const target = this.summaryReturnIndex;
     this.summaryReturnIndex = null;
     this.stepIndex = target;
     this.#showStep();
   }
 
+  #findVisitIndex(reference) {
+    const normalized = String(reference || "").trim();
+    if (!normalized) return -1;
+    const byVisitId = this.activeVisits.findIndex((visit) => visit.visitId === normalized);
+    if (byVisitId >= 0) return byVisitId;
+    const matches = [];
+    for (let index = 0; index < this.activeVisits.length; index += 1) {
+      if (this.activeVisits[index].stepId === normalized) matches.push(index);
+    }
+    return matches.length === 1 ? matches[0] : -1;
+  }
+
+  async #enterStep(page) {
+    const profile = this.activeProfile;
+    const visit = this.activeVisits[this.stepIndex] ?? null;
+    const stepId = page?.dataset.tutorialStep ?? null;
+    await profile?.onEnterStep?.(this.#profileContext({ reason: "enter-step", stepId }));
+    if (this.activeProfile !== profile || this.elements.overlay.dataset.step !== stepId) return;
+    await visit?.onEnter?.(this.#profileContext({ reason: "enter-visit", stepId }));
+    if (this.activeProfile !== profile || this.elements.overlay.dataset.step !== stepId) return;
+    if (stepId === "model-load") await this.#startModelLoad();
+  }
+
+  #beginEnterStep(page) {
+    const profile = this.activeProfile;
+    const visitId = this.activeVisits[this.stepIndex]?.visitId ?? null;
+    this.elements.runtimeStatus.hidden = true;
+    this.elements.runtimeStatus.textContent = "";
+    this.enterStepPromise = this.#enterStep(page).then(
+      () => null,
+      (error) => {
+        const stillCurrent = this.activeProfile === profile
+          && this.activeVisits[this.stepIndex]?.visitId === visitId;
+        if (stillCurrent) {
+          this.elements.runtimeStatus.textContent = `この画面の準備に失敗しました: ${error instanceof Error ? error.message : String(error)}`;
+          this.elements.runtimeStatus.hidden = false;
+          this.elements.next.disabled = true;
+        }
+        return error;
+      }
+    );
+  }
+
+  async #awaitEnterStep({ allowError = false } = {}) {
+    const promise = this.enterStepPromise;
+    const error = await promise;
+    if (promise !== this.enterStepPromise) return this.#awaitEnterStep({ allowError });
+    return error == null || allowError;
+  }
+
+  #profileContext(extra = {}) {
+    return Object.freeze({
+      controller: this,
+      app: this.app,
+      modelProfileUi: this.modelProfileUi,
+      profile: this.activeProfile,
+      state: this.profileState,
+      visitState: this.#visitState(),
+      visit: this.activeVisits[this.stepIndex] ?? null,
+      visitId: this.activeVisits[this.stepIndex]?.visitId ?? null,
+      stepId: this.activePages[this.stepIndex]?.dataset.tutorialStep ?? null,
+      discardPending: () => this.#discardPendingViaNormalUi(),
+      restoreCommittedModel: () => this.#restoreCommittedModel(),
+      ...extra,
+    });
+  }
+
+  #visitState(index = this.stepIndex) {
+    const visit = this.activeVisits[index];
+    if (!visit) return Object.create(null);
+    let state = this.visitStates.get(visit.visitId);
+    if (!state) {
+      state = Object.create(null);
+      this.visitStates.set(visit.visitId, state);
+    }
+    return state;
+  }
+
+  async #restoreCommittedModel() {
+    const profile = this.modelProfileUi?.restoreCommittedSelection?.()
+      ?? this.modelProfileUi?.committedProfile
+      ?? "fp16";
+    const voiceState = this.app?.voiceRuntimeState;
+    if (voiceState?.profile === profile && voiceState?.ready) return true;
+    if (!await this.app?.isVoiceProfileCached?.(profile)) return false;
+    await this.app?.initializePreparedVoice?.(profile, {
+      enableAudio: false,
+      showPanel: false,
+    });
+    return true;
+  }
+
+  #hideFlowUi() {
+    this.#cleanupDemo();
+    this.elements.overlay.hidden = true;
+    this.document.body.classList.remove("tutorial-open", "tutorial-scrollable", "tutorial-window-dragging");
+    this.elements.dragHandle.classList.remove("is-dragging");
+    this.dragState = null;
+    this.targetArrowTarget = null;
+    this.elements.targetArrow.hidden = true;
+    this.#stopSample({ close: true });
+    this.elements.composer.focus({ preventScroll: true });
+  }
+
   async #prepareStageChange() {
     this.#cleanupDemo();
-    await this.#discardPendingViaNormalUi();
+    await this.activeProfile?.onStageChange?.(this.#profileContext({
+      reason: "stage-change",
+      stepId: this.activePages[this.stepIndex]?.dataset.tutorialStep ?? null,
+    }));
   }
 
   async #discardPendingViaNormalUi() {
@@ -1515,6 +1853,7 @@ export class TutorialController {
       summaryJumpButtons: [...overlay.querySelectorAll("[data-tutorial-jump]")],
       pagesContainer: overlay.querySelector(".tutorial-pages"),
       progress: byId("tutorial-progress"),
+      runtimeStatus: byId("tutorial-runtime-status"),
       back: byId("tutorial-back"),
       next: byId("tutorial-next"),
       linebreakDemo: byId("tutorial-linebreak-demo"),

@@ -57,7 +57,7 @@
           <button id="backup-export-button" class="quiet-button" type="button">書き出す</button>
           <button id="backup-import-button" class="quiet-button" type="button">読み込む</button>
           <input id="backup-import-input" type="file" accept="application/json,.json" hidden>
-          <p id="backup-settings-status" aria-live="polite">会話・履歴・設定・統計をJSONで保存します。音声モデル本体は含みません。</p>
+          <p id="backup-settings-status" aria-live="polite">会話・履歴・設定・統計をJSONで保存します。音声モデルやモデルキャッシュ情報は含みません。</p>
         </div>
       </details>
       <button id="settings-button" class="quiet-button" type="button" aria-expanded="false" aria-controls="settings-panel">設定</button>
@@ -74,8 +74,8 @@
       </div>
       <button id="settings-close" class="quiet-button small" type="button">閉じる</button>
     </div>
-    <div class="model-profile-picker" data-model-profile-control>
-      <div class="model-toggle" role="radiogroup" aria-label="音声モデル">
+    <div class="model-profile-picker" data-model-profile-control data-model-profile-readonly>
+      <div class="model-toggle model-toggle-readonly" role="radiogroup" aria-label="現在の音声モデル" aria-readonly="true">
         <label><input type="radio" name="settings-model-profile" value="fp32"><span>最高品質</span></label>
         <label><input type="radio" name="settings-model-profile" value="fp16"><span>推奨</span></label>
         <label><input type="radio" name="settings-model-profile" value="mobile-int8"><span>低メモリ</span></label>
@@ -92,9 +92,9 @@
         </div>
       </div>
       <p class="model-profile-warning" data-model-profile-warning hidden>推奨モデル以外では、品質やダウンロード容量を保証できません。</p>
-      <p class="settings-note">モデル選択は現在プレビューです。</p>
     </div>
-    <button id="restart-tutorial" class="quiet-button settings-tutorial-button" type="button">チュートリアルをもう一度見る<span>先に完全バックアップを保存してから初期化します。モデルキャッシュは保持します。やり直しにはインターネット接続が必要です</span></button>
+    <button id="settings-model-picker" class="quiet-button settings-tutorial-button" type="button">モデルを変更<span>モデル選択と必要なダウンロードだけを開きます。</span></button>
+    <button id="restart-tutorial" class="quiet-button settings-tutorial-button" type="button">チュートリアルをもう一度見る<span>先に会話・設定のバックアップを保存してから初期化します。モデルキャッシュは保持します。やり直しにはインターネット接続が必要です</span></button>
   </section>
 
   <section id="tutorial-restart-dialog" class="backup-dialog-backdrop" hidden>
@@ -133,7 +133,7 @@
           <button id="force-speak-button" class="quiet-button massive" type="button" disabled>今すぐ読み上げ</button>
           <button id="cancel-current-button" class="danger-button massive" type="button" disabled>取り消す</button>
         </div>
-        <textarea id="composer" rows="12" autocomplete="off" placeholder="ここに入力"></textarea>
+        <textarea id="composer" rows="6" autocomplete="off" placeholder="ここに入力"></textarea>
         <div class="composer-controls">
           <label class="wait-setting" for="reasoning-seconds">
             <span>読み上げ待ち時間</span>
@@ -255,7 +255,7 @@ https://tyc.rei-yumesaki.net
           <p class="tutorial-kicker">声の準備</p>
           <h3>まずは、読み上げに使う声の音質を選びましょう</h3>
           <p>迷ったら「推奨」のままで大丈夫です。あとから設定で変えられます。この段階ではモデルを読み込みません。</p>
-          <div class="model-profile-picker tutorial-model-picker" data-model-profile-control>
+          <div class="model-profile-picker tutorial-model-picker" data-model-profile-control data-model-profile-deferred>
             <div class="model-toggle" role="radiogroup" aria-label="チュートリアルの音声モデル">
               <label><input type="radio" name="tutorial-model-profile" value="fp32"><span>最高品質</span></label>
               <label><input type="radio" name="tutorial-model-profile" value="fp16"><span>推奨</span></label>
@@ -499,6 +499,7 @@ https://tyc.rei-yumesaki.net
 
       <footer class="tutorial-footer">
         <button id="tutorial-back" class="quiet-button tutorial-nav-button" type="button">戻る</button>
+        <p id="tutorial-runtime-status" class="tutorial-runtime-status" aria-live="assertive" hidden></p>
         <div class="tutorial-footer-end">
           <button id="tutorial-next" class="primary-button tutorial-next-button" type="button">次へ</button>
           <div class="tutorial-footer-meta">
@@ -535,7 +536,10 @@ https://tyc.rei-yumesaki.net
   <template id="message-template">
     <article class="message-card">
       <p class="message-text"></p>
-      <footer><time class="message-time"></time></footer>
+      <footer>
+        <button class="message-replay-button" type="button">再度読み上げ</button>
+        <time class="message-time"></time>
+      </footer>
     </article>
   </template>
 

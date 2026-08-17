@@ -41,7 +41,7 @@ export class BackupUiController {
       statusElement.textContent = "バックアップを作成しています。";
       const backup = await this.app.createBackup();
       const filename = downloadApplicationBackup(this.document, backup);
-      statusElement.textContent = `${filename} のダウンロードを開始しました。音声モデル本体は含みません。`;
+      statusElement.textContent = `${filename} のダウンロードを開始しました。音声モデルやモデルキャッシュ情報は含みません。`;
       return backup;
     } catch (error) {
       statusElement.textContent = error instanceof Error ? error.message : String(error);

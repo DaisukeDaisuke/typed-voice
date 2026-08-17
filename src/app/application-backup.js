@@ -1,6 +1,21 @@
 const BACKUP_FORMAT = "typed-voice-backup";
 const BACKUP_VERSION = 1;
 const LOCAL_STORAGE_PREFIX = "typed-voice-";
+const BACKUP_DATA_STORES = Object.freeze([
+  "sessions",
+  "messages",
+  "pendingUtterances",
+  "settings",
+  "statistics",
+]);
+const LEGACY_IGNORED_BACKUP_STORES = Object.freeze([
+  "assets",
+]);
+const BACKUP_LOCAL_STORAGE_KEYS = Object.freeze([
+  "typed-voice-tutorial-v1-complete",
+  "typed-voice-tutorial-conversation-practice-count-v1",
+  "typed-voice-ui-model-profile-v1",
+]);
 const RESET_PRESERVED_LOCAL_STORAGE_KEYS = Object.freeze([
   "typed-voice-tutorial-conversation-practice-count-v1",
 ]);
@@ -158,14 +173,19 @@ function decodeValue(value) {
   return result;
 }
 
-function readTypedVoiceLocalStorage(storage) {
+function readBackupLocalStorage(storage) {
   const result = {};
   if (!storage) return result;
-  for (let index = 0; index < storage.length; index += 1) {
-    const key = storage.key(index);
-    if (key?.startsWith(LOCAL_STORAGE_PREFIX)) result[key] = storage.getItem(key);
+  for (const key of BACKUP_LOCAL_STORAGE_KEYS) {
+    const value = storage.getItem(key);
+    if (value !== null) result[key] = value;
   }
   return result;
+}
+
+function clearBackupLocalStorage(storage) {
+  if (!storage) return;
+  for (const key of BACKUP_LOCAL_STORAGE_KEYS) storage.removeItem(key);
 }
 
 export function clearTypedVoiceLocalStorage(storage, { preserveKeys = [] } = {}) {
@@ -181,7 +201,7 @@ export function clearTypedVoiceLocalStorage(storage, { preserveKeys = [] } = {})
 
 export async function createApplicationBackup({ db, storage = globalThis.localStorage, uiState = null } = {}) {
   if (!db) throw new Error("IndexedDB connection is unavailable.");
-  const storeNames = [...db.objectStoreNames];
+  const storeNames = BACKUP_DATA_STORES.filter((name) => db.objectStoreNames.contains(name));
   const transaction = db.transaction(storeNames, "readonly");
   const done = transactionDone(transaction);
   const requests = storeNames.map((storeName) => requestValue(transaction.objectStore(storeName).getAll()));
@@ -200,7 +220,7 @@ export async function createApplicationBackup({ db, storage = globalThis.localSt
       version: db.version,
       stores,
     },
-    localStorage: readTypedVoiceLocalStorage(storage),
+    localStorage: readBackupLocalStorage(storage),
     uiState: uiState == null ? null : structuredClone(uiState),
     cacheStorageIncluded: false,
   };
@@ -233,9 +253,10 @@ export function validateApplicationBackup(backup) {
 export async function restoreApplicationBackup({ db, storage = globalThis.localStorage } = {}, backup) {
   validateApplicationBackup(backup);
   if (!db) throw new Error("IndexedDB connection is unavailable.");
-  const currentStores = [...db.objectStoreNames];
+  const currentStores = BACKUP_DATA_STORES.filter((name) => db.objectStoreNames.contains(name));
   for (const storeName of Object.keys(backup.database.stores)) {
-    if (!currentStores.includes(storeName)) throw new Error(`このバージョンに存在しない保存領域です: ${storeName}`);
+    if (LEGACY_IGNORED_BACKUP_STORES.includes(storeName)) continue;
+    if (!BACKUP_DATA_STORES.includes(storeName)) throw new Error(`このバージョンに存在しない保存領域です: ${storeName}`);
   }
   const decodedStores = {};
   for (const storeName of currentStores) {
@@ -250,8 +271,10 @@ export async function restoreApplicationBackup({ db, storage = globalThis.localS
     for (const record of decodedStores[storeName]) store.put(record);
   }
   await done;
-  clearTypedVoiceLocalStorage(storage);
-  for (const [key, value] of Object.entries(backup.localStorage)) storage?.setItem(key, String(value));
+  clearBackupLocalStorage(storage);
+  for (const [key, value] of Object.entries(backup.localStorage)) {
+    if (BACKUP_LOCAL_STORAGE_KEYS.includes(key)) storage?.setItem(key, String(value));
+  }
 }
 
 export async function clearAllApplicationData({ db, storage = globalThis.localStorage } = {}) {
