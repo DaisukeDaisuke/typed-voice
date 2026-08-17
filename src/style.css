@@ -474,6 +474,19 @@ body.tutorial-window-dragging * { cursor: grabbing !important; }
   transform-origin: 50% 82%;
   animation: tutorial-scroll-finger 1.2s ease-in-out infinite;
 }
+.tutorial-scroll-mouse {
+  width: 66px;
+  height: 66px;
+  display: grid;
+  place-items: center;
+  color: #762b0c;
+}
+.tutorial-scroll-mouse svg { width: 100%; height: 100%; overflow: visible; }
+.tutorial-scroll-mouse-wheel {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: tutorial-scroll-mouse-wheel 1.2s ease-in-out infinite;
+}
 .tutorial-scroll-track {
   position: relative;
   width: 14px;
@@ -499,6 +512,10 @@ body.tutorial-window-dragging * { cursor: grabbing !important; }
 @keyframes tutorial-scroll-thumb {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(52px); }
+}
+@keyframes tutorial-scroll-mouse-wheel {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(11px); }
 }
 .tutorial-character-page { text-align: left; }
 .tutorial-character-page > p { max-width: 52ch; }
