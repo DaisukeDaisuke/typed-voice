@@ -644,15 +644,7 @@ export class TutorialController {
       if (status) status.textContent = "外部ページはチュートリアルが終わってから開けます。";
       return;
     }
-    const blockedAction = event.target.closest?.("#voice-enable");
-    const step = this.elements.overlay.dataset.step;
-    if (blockedAction && !this.elements.overlay.contains(blockedAction) && step !== "model-load" && step !== "free") {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      if (this.elements.freeStatus) {
-        this.elements.freeStatus.textContent = "音声はモデルの読み込みが終わると使えるようになります。";
-      }
-    }
+
   }
 
   async #prepareConversationTutorial() {
@@ -1896,7 +1888,6 @@ export class TutorialController {
       forceSpeakButton: byId("force-speak-button"),
       reasoningSeconds: byId("reasoning-seconds"),
       cancelCurrentButton: byId("cancel-current-button"),
-      voiceEnable: byId("voice-enable"),
       timelineView: byId("timeline-view"),
       conversationView: byId("conversation-view"),
       conversationPanel: byId("conversation-panel"),

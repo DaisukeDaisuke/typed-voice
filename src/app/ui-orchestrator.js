@@ -248,18 +248,6 @@ export class UiOrchestrator {
     this.elements.composer.focus({ preventScroll: true });
   }
 
-  async enableVoice() {
-    if (!this.voiceRuntime) throw new Error("音声エンジンを利用できません。");
-    if (this.voiceRuntime.ready && this.voiceRuntime.audioEnabled) return { ready: true };
-    this.elements.voiceEnable.disabled = true;
-    try {
-      const initialized = await this.voiceRuntime.enable(this.getModelProfile());
-      this.elements.voiceEnable.textContent = "音声 有効";
-      return initialized;
-    } finally {
-      if (!this.voiceRuntime.ready) this.elements.voiceEnable.disabled = false;
-    }
-  }
 
   getReasoningSeconds() {
     const value = Number(this.elements.reasoningSeconds.value);
@@ -393,8 +381,6 @@ export class UiOrchestrator {
       engineValue.textContent = "完了";
       status.textContent = "音声を利用できます。";
       detail.textContent = initialized?.backend ? `音声エンジン: ${initialized.backend}` : "準備完了";
-      this.elements.voiceEnable.textContent = enableAudio ? "音声 有効" : "音声を有効化";
-      this.elements.voiceEnable.disabled = false;
       if (showPanel) {
         globalThis.setTimeout(() => {
           if (status.textContent === "音声を利用できます。") panel.hidden = true;
@@ -837,7 +823,6 @@ export class UiOrchestrator {
         this.elements.status.textContent = error instanceof Error ? error.message : String(error);
       }
     });
-    this.elements.voiceEnable.addEventListener("click", () => void this.#runUiTask(() => this.enableVoice()));
     this.elements.voiceLoadReplayAfterLoad.addEventListener("change", () => {
       this.setReplayAfterVoiceLoad(this.elements.voiceLoadReplayAfterLoad.checked);
     });
@@ -1032,7 +1017,6 @@ export class UiOrchestrator {
       reasoningSeconds: byId("reasoning-seconds"),
       speechSpeed: byId("speech-speed"),
       submitButton: byId("submit-button"),
-      voiceEnable: byId("voice-enable"),
       voiceLoadProgress: byId("voice-load-progress"),
       voiceLoadProgressBar: byId("voice-load-progress-bar"),
       voiceLoadStatus: byId("voice-load-status"),
