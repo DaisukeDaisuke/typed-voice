@@ -223,8 +223,9 @@ export class TutorialController {
     for (const [index, candidate] of this.elements.pages.entries()) {
       candidate.hidden = index !== this.stepIndex;
     }
-    this.elements.overlay.classList.toggle("tutorial-live", page.dataset.tutorialLive === "true");
-    this.elements.overlay.setAttribute("aria-modal", page.dataset.tutorialLive === "true" ? "false" : "true");
+    const freeInteraction = this.stepIndex >= 2;
+    this.elements.overlay.classList.toggle("tutorial-live", freeInteraction);
+    this.elements.overlay.setAttribute("aria-modal", freeInteraction ? "false" : "true");
     this.elements.overlay.dataset.step = page.dataset.tutorialStep;
     this.document.body.classList.toggle("tutorial-scrollable", this.stepIndex >= 2);
     if (page.dataset.tutorialStep !== "conversations") {
@@ -253,6 +254,11 @@ export class TutorialController {
       this.elements.downloadAck.focus({ preventScroll: true });
     } else if (page.dataset.tutorialStep === "download" && !this.downloadCompleted) {
       this.elements.downloadButton.focus({ preventScroll: true });
+    } else if (page.dataset.tutorialStep === "linebreak") {
+      this.elements.composer.focus({ preventScroll: true });
+      this.#moveCaretToEnd();
+    } else if (freeInteraction) {
+      this.document.activeElement?.blur?.();
     } else {
       this.elements.next.focus({ preventScroll: true });
     }

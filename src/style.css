@@ -331,18 +331,19 @@ body.tutorial-open.tutorial-scrollable { overflow: auto; }
   background: #fffdfa;
   box-shadow: 0 28px 100px #16120d66;
 }
-.tutorial-header { display: flex; align-items: center; gap: 16px; padding: 18px 24px 14px; border-bottom: 1px solid #e4ded6; }
-.tutorial-header-copy { display: grid; gap: 3px; }
-.tutorial-header-brand { color: #8b6a55; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.025em; }
-.tutorial-header h2 { margin: 0; font-size: 1.18rem; }
+.tutorial-header { display: flex; align-items: center; gap: 16px; padding: 24px 24px 17px; border-bottom: 1px solid #e4ded6; }
+.tutorial-header-copy { display: grid; gap: 5px; }
+.tutorial-header-brand { color: #8b6a55; font-size: 0.74rem; font-weight: 800; letter-spacing: 0.025em; }
+.tutorial-header h2 { margin: 0; font-size: 1.22rem; }
 .tutorial-progress { min-width: 58px; padding: 6px 9px; border-radius: 999px; background: #ece8e2; color: #645d55; font-size: 0.78rem; text-align: center; }
 .tutorial-pages { overflow-y: auto; padding: 26px 24px; }
 .tutorial-page h3 { margin: 4px 0 10px; font-size: clamp(1.6rem, 4vw, 2.35rem); line-height: 1.2; letter-spacing: -0.045em; }
 .tutorial-page > p { max-width: 62ch; color: #675f56; line-height: 1.7; }
+.tutorial-page[data-tutorial-step="about"] > p { max-width: 46ch; }
 .tutorial-kicker { margin: 0 !important; color: #9d4d1e !important; font-size: 0.78rem; font-weight: 800; letter-spacing: 0.08em; }
 .tutorial-model-picker { margin-top: 22px; }
 .tutorial-callout { padding: 12px 14px; border-left: 4px solid #b85f28; border-radius: 8px; background: #f7e3d1; color: #563220 !important; }
-.tutorial-privacy-callout { display: grid; gap: 10px; margin: 18px 0; }
+.tutorial-privacy-callout { display: grid; gap: 10px; width: min(100%, 50ch); margin: 18px 0; }
 .tutorial-privacy-callout strong { display: block; font-size: 1rem; }
 .tutorial-privacy-callout p { margin: 0; color: #563220; line-height: 1.7; }
 .tutorial-demo-button { min-height: 50px; margin-top: 12px; padding: 10px 16px; border: 1px solid #8d421d; border-radius: 14px; color: #fff; background: #9d4d24; font: inherit; font-weight: 800; cursor: pointer; }
