@@ -84,7 +84,7 @@ speakButton.addEventListener("click", async () => {
         utteranceId,
         generation: 1,
         text,
-        options: { language: "ja", speed, seed: 2026081601, targetTokens: 85 },
+        options: { language: "ja", speed, seed: 2026081601 },
       });
       const elapsed = performance.now() - startedAt;
       await playFloat32(audioContext, result.samples, result.sampleRate);
