@@ -173,6 +173,7 @@ export class TutorialController {
     this.summaryReturnIndex = null;
     this.conversationTutorialCompleted = false;
     this.stepIndex = 0;
+    this.#scrollPageToTop();
     this.elements.overlay.hidden = false;
     this.document.body.classList.add("tutorial-open");
     this.#showStep();
