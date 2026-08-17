@@ -130,11 +130,11 @@ a { -webkit-tap-highlight-color: transparent; }
   transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease;
 }
 .model-toggle input:checked + span {
-  color: #fff;
-  background: #177ee8;
-  box-shadow: 0 3px 12px #1769bd33;
+  color: #5d4634;
+  background: #ead8c7;
+  box-shadow: inset 0 0 0 1px #d8bda3, 0 2px 8px #6e4b2c14;
 }
-.model-toggle input:focus-visible + span { outline: 3px solid #8dc6ff; outline-offset: 1px; }
+.model-toggle input:focus-visible + span { outline: 3px solid #d9b591; outline-offset: 1px; }
 .model-profile-summary {
   padding: 12px 13px;
   border: 1px solid #ddd6cd;
@@ -144,6 +144,12 @@ a { -webkit-tap-highlight-color: transparent; }
 .model-profile-summary > strong { display: block; margin-bottom: 8px; font-size: 0.96rem; }
 .model-profile-facts { display: flex; flex-wrap: wrap; gap: 6px; }
 .model-profile-facts span { padding: 4px 8px; border-radius: 999px; background: #ece8e2; color: #625b52; font-size: 0.72rem; font-weight: 650; }
+.model-profile-facts [data-model-profile-size] {
+  background: #f3e2d2;
+  color: #62452f;
+  box-shadow: inset 0 0 0 1px #ddc1a8;
+  font-weight: 780;
+}
 .model-profile-warning[hidden] { display: none; }
 .model-profile-warning { margin: 0; padding: 9px 11px; border-radius: 12px; background: #fff2d7; color: #785916; font-size: 0.76rem; font-weight: 650; line-height: 1.45; }
 
@@ -305,23 +311,46 @@ body.tutorial-open { overflow: hidden; }
   background: #fffdfa;
   box-shadow: 0 28px 100px #16120d66;
 }
-.tutorial-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px 24px 14px; border-bottom: 1px solid #e4ded6; }
+.tutorial-header { display: flex; align-items: center; gap: 16px; padding: 22px 24px 14px; border-bottom: 1px solid #e4ded6; }
 .tutorial-header h2 { margin: 0; font-size: 1.18rem; }
 .tutorial-progress { min-width: 58px; padding: 6px 9px; border-radius: 999px; background: #ece8e2; color: #645d55; font-size: 0.78rem; text-align: center; }
 .tutorial-pages { overflow-y: auto; padding: 26px 24px; }
 .tutorial-page h3 { margin: 4px 0 10px; font-size: clamp(1.6rem, 4vw, 2.35rem); line-height: 1.2; letter-spacing: -0.045em; }
 .tutorial-page > p { max-width: 62ch; color: #675f56; line-height: 1.7; }
-.tutorial-kicker { margin: 0 !important; color: #177ee8 !important; font-size: 0.78rem; font-weight: 800; letter-spacing: 0.08em; }
+.tutorial-kicker { margin: 0 !important; color: #9a6b47 !important; font-size: 0.78rem; font-weight: 800; letter-spacing: 0.08em; }
 .tutorial-model-picker { margin-top: 22px; }
-.tutorial-callout { padding: 12px 14px; border-left: 4px solid #177ee8; border-radius: 8px; background: #eef6ff; color: #3c5873 !important; }
-.tutorial-demo-button { min-height: 50px; margin-top: 12px; padding: 10px 16px; border: 1px solid #177ee8; border-radius: 14px; color: #fff; background: #177ee8; font: inherit; font-weight: 800; cursor: pointer; }
+.tutorial-callout { padding: 12px 14px; border-left: 4px solid #b17c54; border-radius: 8px; background: #f6ede4; color: #604c3d !important; }
+.tutorial-demo-button { min-height: 50px; margin-top: 12px; padding: 10px 16px; border: 1px solid #936745; border-radius: 14px; color: #fff; background: #936745; font: inherit; font-weight: 800; cursor: pointer; }
+.tutorial-demo-button:disabled { opacity: 0.58; cursor: wait; }
 .tutorial-demo-status { margin: 10px 0 0; color: #7c746a !important; font-size: 0.78rem; }
 .tutorial-summary-grid { margin-top: 20px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
 .tutorial-summary-grid span { min-height: 86px; display: grid; align-content: center; gap: 4px; padding: 12px; border: 1px solid #ddd6cd; border-radius: 14px; background: #faf9f7; color: #746c62; font-size: 0.8rem; }
 .tutorial-summary-grid strong { display: block; color: #2f2b27; font-size: 0.92rem; }
 .tutorial-footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 24px 22px; border-top: 1px solid #e4ded6; }
+.tutorial-footer-end { display: flex; align-items: end; justify-content: flex-end; gap: 14px; }
+.tutorial-progress-anchor { position: relative; display: grid; place-items: center; align-self: stretch; min-width: 62px; }
+.tutorial-attention-arrow {
+  position: absolute;
+  right: 7px;
+  bottom: calc(100% - 2px);
+  display: none;
+  color: #9a6b47;
+  font-size: 2.15rem;
+  font-weight: 800;
+  line-height: 1;
+  transform: rotate(18deg);
+  transform-origin: 70% 80%;
+  filter: drop-shadow(0 3px 5px #6e4b2c24);
+  animation: tutorial-arrow-loop 1.35s ease-in-out infinite;
+  pointer-events: none;
+}
+.tutorial-needs-attention .tutorial-attention-arrow { display: block; }
+@keyframes tutorial-arrow-loop {
+  0%, 100% { transform: rotate(18deg) translateY(0) scale(1); }
+  48% { transform: rotate(388deg) translateY(-5px) scale(1.06); }
+}
 .tutorial-nav-button { min-width: 112px; }
-.tutorial-next-button { min-width: 220px; min-height: 56px; font-size: 1rem; background: #177ee8; border-color: #177ee8; }
+.tutorial-next-button { min-width: 220px; min-height: 56px; font-size: 1rem; background: #8c6243; border-color: #8c6243; }
 .tutorial-nav-button:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .tutorial-overlay.tutorial-live {
@@ -341,11 +370,12 @@ body.tutorial-open { overflow: hidden; }
 .tutorial-target {
   position: relative;
   z-index: 8999;
-  outline: 4px solid #177ee8 !important;
+  outline: 4px solid #b68159 !important;
   outline-offset: 4px;
-  box-shadow: 0 0 0 9px #d7eaffaa !important;
+  box-shadow: 0 0 0 9px #ead8c6aa !important;
 }
-.tutorial-demo-pending { border-color: #177ee8; background: #eef6ff; }
+.tutorial-demo-pending { border-color: #b68159; background: #f7eee5; }
+.tutorial-demo-message.tutorial-target { border: 1px solid #d5b89d; background: #fff7ef; }
 .tutorial-demo-active { transition: box-shadow 150ms ease; }
 
 @media (max-width: 1050px) {
@@ -372,7 +402,9 @@ body.tutorial-open { overflow: hidden; }
   .tutorial-header { padding: 18px 17px 12px; }
   .tutorial-pages { padding: 20px 17px; }
   .tutorial-footer { padding: 13px 17px max(16px, env(safe-area-inset-bottom)); }
+  .tutorial-footer-end { flex: 1; }
   .tutorial-next-button { min-width: 0; flex: 1; }
+  .tutorial-progress-anchor { min-width: 58px; }
   .tutorial-summary-grid { grid-template-columns: 1fr; }
   .tutorial-overlay.tutorial-live { place-items: end center; }
   .tutorial-overlay.tutorial-live .tutorial-shell { width: 100%; max-height: min(470px, calc(100vh - 20px)); }

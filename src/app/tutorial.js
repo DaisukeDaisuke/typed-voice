@@ -1,5 +1,16 @@
 const TUTORIAL_STORAGE_KEY = "typed-voice-tutorial-v1-complete";
-const DEMO_TEXT = "こんにちは。改行すると、この1行が読み上げ待ちに入ります。";
+const DEMO_TEXTS = Object.freeze([
+  "こんにちは。今日は何を読み上げましょうか？",
+  "お待たせしました。準備ができました。",
+  "ちょっと休憩してから、続きを始めましょう。",
+  "この文章は、読み上げの練習用です。",
+  "うまく届いたら、そのまま次へ進めます。",
+  "WebAssemblyの準備ができました。",
+  "読み上げたい文章を、ここに書いてみましょう。",
+  "あとから訂正できるので、気軽に入力してください。",
+  "やっぱり違うと思ったら、取り消すこともできます。",
+  "それでは、ひとつ読み上げてみますね。",
+]);
 
 function safeRead(storage, key) {
   try {
@@ -34,10 +45,15 @@ export class TutorialController {
     this.demoSnapshot = null;
     this.demoPending = null;
     this.demoPendingCountSnapshot = null;
+    this.demoRunToken = 0;
+    this.demoRunning = false;
+    this.lastDemoText = null;
     this.elements = this.#resolveElements();
   }
 
   initialize() {
+    this.elements.overlay.addEventListener("pointerdown", () => this.#acknowledgeStep());
+    this.elements.overlay.addEventListener("keydown", () => this.#acknowledgeStep());
     this.elements.back.addEventListener("click", () => this.previous());
     this.elements.next.addEventListener("click", () => this.next());
     this.elements.restart.addEventListener("click", () => {
@@ -45,7 +61,7 @@ export class TutorialController {
       this.modelProfileUi?.closeSettings();
       this.start();
     });
-    this.elements.linebreakDemo.addEventListener("click", () => this.#runLinebreakDemo());
+    this.elements.linebreakDemo.addEventListener("click", () => void this.#runLinebreakDemo());
     this.elements.cancelDemo.addEventListener("click", () => this.#runCancelDemo());
 
     if (safeRead(this.storage, TUTORIAL_STORAGE_KEY) !== "1") this.start();
@@ -91,6 +107,7 @@ export class TutorialController {
     this.elements.overlay.classList.toggle("tutorial-live", page.dataset.tutorialLive === "true");
     this.elements.overlay.dataset.step = page.dataset.tutorialStep;
     this.elements.progress.textContent = `${this.stepIndex + 1} / ${this.elements.pages.length}`;
+    this.elements.overlay.classList.add("tutorial-needs-attention");
     this.elements.back.disabled = this.stepIndex === 0;
     this.elements.next.textContent = this.stepIndex === this.elements.pages.length - 1 ? "使い始める" : "次へ";
     this.#updateHighlights(page.dataset.tutorialStep);
@@ -99,20 +116,58 @@ export class TutorialController {
     this.elements.next.focus({ preventScroll: true });
   }
 
-  #runLinebreakDemo() {
+  #acknowledgeStep() {
+    this.elements.overlay.classList.remove("tutorial-needs-attention");
+  }
+
+  async #runLinebreakDemo() {
+    if (this.demoRunning) return;
+    this.demoRunning = true;
+    const runToken = ++this.demoRunToken;
+    this.elements.linebreakDemo.disabled = true;
+    this.elements.back.disabled = true;
+    this.elements.next.disabled = true;
+
     const composer = this.elements.composer;
     this.#rememberComposer();
-    composer.value = DEMO_TEXT;
-    composer.setSelectionRange(composer.value.length, composer.value.length);
+    const text = this.#pickDemoText();
+    composer.value = "";
     composer.classList.add("tutorial-target", "tutorial-demo-active");
-    this.elements.demoStatus.textContent = "入力しました。次にEnterの改行を再現します。";
+    this.elements.demoStatus.textContent = "文字を少しずつ入力してみます。";
 
-    requestAnimationFrame(() => {
-      composer.value = `${DEMO_TEXT}\n`;
+    try {
+      for (const character of [...text]) {
+        if (runToken !== this.demoRunToken) return;
+        composer.value += character;
+        composer.setSelectionRange(composer.value.length, composer.value.length);
+        await this.#sleep(42);
+      }
+
+      if (runToken !== this.demoRunToken) return;
+      this.elements.demoStatus.textContent = "入力できました。ここで改行します。";
+      await this.#sleep(260);
+      if (runToken !== this.demoRunToken) return;
+
+      composer.value = `${text}\n`;
       composer.setSelectionRange(composer.value.length, composer.value.length);
-      this.#ensureDemoPending();
-      this.elements.demoStatus.textContent = "改行した1行が読み上げ待ちへ移りました。音声モデルは読み込んでいません。";
-    });
+      this.#ensureDemoPending(text);
+      this.elements.demoStatus.textContent = "読み上げ待ちに入りました。";
+
+      await this.#sleep(650);
+      if (runToken !== this.demoRunToken) return;
+      if (this.demoPending?.isConnected) this.demoPending.remove();
+      this.demoPending = null;
+      this.#restorePendingCount();
+      this.#appendDemoHistory(text);
+      this.elements.demoStatus.textContent = "読み上げ履歴に追加されました。もう一度押すと、別の文章でも試せます。";
+    } finally {
+      if (runToken === this.demoRunToken) {
+        this.demoRunning = false;
+        this.elements.linebreakDemo.disabled = false;
+        this.elements.back.disabled = this.stepIndex === 0;
+        this.elements.next.disabled = false;
+      }
+    }
   }
 
   #runCancelDemo() {
@@ -123,14 +178,14 @@ export class TutorialController {
     this.elements.cancelStatus.textContent = "デモ用の読み上げ待ちを取り消しました。実際の会話データは変更していません。";
   }
 
-  #ensureDemoPending() {
+  #ensureDemoPending(text = this.lastDemoText ?? DEMO_TEXTS[0]) {
     if (this.demoPending?.isConnected) return this.demoPending;
     const node = this.elements.pendingTemplate.content.firstElementChild.cloneNode(true);
     node.classList.add("tutorial-demo-pending", "tutorial-target");
     node.dataset.pendingId = "tutorial-demo";
     node.querySelector(".pending-state").textContent = "読み上げ待ち（チュートリアル）";
     node.querySelector(".pending-timer").textContent = "2.0秒";
-    node.querySelector(".pending-text").textContent = DEMO_TEXT;
+    node.querySelector(".pending-text").textContent = text;
     const cancel = node.querySelector(".pending-cancel");
     cancel.addEventListener("click", (event) => {
       event.preventDefault();
@@ -147,6 +202,29 @@ export class TutorialController {
     return node;
   }
 
+  #appendDemoHistory(text) {
+    const node = this.elements.messageTemplate.content.firstElementChild.cloneNode(true);
+    node.classList.add("tutorial-demo-message", "tutorial-target");
+    node.querySelector(".message-text").textContent = text;
+    const time = node.querySelector(".message-time");
+    const now = new Date();
+    time.dateTime = now.toISOString();
+    time.textContent = "いま";
+    this.elements.messageList.append(node);
+    this.elements.emptyTimeline.hidden = true;
+  }
+
+  #pickDemoText() {
+    const candidates = DEMO_TEXTS.filter((text) => text !== this.lastDemoText);
+    const text = candidates[Math.floor(Math.random() * candidates.length)] ?? DEMO_TEXTS[0];
+    this.lastDemoText = text;
+    return text;
+  }
+
+  #sleep(milliseconds) {
+    return new Promise((resolve) => setTimeout(resolve, milliseconds));
+  }
+
   #rememberComposer() {
     if (this.demoSnapshot) return;
     const composer = this.elements.composer;
@@ -158,6 +236,9 @@ export class TutorialController {
   }
 
   #cleanupDemo() {
+    this.demoRunToken += 1;
+    this.demoRunning = false;
+    this.elements.linebreakDemo.disabled = false;
     if (this.demoPending?.isConnected) this.demoPending.remove();
     this.demoPending = null;
     this.#restorePendingCount();
@@ -170,7 +251,9 @@ export class TutorialController {
     for (const target of this.document.querySelectorAll(".tutorial-target, .tutorial-demo-active")) {
       target.classList.remove("tutorial-target", "tutorial-demo-active");
     }
-    this.elements.demoStatus.textContent = "デモは入力欄と待ち表示だけを動かし、音声モデルは読み込みません。";
+    for (const node of this.document.querySelectorAll(".tutorial-demo-message")) node.remove();
+    this.elements.emptyTimeline.hidden = this.elements.messageList.children.length > 0;
+    this.elements.demoStatus.textContent = "音声はまだ読み込みません。何度でも試せます。";
     this.elements.cancelStatus.textContent = "デモ用の読み上げ待ちだけを消します。";
   }
 
@@ -222,6 +305,9 @@ export class TutorialController {
       pendingList: byId("pending-list"),
       pendingCount: byId("pending-count"),
       pendingTemplate: byId("pending-template"),
+      messageList: byId("message-list"),
+      messageTemplate: byId("message-template"),
+      emptyTimeline: byId("empty-timeline"),
     };
   }
 }

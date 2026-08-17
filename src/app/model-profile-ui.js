@@ -127,7 +127,7 @@ export class ModelProfileUi {
       control.querySelector("[data-model-profile-device]").textContent = profile.device;
       control.querySelector("[data-model-profile-quality]").textContent = profile.quality;
       control.querySelector("[data-model-profile-precision]").textContent = profile.precision;
-      control.querySelector("[data-model-profile-size]").textContent = profile.size;
+      control.querySelector("[data-model-profile-size]").textContent = `ダウンロード ${profile.size}`;
       const warning = control.querySelector("[data-model-profile-warning]");
       warning.hidden = profile.recommended;
     }

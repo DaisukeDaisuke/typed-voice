@@ -159,14 +159,13 @@ https://tyc.rei-yumesaki.net
           <p class="eyebrow">はじめての typed-voice</p>
           <h2 id="tutorial-title">操作チュートリアル</h2>
         </div>
-        <strong id="tutorial-progress" class="tutorial-progress" aria-live="polite">1 / 5</strong>
       </header>
 
       <div class="tutorial-pages">
         <section class="tutorial-page" data-tutorial-step="model">
           <p class="tutorial-kicker">最初にひとつだけ</p>
-          <h3>使うモデルを選びます</h3>
-          <p>迷ったら「推奨」のままで大丈夫です。ここでの選択は保存されますが、この段階ではモデルを読み込みません。</p>
+          <h3>まずは、声の設定を選びましょう</h3>
+          <p>迷ったら「推奨」のままで大丈夫です。あとから設定で変えられます。この段階ではモデルを読み込みません。</p>
           <div class="model-profile-picker tutorial-model-picker" data-model-profile-control>
             <div class="model-toggle" role="radiogroup" aria-label="チュートリアルの音声モデル">
               <label><input type="radio" name="tutorial-model-profile" value="fp32"><span>オリジナル</span></label>
@@ -188,44 +187,50 @@ https://tyc.rei-yumesaki.net
         </section>
 
         <section class="tutorial-page" data-tutorial-step="linebreak" data-tutorial-live="true" hidden>
-          <p class="tutorial-kicker">送信</p>
-          <h3>改行すると、その1行を送れます</h3>
-          <p>この入力欄では、Enterで改行した瞬間に直前の1行が「読み上げ待ち」へ入ります。改行自体は入力欄に残ります。</p>
-          <button id="tutorial-linebreak-demo" class="tutorial-demo-button" type="button">OK、実際のUIで動きを見る</button>
-          <p id="tutorial-demo-status" class="tutorial-demo-status" aria-live="polite">デモは入力欄と待ち表示だけを動かし、音声モデルは読み込みません。</p>
+          <p class="tutorial-kicker">読み上げ</p>
+          <h3>ここで改行すると、読み上げを始められます</h3>
+          <p>読んでほしい1行を書いて、Enterで改行してください。その1行が読み上げ待ちに入り、改行は入力欄にそのまま残ります。</p>
+          <button id="tutorial-linebreak-demo" class="tutorial-demo-button" type="button">実際の動きを見てみる</button>
+          <p id="tutorial-demo-status" class="tutorial-demo-status" aria-live="polite">音声はまだ読み込みません。何度でも試せます。</p>
         </section>
 
         <section class="tutorial-page" data-tutorial-step="correction" data-tutorial-live="true" hidden>
           <p class="tutorial-kicker">訂正</p>
-          <h3>読み上げ前なら、文章を差し替えられます</h3>
-          <p>入力欄に残っている直近の文章を直して「現在の文章で訂正する」を押します。読み上げ待ち中の文章だけが訂正対象です。</p>
-          <p class="tutorial-callout">言い直したいときに、新しいメッセージとして送り直す必要はありません。</p>
+          <h3>ちょっと直したいときも、まだ間に合います</h3>
+          <p>読み上げる前なら、入力欄の文章を直して「現在の文章で訂正する」を押せば、その内容に差し替えられます。</p>
+          <p class="tutorial-callout">言い直すために、もう一度送り直さなくて大丈夫です。</p>
         </section>
 
         <section class="tutorial-page" data-tutorial-step="cancel" data-tutorial-live="true" hidden>
           <p class="tutorial-kicker">取り消し</p>
-          <h3>読ませたくない文章は、待ち時間中に取り消せます</h3>
-          <p>上の「取り消す」は直近の読み上げ待ちを止めます。待ち一覧にある個別の「取り消し」でも、その文章だけを止められます。</p>
-          <button id="tutorial-cancel-demo" class="tutorial-demo-button" type="button">取り消しの動きを見る</button>
+          <h3>やっぱり読ませたくない、も大丈夫です</h3>
+          <p>読み上げる前なら「取り消す」で止められます。待ち一覧から、その文章だけを選んで取り消すこともできます。</p>
+          <button id="tutorial-cancel-demo" class="tutorial-demo-button" type="button">取り消す動きを見てみる</button>
           <p id="tutorial-cancel-status" class="tutorial-demo-status" aria-live="polite">デモ用の読み上げ待ちだけを消します。</p>
         </section>
 
         <section class="tutorial-page" data-tutorial-step="finish" hidden>
           <p class="tutorial-kicker">準備完了</p>
-          <h3>これで基本操作は完了です</h3>
-          <p>モデルは右上の「設定」からいつでも変更できます。チュートリアルも設定から再開でき、そのときモデルキャッシュは削除しません。</p>
+          <h3>ひと通り、これで大丈夫です</h3>
+          <p>モデルは右上の「設定」からいつでも変えられます。この案内もあとから見直せます。</p>
           <div class="tutorial-summary-grid">
-            <span><strong>Enter</strong>改行して送信</span>
-            <span><strong>訂正</strong>待ち時間中に差し替え</span>
-            <span><strong>取り消し</strong>読ませる前に停止</span>
-            <span><strong>履歴 / 会話一覧</strong>読み上げ履歴と会話を切り替え</span>
+            <span><strong>Enter</strong>改行すると読み上げ</span>
+            <span><strong>訂正</strong>読む前なら直せます</span>
+            <span><strong>取り消し</strong>読む前なら止められます</span>
+            <span><strong>履歴 / 会話一覧</strong>あとからいつでも見返せます</span>
           </div>
         </section>
       </div>
 
       <footer class="tutorial-footer">
         <button id="tutorial-back" class="quiet-button tutorial-nav-button" type="button">戻る</button>
-        <button id="tutorial-next" class="primary-button tutorial-next-button" type="button">次へ</button>
+        <div class="tutorial-footer-end">
+          <button id="tutorial-next" class="primary-button tutorial-next-button" type="button">次へ</button>
+          <div class="tutorial-progress-anchor" aria-hidden="true">
+            <span class="tutorial-attention-arrow">↷</span>
+            <strong id="tutorial-progress" class="tutorial-progress" aria-live="polite">1 / 5</strong>
+          </div>
+        </div>
       </footer>
     </div>
   </section>
