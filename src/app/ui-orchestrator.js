@@ -37,6 +37,13 @@ export async function resolveCurrentConversation(repository, currentSession = nu
   return repository.createSession();
 }
 
+export async function createConversationFromSubmittedText(repository, text) {
+  if (!repository) throw new Error("Conversation repository is unavailable.");
+  const firstMessagePreview = String(text || "").trim().slice(0, 80);
+  if (!firstMessagePreview) throw new Error("読み上げる文章を入力してください。");
+  return repository.createSession({ firstMessagePreview });
+}
+
 export class UiOrchestrator {
   constructor(documentRef = document, { voiceRuntime = null, getModelProfile = () => "fp16" } = {}) {
     this.document = documentRef;
@@ -56,6 +63,7 @@ export class UiOrchestrator {
     this.tutorialConversationDemo = null;
     this.tutorialConversationActive = false;
     this.ensureConversationPromise = null;
+    this.secondaryView = "timeline";
     this.elements = this.#resolveElements();
   }
 
@@ -102,6 +110,16 @@ export class UiOrchestrator {
     return session;
   }
 
+  async startConversationFromSubmittedText(text) {
+    const session = await createConversationFromSubmittedText(this.repository, text);
+    this.currentSession = session;
+    this.tutorialConversationActive = false;
+    this.#writeUrl(session.id, false);
+    this.#showSecondaryView("timeline");
+    this.#broadcast();
+    return session;
+  }
+
   async ensureCurrentConversation({ replaceUrl = true } = {}) {
     if (this.ensureConversationPromise) return this.ensureConversationPromise;
     const currentSession = this.currentSession;
@@ -139,16 +157,18 @@ export class UiOrchestrator {
   }
 
   async submitComposer() {
-    const session = await this.ensureCurrentConversation();
     const composer = this.elements.composer;
     const line = getComposerLineAtCaret(composer.value, composer.selectionStart);
     if (!line.trim()) return;
-    const allPending = await this.repository.listPending(session.id);
-    const pending = this.tutorialExampleMode
-      ? allPending.filter((item) => item.tutorialExample)
-      : allPending;
-    if (pending.some((item) => item.text.trim() === line.trim())) {
-      throw new Error("この行はすでに読み上げ待ちです。訂正する場合は上の訂正ボタンを使ってください。");
+    if (this.secondaryView !== "conversations") {
+      const session = await this.ensureCurrentConversation();
+      const allPending = await this.repository.listPending(session.id);
+      const pending = this.tutorialExampleMode
+        ? allPending.filter((item) => item.tutorialExample)
+        : allPending;
+      if (pending.some((item) => item.text.trim() === line.trim())) {
+        throw new Error("この行はすでに読み上げ待ちです。訂正する場合は上の訂正ボタンを使ってください。");
+      }
     }
     const lineEnd = composer.value.indexOf("\n", composer.selectionStart);
     const insertAt = lineEnd === -1 ? composer.value.length : lineEnd;
@@ -630,10 +650,12 @@ export class UiOrchestrator {
   }
 
   async #finalizeComposerLineBreak() {
-    const session = await this.ensureCurrentConversation();
     const composer = this.elements.composer;
     const completed = getCompletedLineFromLineBreak(composer.value, composer.selectionStart);
     if (!completed.trim()) return;
+    const session = this.secondaryView === "conversations"
+      ? await this.startConversationFromSubmittedText(completed)
+      : await this.ensureCurrentConversation();
     const typingMs = this.typingStartedAt == null ? 0 : Math.max(0, performance.now() - this.typingStartedAt);
     if (!this.tutorialExampleMode) {
       await this.repository.recordInputStatistics({
@@ -665,6 +687,7 @@ export class UiOrchestrator {
 
   #showSecondaryView(view) {
     const showTimeline = view === "timeline";
+    this.secondaryView = showTimeline ? "timeline" : "conversations";
     this.elements.timelinePanel.hidden = !showTimeline;
     this.elements.conversationPanel.hidden = showTimeline;
     this.elements.timelineView.setAttribute("aria-pressed", String(showTimeline));

@@ -89,14 +89,14 @@ export class IndexedDbConversationRepository {
     this.db = db;
   }
 
-  async createSession({ id = uuid(), createdAt = Date.now() } = {}) {
+  async createSession({ id = uuid(), createdAt = Date.now(), firstMessagePreview = "" } = {}) {
     const existing = await this.getSession(id);
     if (existing) return existing;
     const session = {
       id,
       createdAt,
       updatedAt: createdAt,
-      firstMessagePreview: "",
+      firstMessagePreview: String(firstMessagePreview || "").trim().slice(0, 80),
       messageCount: 0,
     };
     const transaction = this.db.transaction(STORE_SESSIONS, "readwrite");
@@ -272,9 +272,15 @@ export class MemoryConversationRepository {
     this.statistics = defaultGlobalStatistics();
   }
 
-  async createSession({ id = uuid(), createdAt = Date.now() } = {}) {
+  async createSession({ id = uuid(), createdAt = Date.now(), firstMessagePreview = "" } = {}) {
     if (this.sessions.has(id)) return clone(this.sessions.get(id));
-    const session = { id, createdAt, updatedAt: createdAt, firstMessagePreview: "", messageCount: 0 };
+    const session = {
+      id,
+      createdAt,
+      updatedAt: createdAt,
+      firstMessagePreview: String(firstMessagePreview || "").trim().slice(0, 80),
+      messageCount: 0,
+    };
     this.sessions.set(id, session);
     this.#updateStats({ conversationCount: 1, timestamp: createdAt });
     return clone(session);

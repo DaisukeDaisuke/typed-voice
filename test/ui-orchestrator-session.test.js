@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { MemoryConversationRepository } from "../src/app/storage.js";
-import { resolveCurrentConversation } from "../src/app/ui-orchestrator.js";
+import {
+  createConversationFromSubmittedText,
+  resolveCurrentConversation,
+} from "../src/app/ui-orchestrator.js";
 
 test("現在の会話がなければ即座に新しい会話を作る", async () => {
   const repository = new MemoryConversationRepository();
@@ -36,4 +39,13 @@ test("現在の会話が消えていたら新しい会話へ復旧する", async
 
   assert.notEqual(resolved.id, stale.id);
   assert.equal((await repository.listSessions()).length, 1);
+});
+
+test("新しい会話の作成時に手元の1行目をプレビューへ即時保存できる", async () => {
+  const repository = new MemoryConversationRepository();
+  const session = await createConversationFromSubmittedText(repository, "  最初の読み上げ文章です  ");
+
+  assert.equal(session.firstMessagePreview, "最初の読み上げ文章です");
+  assert.equal(session.messageCount, 0);
+  assert.equal((await repository.listMessages(session.id)).length, 0);
 });
