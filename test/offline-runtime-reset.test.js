@@ -126,6 +126,10 @@ test("高度な削除はService Worker・typed-voice Cache・assets metadataだ�
 test("フリーズUIだけを表示するとアプリ本体をinertにして再登録ボタンだけ残す", () => {
   const reset = { addEventListener() {} };
   const status = { textContent: "" };
+  const dialog = { hidden: true, addEventListener() {} };
+  const dialogStatus = { textContent: "" };
+  const confirm = { addEventListener() {} };
+  const cancel = { addEventListener() {} };
   const reload = {
     focused: false,
     addEventListener() {},
@@ -136,6 +140,10 @@ test("フリーズUIだけを表示するとアプリ本体をinertにして再�
   const elements = new Map([
     ["offline-runtime-reset", reset],
     ["offline-runtime-reset-status", status],
+    ["offline-runtime-reset-dialog", dialog],
+    ["offline-runtime-reset-dialog-status", dialogStatus],
+    ["offline-runtime-reset-confirm", confirm],
+    ["offline-runtime-reset-cancel", cancel],
     ["offline-reset-freeze", freeze],
     ["offline-reset-reload", reload],
   ]);
@@ -154,4 +162,88 @@ test("フリーズUIだけを表示するとアプリ本体をinertにして再�
   assert.equal(app.inert, true);
   assert.equal(reload.focused, true);
   assert.equal(classes.has("offline-runtime-frozen"), true);
+});
+
+function createInteractiveElement({ hidden = false } = {}) {
+  const listeners = new Map();
+  return {
+    hidden,
+    disabled: false,
+    textContent: "",
+    focused: false,
+    addEventListener(type, listener) { listeners.set(type, listener); },
+    click() { listeners.get("click")?.({ target: this }); },
+    dispatch(type, event = {}) { listeners.get(type)?.({ target: this, ...event }); },
+    focus() { this.focused = true; },
+  };
+}
+
+test("高度の削除ボタンは確認画面を開くだけで、明示確認まではService WorkerやCacheを変更しない", async () => {
+  const reset = createInteractiveElement();
+  const status = createInteractiveElement();
+  const dialog = createInteractiveElement({ hidden: true });
+  const dialogStatus = createInteractiveElement();
+  const confirm = createInteractiveElement();
+  const cancel = createInteractiveElement();
+  const freeze = createInteractiveElement({ hidden: true });
+  const reload = createInteractiveElement();
+  const elements = new Map([
+    ["offline-runtime-reset", reset],
+    ["offline-runtime-reset-status", status],
+    ["offline-runtime-reset-dialog", dialog],
+    ["offline-runtime-reset-dialog-status", dialogStatus],
+    ["offline-runtime-reset-confirm", confirm],
+    ["offline-runtime-reset-cancel", cancel],
+    ["offline-reset-freeze", freeze],
+    ["offline-reset-reload", reload],
+  ]);
+  let serviceWorkerQueries = 0;
+  let cacheQueries = 0;
+  let settingsClosed = 0;
+  const documentListeners = new Map();
+  const documentRef = {
+    baseURI: "https://example.test/typed-voice/",
+    body: { children: [dialog, freeze] },
+    documentElement: { classList: { add() {} } },
+    addEventListener(type, listener) { documentListeners.set(type, listener); },
+    getElementById(id) { return elements.get(id) ?? null; },
+  };
+  new OfflineRuntimeResetUiController(documentRef, {
+    db: createDb(),
+    cachesImpl: {
+      async keys() { cacheQueries += 1; return []; },
+      async delete() { return true; },
+    },
+    serviceWorkerContainer: {
+      async getRegistration() { serviceWorkerQueries += 1; return null; },
+    },
+    locationRef: { reload() {} },
+    modelProfileUi: { closeSettings() { settingsClosed += 1; } },
+  }).initialize();
+
+  reset.click();
+  await Promise.resolve();
+
+  assert.equal(dialog.hidden, false);
+  assert.equal(cancel.focused, true);
+  assert.equal(settingsClosed, 1);
+  assert.equal(serviceWorkerQueries, 0);
+  assert.equal(cacheQueries, 0);
+
+  cancel.click();
+  assert.equal(dialog.hidden, true);
+  assert.equal(serviceWorkerQueries, 0);
+  assert.equal(cacheQueries, 0);
+
+  reset.click();
+  dialog.dispatch("pointerdown", { target: dialog });
+  assert.equal(dialog.hidden, true);
+  assert.equal(serviceWorkerQueries, 0);
+  assert.equal(cacheQueries, 0);
+
+  reset.click();
+  documentListeners.get("keydown")?.({ key: "Escape" });
+  assert.equal(dialog.hidden, true);
+  assert.equal(serviceWorkerQueries, 0);
+  assert.equal(cacheQueries, 0);
 });

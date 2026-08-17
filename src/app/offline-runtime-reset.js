@@ -88,20 +88,48 @@ export class OfflineRuntimeResetUiController {
     cachesImpl = globalThis.caches,
     serviceWorkerContainer = globalThis.navigator?.serviceWorker,
     locationRef = globalThis.location,
+    modelProfileUi = null,
   } = {}) {
     this.document = documentRef;
     this.db = db;
     this.cachesImpl = cachesImpl;
     this.serviceWorkerContainer = serviceWorkerContainer;
     this.location = locationRef;
+    this.modelProfileUi = modelProfileUi;
     this.running = false;
     this.elements = this.#resolveElements();
   }
 
   initialize() {
-    this.elements.reset.addEventListener("click", () => void this.#reset());
+    this.elements.reset.addEventListener("click", () => this.#openDialog());
+    this.elements.confirm.addEventListener("click", () => void this.#reset());
+    this.elements.cancel.addEventListener("click", () => this.#closeDialog());
+    this.elements.dialog.addEventListener("pointerdown", (event) => {
+      if (event.target === this.elements.dialog) this.#closeDialog();
+    });
+    this.document.addEventListener?.("keydown", (event) => {
+      if (event.key === "Escape" && !this.elements.dialog.hidden) this.#closeDialog();
+    });
     this.elements.reload.addEventListener("click", () => this.location.reload());
     return this;
+  }
+
+  #openDialog() {
+    if (this.running) return;
+    this.modelProfileUi?.closeSettings?.();
+    this.elements.status.textContent = "";
+    this.elements.dialogStatus.textContent = "";
+    this.elements.confirm.disabled = false;
+    this.elements.cancel.disabled = false;
+    this.elements.dialog.hidden = false;
+    this.elements.cancel.focus({ preventScroll: true });
+  }
+
+  #closeDialog() {
+    if (this.running) return;
+    this.elements.dialog.hidden = true;
+    this.elements.dialogStatus.textContent = "";
+    this.elements.reset.focus({ preventScroll: true });
   }
 
   showFreeze() {
@@ -117,7 +145,9 @@ export class OfflineRuntimeResetUiController {
     if (this.running) return;
     this.running = true;
     this.elements.reset.disabled = true;
-    this.elements.status.textContent = "サービスワーカの登録とtyped-voiceのキャッシュを削除しています。";
+    this.elements.confirm.disabled = true;
+    this.elements.cancel.disabled = true;
+    this.elements.dialogStatus.textContent = "サービスワーカの登録とtyped-voiceのキャッシュを削除しています。";
     try {
       await resetTypedVoiceOfflineRuntime({
         db: this.db,
@@ -125,14 +155,20 @@ export class OfflineRuntimeResetUiController {
         serviceWorkerContainer: this.serviceWorkerContainer,
         baseUrl: this.document.baseURI,
       });
+      this.elements.dialog.hidden = true;
       this.showFreeze();
     } catch (error) {
       if (error?.requiresReload) {
+        this.elements.dialog.hidden = true;
         this.showFreeze();
         return;
       }
-      this.elements.status.textContent = error instanceof Error ? error.message : String(error);
+      const message = error instanceof Error ? error.message : String(error);
+      this.elements.dialogStatus.textContent = message;
+      this.elements.status.textContent = message;
       this.elements.reset.disabled = false;
+      this.elements.confirm.disabled = false;
+      this.elements.cancel.disabled = false;
       this.running = false;
     }
   }
@@ -146,6 +182,10 @@ export class OfflineRuntimeResetUiController {
     return {
       reset: byId("offline-runtime-reset"),
       status: byId("offline-runtime-reset-status"),
+      dialog: byId("offline-runtime-reset-dialog"),
+      dialogStatus: byId("offline-runtime-reset-dialog-status"),
+      confirm: byId("offline-runtime-reset-confirm"),
+      cancel: byId("offline-runtime-reset-cancel"),
       freeze: byId("offline-reset-freeze"),
       reload: byId("offline-reset-reload"),
     };

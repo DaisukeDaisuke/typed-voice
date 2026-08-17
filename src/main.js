@@ -47,7 +47,10 @@ const selectedModelCached = await blocking.registerBlockingAsync("音声キャ�
 await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
   report({ detail: "バックアップとチュートリアルを準備しています。" });
   initializeBackupUi(document, { app, modelProfileUi });
-  const offlineRuntimeResetUi = initializeOfflineRuntimeResetUi(document, { db: app.repository?.db });
+  const offlineRuntimeResetUi = initializeOfflineRuntimeResetUi(document, {
+    db: app.repository?.db,
+    modelProfileUi,
+  });
   globalThis.typedVoiceDebug = Object.assign(globalThis.typedVoiceDebug ?? {}, {
     showOfflineResetFreeze: () => offlineRuntimeResetUi.showFreeze(),
   });
