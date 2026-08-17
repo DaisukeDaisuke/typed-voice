@@ -1,6 +1,8 @@
 import {
+  createApplicationBackupFilename,
   downloadApplicationBackup,
   readApplicationBackupFile,
+  writeApplicationBackupToFileHandle,
 } from "./application-backup.js";
 
 export class BackupUiController {
@@ -8,7 +10,8 @@ export class BackupUiController {
     this.document = documentRef;
     this.app = app;
     this.modelProfileUi = modelProfileUi;
-    this.restartBackupDownloaded = false;
+    this.restartBackupVerified = false;
+    this.restartDialogGeneration = 0;
     this.elements = this.#resolveElements();
   }
 
@@ -24,6 +27,7 @@ export class BackupUiController {
     this.elements.restart.addEventListener("click", () => this.#openRestartDialog());
     this.elements.restartCancel.addEventListener("click", () => this.#closeRestartDialog());
     this.elements.restartBackup.addEventListener("click", () => void this.#downloadRestartBackup());
+    this.elements.restartBackupConfirm.addEventListener("click", () => this.#confirmRestartBackupSaved());
     this.elements.restartConfirm.addEventListener("click", () => void this.#confirmRestart());
     this.elements.restartDialog.addEventListener("pointerdown", (event) => {
       if (event.target === this.elements.restartDialog) this.#closeRestartDialog();
@@ -61,36 +65,92 @@ export class BackupUiController {
   }
 
   #openRestartDialog() {
+    this.restartDialogGeneration += 1;
     this.modelProfileUi?.closeSettings?.();
-    this.restartBackupDownloaded = false;
+    this.restartBackupVerified = false;
+    this.elements.restartBackup.disabled = false;
+    this.elements.restartCancel.disabled = false;
     this.elements.restartConfirm.disabled = true;
-    this.elements.restartStatus.textContent = "バックアップをダウンロードすると、初期化ボタンを押せるようになります。";
+    this.elements.restartBackupConfirm.hidden = true;
+    this.elements.restartBackupConfirm.disabled = false;
+    this.elements.restartStatus.textContent = "バックアップの保存を確認すると、初期化ボタンを押せるようになります。";
     this.elements.restartDialog.hidden = false;
     this.elements.restartBackup.focus({ preventScroll: true });
   }
 
   #closeRestartDialog() {
+    this.restartDialogGeneration += 1;
     this.elements.restartDialog.hidden = true;
-    this.restartBackupDownloaded = false;
+    this.restartBackupVerified = false;
     this.elements.restartConfirm.disabled = true;
+    this.elements.restartBackupConfirm.hidden = true;
     this.elements.restart.focus({ preventScroll: true });
   }
 
   async #downloadRestartBackup() {
+    const generation = this.restartDialogGeneration;
+    this.restartBackupVerified = false;
+    this.elements.restartConfirm.disabled = true;
+    this.elements.restartBackupConfirm.hidden = true;
+    this.elements.restartBackupConfirm.disabled = false;
+    this.elements.restartBackup.disabled = true;
     try {
+      if (typeof globalThis.showSaveFilePicker === "function") {
+        let fileHandle;
+        try {
+          fileHandle = await globalThis.showSaveFilePicker({
+            suggestedName: createApplicationBackupFilename(),
+            types: [{
+              description: "typed-voice バックアップ",
+              accept: { "application/json": [".json"] },
+            }],
+          });
+        } catch (error) {
+          if (generation !== this.restartDialogGeneration) return;
+          if (error?.name === "AbortError") {
+            this.elements.restartStatus.textContent = "バックアップの保存をキャンセルしました。初期化はまだできません。";
+            return;
+          }
+          throw error;
+        }
+        this.elements.restartStatus.textContent = "バックアップを作成して保存しています。";
+        const backup = await this.app.createBackup();
+        const filename = await writeApplicationBackupToFileHandle(fileHandle, backup);
+        if (generation !== this.restartDialogGeneration) return;
+        this.#markRestartBackupSaved(`${filename} を保存しました。初期化できるようになりました。`);
+        return;
+      }
+
       await this.#downloadBackup(this.elements.restartStatus);
-      this.restartBackupDownloaded = true;
-      this.elements.restartConfirm.disabled = false;
-      this.elements.restartStatus.textContent = "バックアップのダウンロードを開始しました。これで初期化してやり直せます。";
-      this.elements.restartConfirm.focus({ preventScroll: true });
-    } catch {
-      this.restartBackupDownloaded = false;
+      if (generation !== this.restartDialogGeneration) return;
+      this.elements.restartBackupConfirm.hidden = false;
+      this.elements.restartStatus.textContent = "ダウンロードを要求しました。このブラウザからは保存完了を確認できません。保存されたバックアップファイルを確認してください。";
+      this.elements.restartBackupConfirm.focus({ preventScroll: true });
+    } catch (error) {
+      if (generation !== this.restartDialogGeneration) return;
+      this.restartBackupVerified = false;
       this.elements.restartConfirm.disabled = true;
+      this.elements.restartStatus.textContent = error instanceof Error ? error.message : String(error);
+    } finally {
+      if (generation === this.restartDialogGeneration) this.elements.restartBackup.disabled = false;
     }
   }
 
+  #confirmRestartBackupSaved() {
+    if (this.elements.restartBackupConfirm.hidden) return;
+    this.elements.restartBackupConfirm.disabled = true;
+    this.#markRestartBackupSaved("バックアップファイルの保存確認を受け付けました。初期化できるようになりました。");
+  }
+
+  #markRestartBackupSaved(message) {
+    this.restartBackupVerified = true;
+    this.elements.restartConfirm.disabled = false;
+    this.elements.restartStatus.textContent = message;
+    this.elements.restartConfirm.focus({ preventScroll: true });
+  }
+
   async #confirmRestart() {
-    if (!this.restartBackupDownloaded || this.elements.restartConfirm.disabled) return;
+    if (!this.restartBackupVerified || this.elements.restartConfirm.disabled) return;
     this.elements.restartConfirm.disabled = true;
     this.elements.restartCancel.disabled = true;
     this.elements.restartBackup.disabled = true;
@@ -101,7 +161,7 @@ export class BackupUiController {
       this.elements.restartStatus.textContent = error instanceof Error ? error.message : String(error);
       this.elements.restartCancel.disabled = false;
       this.elements.restartBackup.disabled = false;
-      this.elements.restartConfirm.disabled = !this.restartBackupDownloaded;
+      this.elements.restartConfirm.disabled = !this.restartBackupVerified;
     }
   }
 
@@ -119,6 +179,7 @@ export class BackupUiController {
       restart: byId("restart-tutorial"),
       restartDialog: byId("tutorial-restart-dialog"),
       restartBackup: byId("tutorial-restart-backup"),
+      restartBackupConfirm: byId("tutorial-restart-backup-confirm"),
       restartStatus: byId("tutorial-restart-status"),
       restartCancel: byId("tutorial-restart-cancel"),
       restartConfirm: byId("tutorial-restart-confirm"),

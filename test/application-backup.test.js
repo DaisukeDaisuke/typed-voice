@@ -4,9 +4,11 @@ import {
   clearAllApplicationData,
   clearConversationData,
   createApplicationBackup,
+  createApplicationBackupFilename,
   parseApplicationBackup,
   restoreApplicationBackup,
   stringifyApplicationBackup,
+  writeApplicationBackupToFileHandle,
 } from "../src/app/application-backup.js";
 
 function createStorage(initial = {}) {
@@ -155,6 +157,50 @@ test("旧v1バックアップにassetsが含まれていても復元せず現在
 
 test("別形式のJSONはtyped-voiceバックアップとして復元しない", () => {
   assert.throws(() => parseApplicationBackup('{"format":"other","version":1}'), /対応バックアップ/);
+});
+
+test("バックアップ保存先へclose完了まで書き込み、保存完了を確認できる", async () => {
+  const backup = await createApplicationBackup({ db: createFakeDb(initialDatabase()), storage: createStorage() });
+  const writes = [];
+  let closed = false;
+  const fileHandle = {
+    name: "saved-backup.json",
+    async createWritable() {
+      return {
+        async write(value) { writes.push(value); },
+        async close() { closed = true; },
+      };
+    },
+  };
+
+  const filename = await writeApplicationBackupToFileHandle(fileHandle, backup);
+
+  assert.equal(filename, "saved-backup.json");
+  assert.equal(closed, true);
+  assert.equal(writes.length, 1);
+  assert.deepEqual(parseApplicationBackup(writes[0]), backup);
+});
+
+test("バックアップ保存のcloseに失敗した場合は保存完了として扱わない", async () => {
+  const backup = await createApplicationBackup({ db: createFakeDb(initialDatabase()), storage: createStorage() });
+  let aborted = false;
+  const fileHandle = {
+    async createWritable() {
+      return {
+        async write() {},
+        async close() { throw new Error("save failed"); },
+        async abort() { aborted = true; },
+      };
+    },
+  };
+
+  await assert.rejects(() => writeApplicationBackupToFileHandle(fileHandle, backup), /save failed/);
+  assert.equal(aborted, true);
+});
+
+test("バックアップ既定ファイル名は日時を含む", () => {
+  const filename = createApplicationBackupFilename("2026-08-17T11:22:33.000Z");
+  assert.match(filename, /^typed-voice-backup-\d{8}-\d{6}\.json$/);
 });
 
 test("チュートリアル終了時は会話データだけ消し設定とasset metadataを残す", async () => {

@@ -302,8 +302,8 @@ export async function readApplicationBackupFile(file) {
   return parseApplicationBackup(await file.text());
 }
 
-export function downloadApplicationBackup(documentRef, backup, filename = null) {
-  const created = new Date(backup.createdAt || Date.now());
+export function createApplicationBackupFilename(createdAt = Date.now()) {
+  const created = new Date(createdAt || Date.now());
   const stamp = [
     created.getFullYear(),
     String(created.getMonth() + 1).padStart(2, "0"),
@@ -313,11 +313,32 @@ export function downloadApplicationBackup(documentRef, backup, filename = null) 
     String(created.getMinutes()).padStart(2, "0"),
     String(created.getSeconds()).padStart(2, "0"),
   ].join("");
+  return `typed-voice-backup-${stamp}.json`;
+}
+
+export async function writeApplicationBackupToFileHandle(fileHandle, backup) {
+  if (!fileHandle?.createWritable) throw new Error("バックアップの保存先を開けませんでした。");
+  const writable = await fileHandle.createWritable();
+  try {
+    await writable.write(stringifyApplicationBackup(backup));
+    await writable.close();
+  } catch (error) {
+    try {
+      await writable.abort?.();
+    } catch {
+      // Keep the original write/close failure as the user-facing error.
+    }
+    throw error;
+  }
+  return fileHandle.name || createApplicationBackupFilename(backup.createdAt);
+}
+
+export function downloadApplicationBackup(documentRef, backup, filename = null) {
   const blob = new Blob([stringifyApplicationBackup(backup)], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const anchor = documentRef.createElement("a");
   anchor.href = url;
-  anchor.download = filename || `typed-voice-backup-${stamp}.json`;
+  anchor.download = filename || createApplicationBackupFilename(backup.createdAt);
   anchor.hidden = true;
   documentRef.body.append(anchor);
   anchor.click();
