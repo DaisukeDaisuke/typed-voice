@@ -6,6 +6,10 @@ import {
 } from "./composer-policy.js";
 import { planComposerRevisions } from "./revision-target.js";
 import { prepareKanalizerOffline } from "../text/kanalizer-normalizer.js";
+import {
+  createConversationFromSubmittedText,
+  resolveCurrentConversation,
+} from "./conversation-session-policy.js";
 
 const DEFAULT_REASONING_SECONDS = 2;
 const CONVERSATION_PARAM = "conversation";
@@ -26,22 +30,6 @@ function formatNumber(value) {
 
 function isInteractiveTarget(target) {
   return Boolean(target.closest("button, a, input, textarea, select, label"));
-}
-
-export async function resolveCurrentConversation(repository, currentSession = null) {
-  if (!repository) throw new Error("Conversation repository is unavailable.");
-  if (currentSession?.id) {
-    const persisted = await repository.getSession(currentSession.id);
-    if (persisted) return persisted;
-  }
-  return repository.createSession();
-}
-
-export async function createConversationFromSubmittedText(repository, text) {
-  if (!repository) throw new Error("Conversation repository is unavailable.");
-  const firstMessagePreview = String(text || "").trim().slice(0, 80);
-  if (!firstMessagePreview) throw new Error("読み上げる文章を入力してください。");
-  return repository.createSession({ firstMessagePreview });
 }
 
 export class UiOrchestrator {

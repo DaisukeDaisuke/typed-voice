@@ -4,7 +4,7 @@ import { MemoryConversationRepository } from "../src/app/storage.js";
 import {
   createConversationFromSubmittedText,
   resolveCurrentConversation,
-} from "../src/app/ui-orchestrator.js";
+} from "../src/app/conversation-session-policy.js";
 
 test("現在の会話がなければ即座に新しい会話を作る", async () => {
   const repository = new MemoryConversationRepository();
