@@ -355,6 +355,20 @@ body.tutorial-open { overflow: hidden; }
   border-radius: 18px;
   background: #fff4e9;
 }
+.tutorial-download-warning {
+  margin-top: 16px;
+  display: grid;
+  gap: 7px;
+  padding: 15px 16px;
+  border: 2px solid #a63f1d;
+  border-radius: 16px;
+  background: #fff0e4;
+  color: #4f2d1e;
+  line-height: 1.55;
+}
+.tutorial-download-warning strong { font-size: 1rem; color: #762b0c; }
+.tutorial-download-warning span { font-size: 0.88rem; }
+.tutorial-download-warning b { color: #8a2415; font-size: 0.9rem; }
 .tutorial-download-disclosure > span { color: #654839; font-size: 0.9rem; line-height: 1.55; }
 .tutorial-download-disclosure > strong { color: #762b0c; font-size: clamp(1.65rem, 4vw, 2.35rem); line-height: 1; white-space: nowrap; }
 .tutorial-download-ack {
@@ -384,6 +398,10 @@ body.tutorial-open { overflow: hidden; }
   cursor: pointer;
 }
 .tutorial-download-button:disabled { opacity: 0.62; cursor: wait; }
+.tutorial-download-button.tutorial-download-cancel {
+  border-color: #6f2416;
+  background: #8b2f20;
+}
 .tutorial-download-progress { margin-top: 16px; display: grid; gap: 9px; }
 .tutorial-download-progress progress { width: 100%; height: 18px; accent-color: #9d4d24; }
 .tutorial-download-progress-meta { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; color: #645d55; font-size: 0.82rem; }

@@ -18,17 +18,18 @@ export function hasKanalizerCandidate(text) {
   return /[A-Za-z]+/.test(text);
 }
 
-export async function prepareKanalizerOffline({ onStatus = () => {} } = {}) {
-  const dictionary = await prepareKanalizerDictionaryOffline({ onStatus });
-  const wasmBytes = await prepareKanalizerWasmOffline(onStatus);
-  const metadata = await fetchLatestModelMetadata(onStatus);
+export async function prepareKanalizerOffline({ onStatus = () => {}, signal = null } = {}) {
+  if (signal?.aborted) throw signal.reason ?? new DOMException("Download aborted", "AbortError");
+  const dictionary = await prepareKanalizerDictionaryOffline({ onStatus, signal });
+  const wasmBytes = await prepareKanalizerWasmOffline(onStatus, signal);
+  const metadata = await fetchLatestModelMetadata(onStatus, signal);
   const cache = await caches.open(MODEL_CACHE);
   const request = modelRequest(metadata);
   let response = await cache.match(request);
 
   if (!response) {
     onStatus(`Kanalizer v5モデルをHugging Faceから取得しています（${(metadata.expectedBytes / 1024 / 1024).toFixed(2)} MiB）。`);
-    const networkResponse = await fetch(request, { cache: "no-store" });
+    const networkResponse = await fetch(request, { cache: "no-store", signal });
     if (!networkResponse.ok) throw new Error(`Kanalizer model fetch failed: ${networkResponse.status}`);
     await cache.put(request, networkResponse);
     response = await cache.match(request);
@@ -52,9 +53,9 @@ export async function prepareKanalizerOffline({ onStatus = () => {} } = {}) {
   };
 }
 
-async function prepareKanalizerWasmOffline(onStatus) {
+async function prepareKanalizerWasmOffline(onStatus, signal) {
   onStatus("Kanalizer WASMをオフラインCacheへ保存しています。");
-  const response = await fetch(kanalizerWasmUrl, { cache: "reload" });
+  const response = await fetch(kanalizerWasmUrl, { cache: "reload", signal });
   if (!response.ok) throw new Error(`Kanalizer WASM fetch failed: ${response.status}`);
   const contentLength = Number(response.headers.get("content-length") || 0);
   if (Number.isSafeInteger(contentLength) && contentLength > 0) return contentLength;
@@ -154,9 +155,9 @@ async function createRuntime(onStatus) {
   return { model, revision: metadata.sha };
 }
 
-async function fetchLatestModelMetadata(onStatus) {
+async function fetchLatestModelMetadata(onStatus, signal) {
   onStatus("Hugging Faceの非認証APIからKanalizer v5モデル情報を取得しています。");
-  const response = await fetch(MODEL_API_URL, { cache: "no-store" });
+  const response = await fetch(MODEL_API_URL, { cache: "no-store", signal });
   if (!response.ok) throw new Error(`Kanalizer model metadata fetch failed: ${response.status}`);
   const raw = await response.json();
   const modelEntry = raw.siblings?.find((entry) => entry.rfilename === MODEL_FILE);

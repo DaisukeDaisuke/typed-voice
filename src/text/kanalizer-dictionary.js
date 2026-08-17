@@ -8,11 +8,11 @@ const MIN_SPLIT_WORD_LENGTH = 3;
 
 let dictionaryPromise = null;
 
-export async function prepareKanalizerDictionaryOffline({ onStatus = () => {} } = {}) {
+export async function prepareKanalizerDictionaryOffline({ onStatus = () => {}, signal = null } = {}) {
   onStatus("Kanalizer既知語辞書をオフラインCacheへ保存しています。");
   const responses = await Promise.all([
-    fetch(INDEX_URL, { cache: "reload" }),
-    fetch(STRING_URL, { cache: "reload" }),
+    fetch(INDEX_URL, { cache: "reload", signal }),
+    fetch(STRING_URL, { cache: "reload", signal }),
   ]);
   if (!responses[0].ok || !responses[1].ok) {
     throw new Error(`Kanalizer dictionary fetch failed: ${responses[0].status}/${responses[1].status}`);

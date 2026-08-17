@@ -8,6 +8,7 @@ export class EngineClient {
   }
 
   request(type, payload = {}) {
+    if (!this.worker) return Promise.reject(new DOMException("Engine client is not running", "AbortError"));
     const requestId = crypto.randomUUID();
     return new Promise((resolve, reject) => {
       this.pending.set(requestId, { resolve, reject });
@@ -44,8 +45,16 @@ export class EngineClient {
     try {
       await this.request("dispose");
     } finally {
-      this.worker.terminate();
+      this.abort(new DOMException("Engine client disposed", "AbortError"));
     }
+  }
+
+  abort(reason = new DOMException("Engine request aborted", "AbortError")) {
+    const error = reason instanceof Error ? reason : new DOMException(String(reason), "AbortError");
+    for (const pending of this.pending.values()) pending.reject(error);
+    this.pending.clear();
+    this.worker?.terminate();
+    this.worker = null;
   }
 
   handleMessage(message) {

@@ -162,10 +162,10 @@ export class UiOrchestrator {
     return this.voiceRuntime.getProfilePlan(profile);
   }
 
-  async prepareOfflineVoice(profile = this.getModelProfile(), { onKanalizerStatus = () => {} } = {}) {
+  async prepareOfflineVoice(profile = this.getModelProfile(), { onKanalizerStatus = () => {}, signal = null } = {}) {
     if (!this.voiceRuntime?.prepare) throw new Error("音声データを準備できません。");
-    const voice = await this.voiceRuntime.prepare(profile);
-    const kanalizer = await prepareKanalizerOffline({ onStatus: onKanalizerStatus });
+    const voice = await this.voiceRuntime.prepare(profile, { signal });
+    const kanalizer = await prepareKanalizerOffline({ onStatus: onKanalizerStatus, signal });
     return {
       profile,
       voice,

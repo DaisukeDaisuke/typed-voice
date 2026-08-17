@@ -53,17 +53,33 @@ export class VoiceRuntimeAdapter {
     };
   }
 
-  async prepare(profile = "fp32") {
+  async prepare(profile = "fp32", { signal = null } = {}) {
     await this.#ensureProfileClient(profile);
     if (this.prepared) {
       const plan = await this.getProfilePlan(profile);
       return { manifestId: plan.manifest?.id, totalBytes: plan.totalBytes, cached: true };
     }
-    this.onStatus("音声データを取得・検証し、オフラインCacheへ保存しています。");
-    const result = await this.client.prepare();
-    this.prepared = true;
-    this.onStatus("音声データをオフラインCacheへ保存しました。");
-    return result;
+    if (signal?.aborted) throw signal.reason ?? new DOMException("Download aborted", "AbortError");
+    const client = this.client;
+    const abort = () => {
+      if (this.client !== client) return;
+      client.abort(signal?.reason ?? new DOMException("Download aborted", "AbortError"));
+      this.client = null;
+      this.activeManifest = null;
+      this.prepared = false;
+      this.ready = false;
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+    this.onStatus("音声データをこの端末へ保存しています。");
+    try {
+      const result = await client.prepare();
+      if (signal?.aborted) throw signal.reason ?? new DOMException("Download aborted", "AbortError");
+      this.prepared = true;
+      this.onStatus("音声データを保存しました。オフラインでも使えます。");
+      return result;
+    } finally {
+      signal?.removeEventListener("abort", abort);
+    }
   }
 
   async initializePrepared(profile = this.activeProfile ?? "fp32", { enableAudio = true } = {}) {

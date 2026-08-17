@@ -91,6 +91,8 @@ export class TutorialController {
       && voiceState.profile === (this.modelProfileUi?.profile ?? "fp16")
     );
     this.downloadRunning = false;
+    this.downloadAbortController = null;
+    this.downloadTask = null;
     this.sampleAudioContext = null;
     this.sampleSource = null;
     this.sampleAssetBytes = new Map();
@@ -501,7 +503,11 @@ export class TutorialController {
   }
 
   async #runVoiceDownload() {
-    if (this.downloadRunning || this.downloadCompleted || !this.downloadAcknowledged) return;
+    if (this.downloadRunning) {
+      await this.#cancelVoiceDownload();
+      return;
+    }
+    if (this.downloadCompleted || !this.downloadAcknowledged) return;
     const voiceRuntime = this.app?.voiceRuntime;
     if (!voiceRuntime?.subscribeProgress || !this.app?.prepareOfflineVoice) {
       this.elements.downloadStatus.textContent = "音声ダウンロードを開始できません。";
@@ -509,38 +515,70 @@ export class TutorialController {
     }
 
     this.downloadRunning = true;
+    this.downloadAbortController = new AbortController();
     this.downloadProgressLast = null;
-    this.elements.downloadButton.disabled = true;
+    this.elements.downloadButton.disabled = false;
+    this.elements.downloadButton.textContent = "ダウンロードを中止";
+    this.elements.downloadButton.classList.add("tutorial-download-cancel");
     this.elements.back.disabled = true;
     this.elements.next.disabled = true;
-    this.elements.downloadStatus.textContent = "音声データの保存を開始します。";
+    this.elements.downloadStatus.textContent = "ダウンロード中です。中止すると進行中の通信も止まります。";
     this.downloadProgressUnsubscribe?.();
     this.downloadProgressUnsubscribe = voiceRuntime.subscribeProgress((message) => this.#handleDownloadProgress(message));
 
     try {
       const profile = this.modelProfileUi?.profile ?? "fp16";
-      await this.app.prepareOfflineVoice(profile, {
-        onKanalizerStatus: (message) => {
-          this.elements.downloadStatus.textContent = message;
+      const task = this.app.prepareOfflineVoice(profile, {
+        onKanalizerStatus: () => {
+          this.elements.downloadStatus.textContent = "オフラインで使うための仕上げをしています。";
         },
+        signal: this.downloadAbortController.signal,
       });
+      this.downloadTask = task;
+      await task;
       this.downloadCompleted = true;
       this.elements.downloadProgress.value = 100;
       this.elements.downloadPercent.textContent = "100%";
       this.elements.downloadButton.textContent = "ダウンロード完了";
-      this.elements.downloadStatus.textContent = "オフライン保存が完了しました。モデル本体は「使い始める」のあとに読み込みます。";
+      this.elements.downloadButton.classList.remove("tutorial-download-cancel");
+      this.elements.downloadStatus.textContent = "保存が終わりました。これでオフラインでも使えます。「使い始める」のあとに音声を読み込みます。";
       this.elements.downloadSpeed.textContent = "完了";
       this.elements.next.disabled = false;
       this.#updateHighlights("download");
       this.elements.next.focus({ preventScroll: true });
     } catch (error) {
-      this.elements.downloadStatus.textContent = `ダウンロードに失敗しました: ${error instanceof Error ? error.message : String(error)}`;
-      this.elements.downloadButton.disabled = false;
+      if (error?.name === "AbortError") {
+        this.elements.downloadStatus.textContent = "ダウンロードを中止しました。進行中の通信も停止しました。";
+        this.elements.downloadSpeed.textContent = "中止";
+      } else {
+        this.elements.downloadStatus.textContent = `ダウンロードに失敗しました: ${error instanceof Error ? error.message : String(error)}`;
+      }
     } finally {
       this.downloadProgressUnsubscribe?.();
       this.downloadProgressUnsubscribe = null;
+      this.downloadTask = null;
+      this.downloadAbortController = null;
       this.downloadRunning = false;
       this.elements.back.disabled = this.stepIndex === 0;
+      if (!this.downloadCompleted) {
+        this.elements.downloadButton.disabled = false;
+        this.elements.downloadButton.textContent = "音声データをダウンロード";
+        this.elements.downloadButton.classList.remove("tutorial-download-cancel");
+      }
+    }
+  }
+
+  async #cancelVoiceDownload() {
+    const controller = this.downloadAbortController;
+    const task = this.downloadTask;
+    if (!controller || controller.signal.aborted) return;
+    this.elements.downloadButton.disabled = true;
+    this.elements.downloadButton.textContent = "中止しています…";
+    controller.abort(new DOMException("Download cancelled by user", "AbortError"));
+    try {
+      await task;
+    } catch {
+      // The active download path reports the final cancelled state.
     }
   }
 
