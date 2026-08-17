@@ -265,3 +265,32 @@ test("旧SHA metadataだけのCacheも再downloadせずXXH3-128へ昇格する",
     assert.equal(records.get(`${manifest.id}:${currentAsset.id}`).xxh3_128, currentAsset.xxh3_128);
   }
 });
+
+test("assets metadataが空でもCache本体を再検証してmetadataを再構築する", async () => {
+  const baseUrl = "https://example.test/typed-voice/";
+  const entries = new Map();
+  const records = new Map();
+  for (const currentAsset of manifest.assets) {
+    const virtualUrl = buildVirtualAssetUrl(manifest.id, currentAsset.localPath, baseUrl);
+    entries.set(virtualUrl, new Response(new TextEncoder().encode("abc")));
+  }
+
+  let fetchCount = 0;
+  await prepareVoiceAssets(manifest, {
+    baseUrl,
+    cachesImpl: { open: async () => createFakeCache(entries) },
+    db: createFakeDb(records),
+    fetchImpl: async () => {
+      fetchCount += 1;
+      throw new Error("download must not happen");
+    },
+  });
+
+  assert.equal(fetchCount, 0);
+  assert.equal(records.size, manifest.assets.length);
+  for (const currentAsset of manifest.assets) {
+    const record = records.get(`${manifest.id}:${currentAsset.id}`);
+    assert.equal(record.xxh3_128, currentAsset.xxh3_128);
+    assert.equal(record.sha256, currentAsset.sha256);
+  }
+});

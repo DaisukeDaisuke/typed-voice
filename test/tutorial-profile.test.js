@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createTutorialProfileDefinition } from "../src/app/tutorial.js";
+import { createTutorialProfileDefinition, resolveStartupTutorialProfile } from "../src/app/tutorial.js";
 
 test("同じtutorial stepを別visitとして何度でもrouteに置ける", () => {
   const profile = createTutorialProfileDefinition("repeat", {
@@ -55,5 +55,12 @@ test("terminal profileには処理を登録できない", () => {
     terminal: true,
     onClose() {},
   }, ["model-load"]), /Terminal tutorial profile must not define onClose/);
+});
+
+test("起動時はチュートリアル未完了をモデル準備状態より優先し、完了済みのモデル欠落だけ必須ピッカーにする", () => {
+  assert.equal(resolveStartupTutorialProfile({ tutorialComplete: false, selectedModelCached: false }), "full");
+  assert.equal(resolveStartupTutorialProfile({ tutorialComplete: false, selectedModelCached: true }), "full");
+  assert.equal(resolveStartupTutorialProfile({ tutorialComplete: true, selectedModelCached: false }), "model-picker-required");
+  assert.equal(resolveStartupTutorialProfile({ tutorialComplete: true, selectedModelCached: true }), "end");
 });
 

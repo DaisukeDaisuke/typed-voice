@@ -123,6 +123,11 @@ export function createTutorialProfileDefinition(name, definition, availableStepI
   });
 }
 
+export function resolveStartupTutorialProfile({ tutorialComplete, selectedModelCached }) {
+  if (!tutorialComplete) return "full";
+  return selectedModelCached ? "end" : "model-picker-required";
+}
+
 export class TutorialController {
   constructor(documentRef = document, { modelProfileUi = null, app = null, tutorialComplete = false } = {}) {
     this.document = documentRef;

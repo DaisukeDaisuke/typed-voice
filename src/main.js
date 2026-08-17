@@ -3,10 +3,11 @@ import { UiOrchestrator } from "./app/ui-orchestrator.js";
 import { VoiceRuntimeAdapter } from "./app/voice-runtime-adapter.js";
 import { requireServiceWorker } from "./app/service-worker-required.js";
 import { initializeModelProfileUi } from "./app/model-profile-ui.js";
-import { TutorialController } from "./app/tutorial.js";
+import { resolveStartupTutorialProfile, TutorialController } from "./app/tutorial.js";
 import { initializeBackupUi } from "./app/backup-ui.js";
 import { createBlockingTaskOrchestrator } from "./app/blocking-task-orchestrator.js";
 import { reconcileTutorialPersistence } from "./app/tutorial-persistence.js";
+import { initializeOfflineRuntimeResetUi } from "./app/offline-runtime-reset.js";
 
 const blocking = createBlockingTaskOrchestrator(document);
 await blocking.registerBlockingAsync("Service Worker", async ({ report }) => {
@@ -39,9 +40,17 @@ await blocking.registerBlockingAsync("会話データ", async ({ report }) => {
   report({ detail: "会話データベースを開いています。" });
   await app.initialize();
 });
+const selectedModelCached = await blocking.registerBlockingAsync("音声キャッシュ", async ({ report }) => {
+  report({ detail: "選択中の音声モデルがこの端末に保存済みかService Workerへ確認しています。" });
+  return app.isVoiceProfileCached(modelProfileUi.profile);
+});
 await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
   report({ detail: "バックアップとチュートリアルを準備しています。" });
   initializeBackupUi(document, { app, modelProfileUi });
+  const offlineRuntimeResetUi = initializeOfflineRuntimeResetUi(document, { db: app.repository?.db });
+  globalThis.typedVoiceDebug = Object.assign(globalThis.typedVoiceDebug ?? {}, {
+    showOfflineResetFreeze: () => offlineRuntimeResetUi.showFreeze(),
+  });
   const tutorial = new TutorialController(document, {
     modelProfileUi,
     app,
@@ -74,47 +83,62 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
     },
   });
 
-  const modelPickerProfile = Object.freeze({
-    route: Object.freeze([
-      Object.freeze({ step: "model", id: "choose-model", nextLabel: "容量を確認する", backLabel: "閉じる" }),
+  const modelPickerRoute = Object.freeze([
+      Object.freeze({ step: "model", id: "choose-model", nextLabel: "容量を確認する" }),
       Object.freeze({ step: "download", id: "download-model", nextLabel: "ダウンロード完了", backLabel: "モデル選択へ戻る" }),
       Object.freeze({ step: "download-ready", id: "download-ready", nextLabel: "モデルを読み込む", backLabel: "ダウンロードへ戻る" }),
       Object.freeze({ step: "model-load", id: "load-model", nextLabel: "モデル変更を完了", backLabel: "戻る" }),
-    ]),
+  ]);
+  const modelPickerOpen = ({ modelProfileUi: profileUi, state }) => {
+    state.completed = false;
+    profileUi.restoreCommittedSelection();
+  };
+  const modelPickerComplete = ({ modelProfileUi: profileUi, state }) => {
+    profileUi.commitSelection();
+    state.completed = true;
+  };
+
+  const modelPickerProfile = Object.freeze({
+    route: modelPickerRoute,
     headerBrand: "音声モデルを変更",
     completionLabel: "モデル変更を完了",
     completeTo: "end",
     cancelTo: "end",
     closeOnBackAtStart: true,
     lockBackDuringModelLoad: true,
-    onOpen({ modelProfileUi: profileUi, state }) {
-      state.completed = false;
-      profileUi.restoreCommittedSelection();
-    },
-    onComplete({ modelProfileUi: profileUi, state }) {
-      profileUi.commitSelection();
-      state.completed = true;
-    },
+    onOpen: modelPickerOpen,
+    onComplete: modelPickerComplete,
     async onClose({ state, restoreCommittedModel }) {
       if (!state.completed) await restoreCommittedModel();
     },
   });
 
+  const requiredModelPickerProfile = Object.freeze({
+    route: modelPickerRoute,
+    headerBrand: "音声モデルを準備",
+    completionLabel: "モデル変更を完了",
+    completeTo: "end",
+    closeOnBackAtStart: false,
+    lockBackDuringModelLoad: true,
+    onOpen: modelPickerOpen,
+    onComplete: modelPickerComplete,
+  });
+
   tutorial
     .registerProfile("end", endTutorialProfile)
     .registerProfile("full", fullTutorialProfile)
-    .registerProfile("model-picker", modelPickerProfile);
+    .registerProfile("model-picker", modelPickerProfile)
+    .registerProfile("model-picker-required", requiredModelPickerProfile);
 
-  await tutorial.openProfile(tutorialState.complete ? "end" : "full");
+  await tutorial.openProfile(resolveStartupTutorialProfile({
+    tutorialComplete: tutorialState.complete,
+    selectedModelCached,
+  }));
 
   document.getElementById("settings-model-picker")?.addEventListener("click", () => {
     modelProfileUi.closeSettings();
     void tutorial.openProfile("model-picker");
   });
-});
-const selectedModelCached = await blocking.registerBlockingAsync("音声キャッシュ", async ({ report }) => {
-  report({ detail: "選択中の音声モデルがこの端末に保存済みか確認しています。" });
-  return app.isVoiceProfileCached(modelProfileUi.profile);
 });
 blocking.finish();
 if (tutorialState.complete && selectedModelCached) {

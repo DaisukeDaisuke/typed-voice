@@ -115,7 +115,11 @@ a { -webkit-tap-highlight-color: transparent; }
   top: 66px;
   right: max(14px, env(safe-area-inset-right));
   width: min(510px, calc(100vw - 28px));
+  max-height: calc(100vh - 82px);
+  max-height: calc(100dvh - 82px);
   padding: 18px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border: 1px solid #d6cfc5;
   border-radius: 18px;
   background: #fffdfa;
@@ -127,6 +131,37 @@ a { -webkit-tap-highlight-color: transparent; }
 
 .settings-tutorial-button { width: 100%; margin-top: 14px; text-align: left; font-weight: 700; }
 .settings-tutorial-button span { display: block; margin-top: 2px; color: #857d72; font-size: 0.7rem; font-weight: 500; }
+.settings-advanced { margin-top: 16px; border-top: 1px solid #ddd4c7; padding-top: 12px; }
+.settings-advanced > summary { color: #756b60; font-size: 0.82rem; font-weight: 720; cursor: pointer; }
+.settings-advanced-warning { margin-top: 10px; padding: 14px; border: 1px solid #dfc26e; border-radius: 14px; background: #fff4c9; }
+.settings-advanced-warning ul { margin: 0; padding-left: 1.25em; color: #62542f; font-size: 0.78rem; line-height: 1.55; }
+.settings-advanced-warning li + li { margin-top: 5px; }
+.settings-advanced-reset { width: 100%; margin-top: 12px; min-height: 48px; border-color: #d4b65c; background: #fff9e4; text-align: left; font-weight: 720; }
+.settings-advanced-status { min-height: 1.2em; margin: 8px 1px 0; color: #776634; font-size: 0.74rem; line-height: 1.45; }
+
+.offline-reset-freeze[hidden] { display: none; }
+.offline-reset-freeze {
+  position: fixed;
+  inset: 0;
+  z-index: 20000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow: auto;
+  background: #f3d77f;
+}
+.offline-reset-freeze-card {
+  width: min(620px, 100%);
+  padding: 26px;
+  border: 1px solid #cba84c;
+  border-radius: 20px;
+  background: #fff7d9;
+  box-shadow: 0 26px 90px rgb(89 66 13 / 0.24);
+}
+.offline-reset-freeze-card h1 { margin: 0 0 12px; font-size: clamp(1.3rem, 4vw, 1.9rem); line-height: 1.45; }
+.offline-reset-freeze-card p { margin: 0; color: #6a5a2e; line-height: 1.65; }
+.offline-reset-reload { width: 100%; min-height: 58px; margin-top: 20px; }
+.offline-runtime-frozen body { overflow: hidden; }
 
 .backup-dialog-backdrop[hidden] { display: none; }
 .backup-dialog-backdrop {
