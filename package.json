@@ -5,6 +5,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
+    "postinstall": "node scripts/patch-onnxruntime-web-f32-accumulate.mjs",
     "prepare:runtime": "node scripts/copy-runtime-assets.mjs",
     "build:piper-wasm": "bash scripts/build-piper-wasm.sh",
     "dev": "npm run prepare:runtime && vite",
