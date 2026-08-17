@@ -480,7 +480,7 @@ body.tutorial-window-dragging * { cursor: grabbing !important; }
 }
 .tutorial-character-card strong { color: #762b0c; font-size: 1.5rem; }
 .tutorial-character-card span { color: #654839; }
-.tutorial-official-url { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
+.tutorial-official-url { overflow-wrap: anywhere; }
 .tutorial-character-terms {
   width: 100%;
   max-width: 68ch;
