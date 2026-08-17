@@ -3,7 +3,7 @@ const DEFAULT_MODEL_PROFILE = "fp16";
 
 export const MODEL_PROFILES = Object.freeze({
   fp32: Object.freeze({
-    title: "オリジナル",
+    title: "最高品質",
     device: "GPU",
     quality: "最高音質",
     precision: "FP32",

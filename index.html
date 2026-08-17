@@ -35,7 +35,7 @@
     </div>
     <div class="model-profile-picker" data-model-profile-control>
       <div class="model-toggle" role="radiogroup" aria-label="音声モデル">
-        <label><input type="radio" name="settings-model-profile" value="fp32"><span>オリジナル</span></label>
+        <label><input type="radio" name="settings-model-profile" value="fp32"><span>最高品質</span></label>
         <label><input type="radio" name="settings-model-profile" value="fp16"><span>推奨</span></label>
         <label><input type="radio" name="settings-model-profile" value="mobile-int8"><span>低メモリ</span></label>
         <label><input type="radio" name="settings-model-profile" value="mobile-int4"><span>非推奨</span></label>
@@ -174,14 +174,29 @@ https://tyc.rei-yumesaki.net
         <section class="tutorial-page" data-tutorial-step="about">
           <p class="tutorial-kicker">まず最初に</p>
           <h3>このツールについて</h3>
-          <p>typed-voiceは、入力した文章をその場で声にするためのツールです。</p>
-          <p>話してほしい内容をキーボードで書いて、改行を合図に順番に読み上げます。</p>
+          <p class="tutorial-about-lines">
+            <span>typed-voiceは、入力した文章を</span>
+            <span>その場で声にするためのツールです。</span>
+          </p>
+          <p class="tutorial-about-lines">
+            <span>話してほしい内容をキーボードで書いて、</span>
+            <span>改行を合図に順番に読み上げます。</span>
+          </p>
           <div class="tutorial-callout tutorial-privacy-callout">
             <strong>プライバシーも大切にします。</strong>
-            <p>会話と入力内容はこのブラウザ内に保存し、音声合成も端末内で行います。</p>
-            <p>外部へ通信するのは、モデルや試聴用WAVなど配布アセットを取得するときです。</p>
+            <p class="tutorial-about-lines">
+              <span>会話と入力内容はこのブラウザ内に保存し、</span>
+              <span>音声合成も端末内で行います。</span>
+            </p>
+            <p class="tutorial-about-lines">
+              <span>外部へ通信するのは、モデルや試聴用WAVなどの</span>
+              <span>配布アセットを取得するときです。</span>
+            </p>
           </div>
-          <p>音声を使わずに会話や入力だけ試すこともできます。</p>
+          <p class="tutorial-about-lines">
+            <span>音声を使わずに、会話や入力だけ</span>
+            <span>試すこともできます。</span>
+          </p>
           <p>モデルの準備は、この次に選べます。</p>
         </section>
 
@@ -191,7 +206,7 @@ https://tyc.rei-yumesaki.net
           <p>迷ったら「推奨」のままで大丈夫です。あとから設定で変えられます。この段階ではモデルを読み込みません。</p>
           <div class="model-profile-picker tutorial-model-picker" data-model-profile-control>
             <div class="model-toggle" role="radiogroup" aria-label="チュートリアルの音声モデル">
-              <label><input type="radio" name="tutorial-model-profile" value="fp32"><span>オリジナル</span></label>
+              <label><input type="radio" name="tutorial-model-profile" value="fp32"><span>最高品質</span></label>
               <label><input type="radio" name="tutorial-model-profile" value="fp16"><span>推奨</span></label>
               <label><input type="radio" name="tutorial-model-profile" value="mobile-int8"><span>低メモリ</span></label>
               <label><input type="radio" name="tutorial-model-profile" value="mobile-int4"><span>非推奨</span></label>
