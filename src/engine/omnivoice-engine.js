@@ -78,17 +78,22 @@ export class OmniVoiceEngine {
     });
 
     const assetRoot = buildVirtualAssetUrl(manifest.id, "", appBaseUrl);
-    onStatus({ phase: "tokenizer" });
+    const sessionTotal = Object.keys(this.runtime.sessions || {}).length;
+    const engineTotal = sessionTotal + 2;
+    onStatus({ phase: "tokenizer", engineLoaded: 0, engineTotal });
     this.tokenizer = await loadTokenizer(assetRoot, this.runtime.tokenizerDirectory || "tokenizer");
+    onStatus({ phase: "tokenizer-ready", engineLoaded: 1, engineTotal });
 
     const candidates = buildSessionPlans(manifest, Boolean(globalThis.navigator?.gpu) && this.runtime.preferWebGpu !== false);
     let lastError;
     for (const candidate of candidates) {
       try {
-        onStatus({ phase: "sessions", backend: candidate.label });
-        this.sessions = await this.#createSessions(candidate);
+        onStatus({ phase: "sessions", backend: candidate.label, engineLoaded: 1, engineTotal });
+        this.sessions = await this.#createSessions(candidate, onStatus, engineTotal);
         this.backend = candidate.label;
+        onStatus({ phase: "warmup", backend: candidate.label, engineLoaded: sessionTotal + 1, engineTotal });
         await this.#warmup();
+        onStatus({ phase: "ready", backend: candidate.label, engineLoaded: engineTotal, engineTotal });
         return { backend: this.backend, sampleRate: this.runtime.sampleRate };
       } catch (error) {
         lastError = error;
@@ -131,10 +136,12 @@ export class OmniVoiceEngine {
     };
   }
 
-  async #createSessions(candidate) {
+  async #createSessions(candidate, onStatus, engineTotal) {
     const sessions = {};
+    const entries = Object.entries(this.runtime.sessions);
     try {
-      for (const [name, definition] of Object.entries(this.runtime.sessions)) {
+      for (let index = 0; index < entries.length; index += 1) {
+        const [name, definition] = entries[index];
         const modelUrl = buildVirtualAssetUrl(this.manifest.id, definition.model, this.appBaseUrl);
         const sessionBackend = candidate.backends[name] || candidate.defaultBackend;
         const options = {
@@ -149,6 +156,13 @@ export class OmniVoiceEngine {
         }
         try {
           sessions[name] = await ort.InferenceSession.create(modelUrl, options);
+          onStatus({
+            phase: "session-ready",
+            backend: candidate.label,
+            sessionName: name,
+            engineLoaded: index + 2,
+            engineTotal,
+          });
         } catch (error) {
           throw new Error(`${candidate.label}/${name} (${sessionBackend}) session creation failed: ${error instanceof Error ? error.message : String(error)}`);
         }

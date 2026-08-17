@@ -282,7 +282,7 @@ export class UiOrchestrator {
     };
   }
 
-  async initializePreparedVoice(profile = this.getModelProfile(), { enableAudio = true } = {}) {
+  async initializePreparedVoice(profile = this.getModelProfile(), { enableAudio = true, onBlockingProgress = null } = {}) {
     if (!this.voiceRuntime?.initializePrepared) throw new Error("保存済み音声モデルを読み込めません。");
     if (this.voiceRuntime.ready && (!enableAudio || this.voiceRuntime.audioEnabled)) return { ready: true };
     const panel = this.elements.voiceLoadProgress;
@@ -301,8 +301,38 @@ export class UiOrchestrator {
         const percent = Math.max(0, Math.min(100, loaded / total * 100));
         progress.value = percent;
         detail.textContent = `${percent.toFixed(1)}% · ${(loaded / 1024 / 1024).toFixed(1)} / ${(total / 1024 / 1024).toFixed(1)} MiB`;
+        onBlockingProgress?.({
+          detail: "保存済みモデルを検証しています。",
+          primary: {
+            label: "モデルデータ",
+            value: loaded,
+            total,
+            text: `${(loaded / 1024 / 1024).toFixed(1)} / ${(total / 1024 / 1024).toFixed(1)} MiB`,
+          },
+        });
       } else if (message.phase) {
         detail.textContent = message.backend ? `${message.phase} · ${message.backend}` : message.phase;
+      }
+      const engineLoaded = Number(message.engineLoaded);
+      const engineTotal = Number(message.engineTotal);
+      if (Number.isFinite(engineLoaded) && Number.isFinite(engineTotal) && engineTotal > 0) {
+        const phaseLabels = {
+          tokenizer: "Tokenizerを準備しています",
+          "tokenizer-ready": "Tokenizerを読み込みました",
+          sessions: "推論セッションを作成しています",
+          "session-ready": message.sessionName ? `${message.sessionName} を読み込みました` : "推論セッションを読み込みました",
+          warmup: "推論エンジンをウォームアップしています",
+          ready: "音声エンジンの準備が完了しました",
+        };
+        onBlockingProgress?.({
+          detail: phaseLabels[message.phase] || message.phase || "音声エンジンを起動しています。",
+          secondary: {
+            label: "音声エンジン",
+            value: engineLoaded,
+            total: engineTotal,
+            text: `${engineLoaded} / ${engineTotal}`,
+          },
+        });
       }
     });
     try {

@@ -1,6 +1,6 @@
 import { MODEL_PROFILES } from "./model-profile-ui.js";
 
-const TUTORIAL_STORAGE_KEY = "typed-voice-tutorial-v1-complete";
+export const TUTORIAL_STORAGE_KEY = "typed-voice-tutorial-v1-complete";
 const SAMPLE_BRANCHES = Object.freeze({
   fp32: "main",
   fp16: "fp16",
@@ -43,7 +43,7 @@ const CORRECTION_TEXTS = Object.freeze([
   "さっきの文章を少しだけ分かりやすく直します。",
   "最後の言い回しだけ変えて、もう一度試します。",
   "訂正ボタンを使うと、送り直さずに変更できます。",
-  "例文なので、ここでは通常の訂正制限を気にせず試せます。",
+  "訂正したい文章を入力して、通常の訂正操作をそのまま試せます。",
 ]);
 const CANCEL_DEMO_TEXT = "やっぱり違うと思ったら、取り消すこともできます。";
 const WAIT_DEMO_TEXT = "この文章は、読み上げ待ち時間を確認するための例です。";
@@ -150,8 +150,6 @@ export class TutorialController {
 
     if (safeRead(this.storage, TUTORIAL_STORAGE_KEY) !== "1") {
       this.start();
-    } else {
-      void this.app?.initializePreparedVoice?.(this.modelProfileUi?.profile ?? "fp16", { enableAudio: false }).catch(() => {});
     }
     return this;
   }

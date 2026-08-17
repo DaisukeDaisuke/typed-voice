@@ -5,8 +5,28 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#f3f1ed">
   <title>typed-voice</title>
+  <style>
+    #blocking-loader{position:fixed;z-index:2000;inset:0;display:grid;place-items:center;padding:24px;background:#050505;color:#f7f4ef}#blocking-loader[hidden]{display:none}.blocking-loader-card{width:min(680px,100%);display:grid;gap:18px}.blocking-loader-title{margin:0;font-size:clamp(1.5rem,5vw,2.5rem)}.blocking-loader-cells{display:grid;grid-template-columns:repeat(auto-fit,minmax(24px,1fr));gap:8px}.blocking-loader-cell{height:24px;border:1px solid #716d67;border-radius:6px;background:#181716}.blocking-loader-cell.is-running{border-color:#e28b4c;background:#633213}.blocking-loader-cell.is-done{border-color:#d3b08f;background:#a14f1e}.blocking-loader-cell.is-skipped{border-color:#777;background:#363432}.blocking-loader-cell.is-error{border-color:#ef8d8d;background:#671e1e}.blocking-loader-summary{display:flex;align-items:baseline;justify-content:space-between;gap:16px}.blocking-loader-count{font-size:1.2rem;font-variant-numeric:tabular-nums}.blocking-loader-detail{margin:0;color:#bbb5ad;line-height:1.5}.blocking-detail-progress{display:grid;gap:7px}.blocking-detail-progress[hidden]{display:none}.blocking-detail-progress-head{display:flex;justify-content:space-between;gap:12px;color:#d8d1ca;font-size:.82rem}.blocking-detail-track{height:10px;overflow:hidden;border:1px solid #5c5751;border-radius:999px;background:#171615}.blocking-detail-fill{block-size:100%;inline-size:0;background:#c86628;transition:inline-size 120ms linear}
+  </style>
 </head>
 <body>
+  <section id="blocking-loader" role="status" aria-live="polite" aria-label="typed-voiceを読み込んでいます">
+    <div class="blocking-loader-card">
+      <p class="eyebrow">typed-voice</p>
+      <h1 class="blocking-loader-title">読み込んでいます</h1>
+      <div id="blocking-loader-cells" class="blocking-loader-cells" aria-label="起動タスク"></div>
+      <div class="blocking-loader-summary"><strong id="blocking-loader-label">起動準備</strong><strong id="blocking-loader-count" class="blocking-loader-count">0 / 0</strong></div>
+      <p id="blocking-loader-detail" class="blocking-loader-detail">起動準備中…</p>
+      <div id="blocking-loader-primary-progress" class="blocking-detail-progress" hidden>
+        <div class="blocking-detail-progress-head"><span id="blocking-loader-primary-label"></span><span id="blocking-loader-primary-value"></span></div>
+        <div class="blocking-detail-track"><div id="blocking-loader-primary-fill" class="blocking-detail-fill"></div></div>
+      </div>
+      <div id="blocking-loader-secondary-progress" class="blocking-detail-progress" hidden>
+        <div class="blocking-detail-progress-head"><span id="blocking-loader-secondary-label"></span><span id="blocking-loader-secondary-value"></span></div>
+        <div class="blocking-detail-track"><div id="blocking-loader-secondary-fill" class="blocking-detail-fill"></div></div>
+      </div>
+    </div>
+  </section>
   <div id="tutorial-focus-anchor" class="tutorial-focus-anchor" tabindex="-1"></div>
   <div id="service-worker-required" class="service-worker-required" role="alertdialog" aria-modal="true" aria-labelledby="service-worker-required-title" hidden>
     <div class="service-worker-required-card">
