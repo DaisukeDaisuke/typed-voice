@@ -48,12 +48,15 @@ export class TutorialController {
     this.demoRunToken = 0;
     this.demoRunning = false;
     this.lastDemoText = null;
+    this.targetArrowTarget = null;
     this.elements = this.#resolveElements();
   }
 
   initialize() {
     this.elements.overlay.addEventListener("pointerdown", () => this.#acknowledgeStep());
     this.elements.overlay.addEventListener("keydown", () => this.#acknowledgeStep());
+    globalThis.addEventListener?.("resize", () => this.#refreshTargetArrow(), { passive: true });
+    this.document.addEventListener("scroll", () => this.#refreshTargetArrow(), { capture: true, passive: true });
     this.elements.back.addEventListener("click", () => this.previous());
     this.elements.next.addEventListener("click", () => this.next());
     this.elements.restart.addEventListener("click", () => {
@@ -265,19 +268,54 @@ export class TutorialController {
 
   #updateHighlights(step) {
     for (const target of this.document.querySelectorAll(".tutorial-target")) target.classList.remove("tutorial-target");
+    let primaryTarget = null;
     if (step === "linebreak") {
       this.elements.composer.classList.add("tutorial-target");
-      return;
+      primaryTarget = this.elements.composer;
     }
     if (step === "correction") {
       this.elements.composer.classList.add("tutorial-target");
       this.elements.correctionButton.classList.add("tutorial-target");
-      return;
+      primaryTarget = this.elements.correctionButton;
     }
     if (step === "cancel") {
       this.elements.cancelCurrentButton.classList.add("tutorial-target");
       this.demoPending?.classList.add("tutorial-target");
+      primaryTarget = this.elements.cancelCurrentButton;
     }
+    this.targetArrowTarget = primaryTarget;
+    requestAnimationFrame(() => this.#refreshTargetArrow());
+  }
+
+  #refreshTargetArrow() {
+    const arrow = this.elements.targetArrow;
+    const target = this.targetArrowTarget;
+    if (!target || !target.isConnected || this.elements.overlay.hidden) {
+      arrow.hidden = true;
+      return;
+    }
+
+    const rect = target.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0 || rect.bottom < 0 || rect.top > globalThis.innerHeight) {
+      arrow.hidden = true;
+      return;
+    }
+
+    const viewportWidth = globalThis.innerWidth || this.document.documentElement.clientWidth;
+    const viewportHeight = globalThis.innerHeight || this.document.documentElement.clientHeight;
+    const arrowSize = 56;
+    const gap = 10;
+    const centerX = rect.left + rect.width / 2;
+    const placeAbove = rect.top >= arrowSize + gap + 8;
+    const x = Math.max(8, Math.min(viewportWidth - arrowSize - 8, centerX - arrowSize * 0.72));
+    const y = placeAbove
+      ? rect.top - arrowSize - gap
+      : Math.min(viewportHeight - arrowSize - 8, rect.bottom + gap);
+
+    arrow.dataset.placement = placeAbove ? "above" : "below";
+    arrow.style.setProperty("--tutorial-target-arrow-x", `${Math.round(x)}px`);
+    arrow.style.setProperty("--tutorial-target-arrow-y", `${Math.round(y)}px`);
+    arrow.hidden = false;
   }
 
   #resolveElements() {
@@ -308,6 +346,7 @@ export class TutorialController {
       messageList: byId("message-list"),
       messageTemplate: byId("message-template"),
       emptyTimeline: byId("empty-timeline"),
+      targetArrow: byId("tutorial-target-arrow"),
     };
   }
 }

@@ -349,6 +349,50 @@ body.tutorial-open { overflow: hidden; }
   0%, 100% { transform: rotate(18deg) translateY(0) scale(1); }
   48% { transform: rotate(388deg) translateY(-5px) scale(1.06); }
 }
+.tutorial-target-arrow[hidden] { display: none; }
+.tutorial-target-arrow {
+  --tutorial-target-arrow-x: 0px;
+  --tutorial-target-arrow-y: 0px;
+  position: fixed;
+  z-index: 9002;
+  left: var(--tutorial-target-arrow-x);
+  top: var(--tutorial-target-arrow-y);
+  width: 56px;
+  height: 56px;
+  pointer-events: none;
+  filter: drop-shadow(0 4px 7px #6e4b2c2a);
+  transform-origin: center;
+}
+.tutorial-target-arrow::before {
+  content: "";
+  position: absolute;
+  inset: 6px;
+  border: 4px solid #a8734e;
+  border-left-color: transparent;
+  border-radius: 50%;
+  transform: rotate(18deg);
+  animation: tutorial-target-arrow-orbit 1.45s ease-in-out infinite;
+}
+.tutorial-target-arrow::after {
+  content: "";
+  position: absolute;
+  right: 2px;
+  bottom: 5px;
+  width: 0;
+  height: 0;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-left: 13px solid #a8734e;
+  transform: rotate(47deg);
+  transform-origin: center;
+}
+.tutorial-target-arrow[data-placement="below"] {
+  transform: rotate(180deg);
+}
+@keyframes tutorial-target-arrow-orbit {
+  0%, 100% { transform: rotate(18deg) scale(1); opacity: 0.92; }
+  50% { transform: rotate(378deg) scale(1.07); opacity: 1; }
+}
 .tutorial-nav-button { min-width: 112px; }
 .tutorial-next-button { min-width: 220px; min-height: 56px; font-size: 1rem; background: #8c6243; border-color: #8c6243; }
 .tutorial-nav-button:disabled { opacity: 0.35; cursor: not-allowed; }
