@@ -234,12 +234,12 @@ export class TutorialController {
     for (const [index, candidate] of this.elements.pages.entries()) {
       candidate.hidden = index !== this.stepIndex;
     }
-    const freeInteraction = this.stepIndex >= 2;
+    const freeInteraction = this.stepIndex >= 2 && page.dataset.tutorialStep !== "tsukuyomichan";
     this.elements.overlay.classList.toggle("tutorial-live", freeInteraction);
     this.elements.overlay.setAttribute("aria-modal", freeInteraction ? "false" : "true");
     this.elements.overlay.dataset.step = page.dataset.tutorialStep;
     this.#applyLiveWindowPosition();
-    this.document.body.classList.toggle("tutorial-scrollable", this.stepIndex >= 2);
+    this.document.body.classList.toggle("tutorial-scrollable", freeInteraction);
     if (page.dataset.tutorialStep !== "conversations") {
       void this.app?.closeTutorialConversationDemo?.({ remove: true });
     }
@@ -322,7 +322,7 @@ export class TutorialController {
 
   #applyLiveWindowPosition() {
     const shell = this.elements.shell;
-    if (this.stepIndex < 2) {
+    if (!this.elements.overlay.classList.contains("tutorial-live")) {
       shell.style.removeProperty("left");
       shell.style.removeProperty("top");
       shell.style.removeProperty("right");
@@ -835,7 +835,7 @@ export class TutorialController {
 
       await this.#sleep(420);
       if (runToken !== this.demoRunToken) return;
-      await this.app?.cancelLatestTutorialPending?.();
+      await this.app?.cancelLatestTutorialPending?.({ refresh: "pending" });
       this.#appendDemoHistory(text);
       this.elements.demoStatus.textContent = "読み上げ履歴に追加されました。3行を超えると、いちばん古い行は入力欄から消えます。もう一度試せます。";
     } finally {

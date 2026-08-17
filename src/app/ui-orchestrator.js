@@ -294,7 +294,7 @@ export class UiOrchestrator {
       .sort((left, right) => right.createdAt - left.createdAt)[0]?.text ?? null;
   }
 
-  async cancelLatestTutorialPending() {
+  async cancelLatestTutorialPending({ refresh = "all" } = {}) {
     const jobs = [...this.tutorialPendingIds]
       .map((id) => this.utterances?.jobs.get(id))
       .filter(Boolean)
@@ -303,7 +303,12 @@ export class UiOrchestrator {
     if (!latest) return false;
     const cancelled = await this.utterances.cancel(latest.id);
     this.tutorialPendingIds.delete(latest.id);
-    await this.refreshAll();
+    if (refresh === "pending") {
+      const pending = await this.repository.listPending(this.currentSession.id);
+      this.#renderPending(pending.filter((item) => !item.tutorialExample || this.tutorialExampleMode));
+    } else if (refresh !== "none") {
+      await this.refreshAll();
+    }
     return cancelled;
   }
 
