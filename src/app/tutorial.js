@@ -18,7 +18,7 @@ const DEMO_TEXTS = Object.freeze([
   "この文章は、読み上げの練習用です。",
   "うまく届いたら、そのまま次へ進めます。",
   "WebAssemblyの準備ができました。",
-  "読み上げたい文章を、ここに書いてみましょう。",
+  "短い文章から、そのまま試してみましょう。",
   "あとから訂正できるので、気軽に入力してください。",
   "やっぱり違うと思ったら、取り消すこともできます。",
   "それでは、ひとつ読み上げてみますね。",
@@ -30,7 +30,7 @@ const CORRECTION_TEXTS = Object.freeze([
   "この文章は、読み上げ確認のための例文です。",
   "うまく届いたので、そのまま次へ進みましょう。",
   "WebAssemblyの準備ができたので、試してみます。",
-  "読み上げたい文章を、ここへ入力してみてください。",
+  "短い文章へ直して、もう一度試してみてください。",
   "あとから直せるので、気軽に書いて大丈夫です。",
   "やっぱり違うと思ったら、あとから取り消せます。",
   "それでは、もう一度読み上げてみますね。",
@@ -113,6 +113,7 @@ export class TutorialController {
     this.elements.dragHandle.addEventListener("pointermove", (event) => this.#moveWindowDrag(event));
     this.elements.dragHandle.addEventListener("pointerup", (event) => this.#endWindowDrag(event));
     this.elements.dragHandle.addEventListener("pointercancel", (event) => this.#endWindowDrag(event));
+    void this.#updateDeviceSynthesisCopy();
     this.elements.back.addEventListener("click", () => void this.previous());
     this.elements.next.addEventListener("click", () => void this.next());
     this.elements.linebreakDemo.addEventListener("click", () => void this.#runLinebreakDemo());
@@ -290,6 +291,28 @@ export class TutorialController {
 
   #acknowledgeStep() {
     this.elements.overlay.classList.remove("tutorial-needs-attention");
+  }
+
+  async #updateDeviceSynthesisCopy() {
+    const uaData = globalThis.navigator?.userAgentData;
+    if (!uaData?.getHighEntropyValues) return;
+    try {
+      const values = await uaData.getHighEntropyValues(["platform", "model", "formFactors"]);
+      const formFactors = Array.isArray(values.formFactors)
+        ? values.formFactors.map((value) => String(value).toLowerCase())
+        : [];
+      let device = "端末";
+      if (formFactors.some((value) => value.includes("tablet"))) {
+        device = "タブレット";
+      } else if (formFactors.some((value) => value.includes("mobile")) || (uaData.mobile && values.model)) {
+        device = "スマートフォン";
+      } else if (formFactors.some((value) => value.includes("desktop")) || /windows|macos|linux|chrome os/i.test(String(values.platform || ""))) {
+        device = "コンピューター";
+      }
+      this.elements.deviceSynthesisCopy.textContent = `あなたの${device}で、あなたのために音声が合成されます。そのため、読み上げが想定外に遅延することがあります。`;
+    } catch {
+      // UA Client Hints are optional; keep the generic wording when unavailable.
+    }
   }
 
   #scrollPageToTop() {
@@ -1343,6 +1366,7 @@ export class TutorialController {
       correctionStatus: byId("tutorial-correction-status"),
       waitSeconds: byId("tutorial-reasoning-seconds"),
       waitStatus: byId("tutorial-wait-status"),
+      deviceSynthesisCopy: byId("tutorial-device-synthesis-copy"),
       cancelStatus: byId("tutorial-cancel-status"),
       composer: byId("composer"),
       correctionButton: byId("correction-button"),

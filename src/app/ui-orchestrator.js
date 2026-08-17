@@ -220,7 +220,7 @@ export class UiOrchestrator {
     const lineEnd = composer.value.indexOf("\n", composer.selectionStart);
     const insertAt = lineEnd === -1 ? composer.value.length : lineEnd;
     composer.setRangeText("\n", insertAt, insertAt, "end");
-    await this.#finalizeComposerLineBreak();
+    return this.#finalizeComposerLineBreak();
   }
 
   focusComposer() {
@@ -397,10 +397,10 @@ export class UiOrchestrator {
       await this.utterances.beginEdit(revision.pending.id);
       await this.utterances.edit(revision.pending.id, revision.text, this.#reasoningSeconds());
     }
-    this.elements.status.textContent = `${revisions.length}件の読み上げ待ちを訂正しました。`;
     await this.refreshAll();
     this.#broadcast();
     this.focusComposer();
+    return `${revisions.length}件の読み上げ待ちを訂正しました。`;
   }
 
   async forceQueueHead() {
@@ -511,6 +511,7 @@ export class UiOrchestrator {
     }
     this.elements.pendingList.replaceChildren(fragment);
     this.elements.pendingCount.textContent = String(pending.length);
+    this.elements.pendingEmpty.hidden = pending.length > 0;
     const hasRevisionable = pending.some((item) => this.utterances.isRevisionable(item.id));
     this.elements.correctionButton.disabled = !hasRevisionable;
     this.elements.cancelCurrentButton.disabled = pending.length === 0;
@@ -584,8 +585,8 @@ export class UiOrchestrator {
 
   async #runUiTask(task) {
     try {
-      await task();
-      this.elements.status.textContent = "入力できます。";
+      const status = await task();
+      this.elements.status.textContent = typeof status === "string" && status ? status : "入力できます。";
     } catch (error) {
       this.elements.status.textContent = error instanceof Error ? error.message : String(error);
     }
@@ -624,6 +625,7 @@ export class UiOrchestrator {
     await this.refreshAll();
     this.#broadcast();
     this.focusComposer();
+    return `読み上げ待ちに追加しました。あと ${this.#reasoningSeconds()} 秒で読み上げます。`;
   }
 
   #showSecondaryView(view) {
@@ -731,6 +733,7 @@ export class UiOrchestrator {
 
       pendingList: byId("pending-list"),
       pendingCount: byId("pending-count"),
+      pendingEmpty: byId("pending-empty"),
       messageList: byId("message-list"),
       emptyTimeline: byId("empty-timeline"),
       conversationList: byId("conversation-list"),

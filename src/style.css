@@ -211,7 +211,6 @@ a { -webkit-tap-highlight-color: transparent; }
 .timeline-panel[hidden] { display: none; }
 
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
-.heading-actions { display: flex; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
 .section-heading.compact { margin-bottom: 10px; }
 .section-heading h1,
 .section-heading h2 { margin: 0; }
@@ -282,9 +281,11 @@ a { -webkit-tap-highlight-color: transparent; }
 }
 .voice-terms a { color: #4f5f7a; }
 
-.pending-section { margin-top: 24px; }
+.pending-section { margin-top: 14px; padding: 14px; border: 1px solid #d9c6b8; border-radius: 15px; background: #fffaf4; }
 .count-badge { min-width: 26px; padding: 3px 8px; border-radius: 999px; background: #dfdad2; text-align: center; font-size: 0.78rem; }
 .pending-list { display: grid; gap: 9px; }
+.pending-empty { margin: 4px 0 0; color: #7a6c60; font-size: 0.78rem; line-height: 1.5; }
+.pending-empty[hidden] { display: none; }
 .pending-card { padding: 13px; border: 2px solid #c87843; border-radius: 15px; background: #fff7eb; box-shadow: 0 6px 20px #8f4d1c12; }
 .pending-meta { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; color: #6f3f23; font-size: 0.8rem; font-weight: 750; }
 .pending-state { display: inline-flex; align-items: center; gap: 7px; }
@@ -476,8 +477,8 @@ body.tutorial-window-dragging * { cursor: grabbing !important; }
 }
 .tutorial-scroll-mouse {
   position: relative;
-  width: 66px;
-  height: 66px;
+  width: 98px;
+  height: 98px;
   display: grid;
   place-items: center;
   color: #762b0c;
@@ -487,8 +488,8 @@ body.tutorial-window-dragging * { cursor: grabbing !important; }
   position: absolute;
   left: calc(100% + 5px);
   top: -3px;
-  width: 22px;
-  height: 72px;
+  width: 28px;
+  height: 92px;
   animation: tutorial-scroll-mouse-motion 1.2s ease-in-out infinite;
 }
 .tutorial-scroll-track {
@@ -535,6 +536,9 @@ body.tutorial-window-dragging * { cursor: grabbing !important; }
 .tutorial-character-card strong { color: #762b0c; font-size: 1.5rem; }
 .tutorial-character-card span { color: #654839; }
 .tutorial-official-url { overflow-wrap: anywhere; }
+.tutorial-character-prohibitions { display: grid; gap: 7px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #d6ad8e; color: #5c3320; font-size: 0.82rem; line-height: 1.55; }
+.tutorial-character-prohibitions strong { font-size: 0.92rem; }
+.tutorial-character-prohibitions span { color: inherit; }
 .tutorial-character-terms {
   width: 100%;
   max-width: none;

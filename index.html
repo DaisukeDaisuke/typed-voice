@@ -38,6 +38,8 @@
   <header class="topbar">
     <strong class="brand">typed-voice</strong>
     <nav class="topbar-actions" aria-label="アプリメニュー">
+      <button id="voice-enable" class="quiet-button" type="button">音声を有効化</button>
+      <button id="focus-composer" class="quiet-button" type="button">入力する</button>
       <button id="timeline-view" class="quiet-button" type="button" aria-pressed="true">履歴</button>
       <button id="conversation-view" class="quiet-button" type="button" aria-pressed="false">会話一覧</button>
       <button id="settings-button" class="quiet-button" type="button" aria-expanded="false" aria-controls="settings-panel">設定</button>
@@ -104,10 +106,6 @@
           <p class="eyebrow">現在の会話</p>
           <h1 id="conversation-title">新しい会話</h1>
         </div>
-        <div class="heading-actions">
-          <button id="voice-enable" class="quiet-button" type="button">音声を有効化</button>
-          <button id="focus-composer" class="quiet-button" type="button">入力する</button>
-        </div>
       </div>
 
       <div class="stats-grid" aria-label="統計">
@@ -135,6 +133,17 @@
           </label>
           <button id="submit-button" class="primary-button" type="button">提出</button>
         </div>
+        <section class="pending-section" aria-labelledby="pending-heading">
+          <div class="section-heading compact">
+            <div>
+              <p class="eyebrow">送信した文章</p>
+              <h2 id="pending-heading">読み上げ待ち</h2>
+            </div>
+            <span id="pending-count" class="count-badge">0</span>
+          </div>
+          <p id="pending-empty" class="pending-empty">Enterで送った文章はここへ移ります。あと何秒で読み上げるかも、ここに表示されます。</p>
+          <div id="pending-list" class="pending-list"></div>
+        </section>
         <p class="keyboard-hint">Enterで改行した瞬間に直前の行を読み上げ待ちへ送ります。改行はそのまま残り、訂正用に直近2行を保持します。</p>
 
         <section class="voice-terms" aria-label="つくよみちゃん利用条件">
@@ -155,14 +164,6 @@ https://tyc.rei-yumesaki.net
 ■他者に対して二次利用（素材としての利用）を許可する形で公開すること。</pre>
         </section>
       </div>
-
-      <section class="pending-section" aria-labelledby="pending-heading">
-        <div class="section-heading compact">
-          <h2 id="pending-heading">読み上げ待ち</h2>
-          <span id="pending-count" class="count-badge">0</span>
-        </div>
-        <div id="pending-list" class="pending-list"></div>
-      </section>
 
       <p id="app-status" class="app-status" aria-live="polite">会話を準備しています。</p>
       <p id="voice-status" class="voice-status" aria-live="polite">音声は未有効です。会話機能はこのまま利用できます。</p>
@@ -219,9 +220,9 @@ https://tyc.rei-yumesaki.net
           <p class="tutorial-about-lines">typed-voiceは、入力した文章をその場で声にするためのツールです。</p>
           <p class="tutorial-about-lines">話してほしい内容をキーボードで書いて、改行を合図に順番に読み上げます。</p>
           <div class="tutorial-callout tutorial-privacy-callout">
-            <strong>プライバシーも大切にします。</strong>
             <p class="tutorial-about-lines">会話と入力内容はこのブラウザ内に保存し、音声合成も端末内で行います。</p>
             <p class="tutorial-about-lines">外部へ通信するのは、モデルや試聴用WAVなどの配布アセットを取得するときです。</p>
+            <strong>プライバシーも大切にします。</strong>
           </div>
           <p class="tutorial-about-lines">音声を使わずに、会話や入力だけ試すこともできます。</p>
           <p>モデルの準備は、この次に選べます。</p>
@@ -309,6 +310,13 @@ https://tyc.rei-yumesaki.net
             <strong>つくよみちゃん</strong>
             <span>CV. 夢前黎</span>
             <span class="tutorial-official-url">https://tyc.rei-yumesaki.net</span>
+            <div class="tutorial-character-prohibitions">
+              <strong>【禁止事項】</strong>
+              <span>■人を批判・攻撃すること。（「批判・攻撃」の定義は、つくよみちゃんキャラクターライセンスに準じます）</span>
+              <span>■特定の政治的立場・宗教・思想への賛同または反対を呼びかけること。</span>
+              <span>■刺激の強い表現をゾーニングなしで公開すること。</span>
+              <span>■他者に対して二次利用（素材としての利用）を許可する形で公開すること。</span>
+            </div>
           </div>
           <pre class="tutorial-character-terms">本ソフトウェアの音声合成には、フリー素材キャラクター「つくよみちゃん」（© Rei Yumesaki）が無料公開している音声データを使用しています。
 
@@ -349,6 +357,7 @@ https://tyc.rei-yumesaki.net
           <p class="tutorial-kicker">読み上げる前に</p>
           <h3>少しだけ、直すための時間があります</h3>
           <p>Enterで送った文章は、すぐには読み上げず、設定した時間だけ待ちます。その間なら、さっきの訂正や次の「取り消す」が間に合います。</p>
+          <p id="tutorial-device-synthesis-copy" class="tutorial-callout">この端末で、あなたのために音声が合成されます。そのため、読み上げが想定外に遅延することがあります。</p>
           <label class="tutorial-wait-setting" for="tutorial-reasoning-seconds">
             <span>読み上げ待ち時間</span>
             <span><input id="tutorial-reasoning-seconds" type="number" min="0" max="30" step="0.5" value="2"> 秒</span>
