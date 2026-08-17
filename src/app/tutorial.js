@@ -60,14 +60,6 @@ function safeWrite(storage, key, value) {
   }
 }
 
-function safeRemove(storage, key) {
-  try {
-    storage?.removeItem(key);
-  } catch {
-    // No cache or IndexedDB operation is intentionally performed here.
-  }
-}
-
 export class TutorialController {
   constructor(documentRef = document, { modelProfileUi = null, app = null, storage = globalThis.localStorage } = {}) {
     this.document = documentRef;
@@ -80,10 +72,8 @@ export class TutorialController {
     this.demoRunning = false;
     this.lastDemoText = null;
     this.lastCorrectionText = null;
-    this.demoHistoryTexts = [];
+    this.temporaryWaitOriginal = null;
     this.cancelExamplePreparing = false;
-    this.waitDemoPending = null;
-    this.waitPendingCountSnapshot = null;
     this.downloadAcknowledged = false;
     const voiceState = this.app?.voiceRuntimeState;
     this.downloadCompleted = Boolean(
@@ -120,12 +110,6 @@ export class TutorialController {
     this.elements.dragHandle.addEventListener("pointercancel", (event) => this.#endWindowDrag(event));
     this.elements.back.addEventListener("click", () => this.previous());
     this.elements.next.addEventListener("click", () => this.next());
-    this.elements.restart.addEventListener("click", async () => {
-      safeRemove(this.storage, TUTORIAL_STORAGE_KEY);
-      this.modelProfileUi?.closeSettings();
-      await this.app?.endTutorialExamples?.();
-      this.start();
-    });
     this.elements.linebreakDemo.addEventListener("click", () => void this.#runLinebreakDemo());
     this.elements.correctionDemo.addEventListener("click", () => void this.#runCorrectionDemo());
     this.elements.cancelDemo.addEventListener("click", () => void this.#runCancelDemo());
@@ -137,9 +121,10 @@ export class TutorialController {
     this.elements.conversationView.addEventListener("click", () => {
       globalThis.setTimeout(() => this.#handleConversationListOpened(), 0);
     });
-    this.elements.conversationList.addEventListener("click", (event) => {
-      if (!event.target.closest('[data-tutorial-conversation="true"]')) return;
-      globalThis.setTimeout(() => void this.#handleTutorialConversationOpened(), 0);
+    this.elements.composer.addEventListener("input", (event) => {
+      if (this.elements.overlay.dataset.step !== "conversations") return;
+      if (event.inputType !== "insertLineBreak" && event.inputType !== "insertParagraph") return;
+      globalThis.setTimeout(() => void this.#handleConversationSubmission(), 0);
     });
     for (const button of this.elements.summaryJumpButtons) {
       button.addEventListener("click", () => this.#jumpFromSummary(button.dataset.tutorialJump));
@@ -167,7 +152,6 @@ export class TutorialController {
 
   start() {
     this.#cleanupDemo();
-    this.app?.beginTutorialExamples?.();
     const voiceState = this.app?.voiceRuntimeState;
     this.downloadCompleted = Boolean(
       voiceState?.prepared
@@ -206,7 +190,7 @@ export class TutorialController {
       return;
     }
     if (this.stepIndex >= this.elements.pages.length - 1) {
-      this.complete();
+      void this.complete();
       return;
     }
     this.#scrollPageToTop();
@@ -214,18 +198,28 @@ export class TutorialController {
     this.#showStep();
   }
 
-  complete() {
+  async complete() {
+    if (this.completing) return;
+    this.completing = true;
     const profile = this.modelProfileUi?.profile ?? "fp16";
-    safeWrite(this.storage, TUTORIAL_STORAGE_KEY, "1");
+    this.elements.next.disabled = true;
     this.#cleanupDemo();
-    void this.app?.endTutorialExamples?.();
-    this.elements.overlay.hidden = true;
-    this.document.body.classList.remove("tutorial-open", "tutorial-scrollable", "tutorial-window-dragging");
-    this.elements.dragHandle.classList.remove("is-dragging");
-    this.dragState = null;
-    this.#stopSample({ close: true });
-    this.elements.composer.focus({ preventScroll: true });
-    void this.app?.initializePreparedVoice?.(profile, { enableAudio: false }).catch(() => {});
+    try {
+      await this.app?.finishTutorialData?.();
+      safeWrite(this.storage, TUTORIAL_STORAGE_KEY, "1");
+      this.elements.overlay.hidden = true;
+      this.document.body.classList.remove("tutorial-open", "tutorial-scrollable", "tutorial-window-dragging");
+      this.elements.dragHandle.classList.remove("is-dragging");
+      this.dragState = null;
+      this.#stopSample({ close: true });
+      this.elements.composer.focus({ preventScroll: true });
+      void this.app?.initializePreparedVoice?.(profile, { enableAudio: false }).catch(() => {});
+    } catch (error) {
+      this.elements.downloadStatus.textContent = error instanceof Error ? error.message : String(error);
+      this.elements.next.disabled = false;
+    } finally {
+      this.completing = false;
+    }
   }
 
   #showStep() {
@@ -240,9 +234,7 @@ export class TutorialController {
     this.elements.overlay.dataset.step = page.dataset.tutorialStep;
     this.#applyLiveWindowPosition();
     this.document.body.classList.toggle("tutorial-scrollable", freeInteraction);
-    if (page.dataset.tutorialStep !== "conversations") {
-      void this.app?.closeTutorialConversationDemo?.({ remove: true });
-    }
+
     this.elements.progress.textContent = `${this.stepIndex + 1} / ${this.elements.pages.length}`;
     this.elements.overlay.classList.add("tutorial-needs-attention");
     this.elements.back.disabled = this.stepIndex === 0;
@@ -372,48 +364,42 @@ export class TutorialController {
       if (status) status.textContent = "外部ページはチュートリアルが終わってから開けます。";
       return;
     }
-    const blockedAction = event.target.closest?.("#voice-enable, #force-speak-button, #new-conversation");
+    const blockedAction = event.target.closest?.("#voice-enable");
     if (blockedAction && !this.elements.overlay.contains(blockedAction)) {
-      if (blockedAction.id === "force-speak-button" && this.elements.overlay.dataset.step === "free") {
-        if (this.elements.freeStatus) {
-          this.elements.freeStatus.textContent = "音は出さず、読み上げ待ちの文章をチュートリアル用の読み上げ履歴へ移します。";
-        }
-        return;
-      }
       event.preventDefault();
       event.stopImmediatePropagation();
       if (this.elements.freeStatus) {
-        this.elements.freeStatus.textContent = blockedAction.id === "new-conversation"
-          ? "新しい会話を作るのはチュートリアルが終わってから試せます。ここでは用意した一時会話で切り替えを試せます。"
-          : "音声は次のページでデータを保存してから使えるようになります。";
+        this.elements.freeStatus.textContent = "音声は次のページでデータを保存してから使えるようになります。";
       }
     }
   }
 
   async #prepareConversationTutorial() {
-    await this.app?.beginTutorialConversationDemo?.();
     if (this.elements.overlay.dataset.step !== "conversations") return;
     this.elements.conversationStatus.textContent = this.conversationTutorialCompleted
-      ? "切り替えできました。会話一覧から別の会話を選ぶと、履歴も一緒に切り替わります。"
+      ? "新しい会話を作れました。会話一覧から別の会話を選ぶと、履歴も一緒に切り替わります。"
       : "まずは上の「会話一覧」を押してみましょう。";
     this.#updateHighlights("conversations");
   }
 
   #handleConversationListOpened() {
     if (this.elements.overlay.dataset.step !== "conversations" || this.conversationTutorialCompleted) return;
-    const row = this.elements.conversationList.querySelector('[data-tutorial-conversation="true"]');
-    if (!row) return;
-    this.elements.conversationStatus.textContent = "一覧が開きました。「チュートリアル用の会話」を押して、履歴を切り替えてみましょう。";
+    this.conversationStartSessionId = this.app?.currentSession?.id ?? null;
+    this.elements.conversationStatus.textContent = "一覧を開いたまま、左の入力欄へ文章を書いて改行してください。新しい会話を自動で作ります。";
     this.#updateHighlights("conversations");
   }
 
-  async #handleTutorialConversationOpened() {
+  async #handleConversationSubmission() {
     if (this.elements.overlay.dataset.step !== "conversations") return;
-    await this.#waitFor(() => this.app?.isTutorialConversationOpen === true, this.demoRunToken, 2500);
-    if (!this.app?.isTutorialConversationOpen) return;
+    await this.#waitFor(
+      () => Boolean(this.app?.currentSession?.id && this.app.currentSession.id !== this.conversationStartSessionId),
+      this.demoRunToken,
+      2500
+    );
+    if (!this.app?.currentSession?.id || this.app.currentSession.id === this.conversationStartSessionId) return;
     this.conversationTutorialCompleted = true;
     this.elements.next.disabled = false;
-    this.elements.conversationStatus.textContent = "切り替わりました。上の「会話一覧」を使えば、会話ごとに履歴を行き来できます。";
+    this.elements.conversationStatus.textContent = "新しい会話へ切り替わりました。最初に送った文章が会話一覧のプレビューになります。";
     this.#updateHighlights("conversations");
   }
 
@@ -459,10 +445,9 @@ export class TutorialController {
     this.#rememberComposer();
 
     try {
-      while ((this.app?.tutorialPendingCount ?? 0) > 0) {
-        if (!await this.app?.cancelLatestTutorialPending?.()) break;
+      while ((this.app?.currentPendingCount ?? 0) > 0) {
+        if (!await this.app?.cancelLatestPending?.()) break;
       }
-      this.#renderDemoHistory();
 
       const composer = this.elements.composer;
       this.#moveCaretToEnd();
@@ -472,33 +457,24 @@ export class TutorialController {
       this.elements.waitStatus.textContent = "待ち時間を見せるための文章を入力しています。";
       if (!await this.#typeText(WAIT_DEMO_TEXT, runToken)) return;
       if (runToken !== this.demoRunToken) return;
-      composer.setRangeText("\n", composer.selectionStart, composer.selectionEnd, "end");
 
       const seconds = Math.max(0, Math.min(30, Number(this.app?.getReasoningSeconds?.() ?? 2)));
-      const pending = this.#showWaitDemoPending(WAIT_DEMO_TEXT, seconds);
-      pending.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
-      this.targetArrowTarget = pending;
-      requestAnimationFrame(() => this.#refreshTargetArrow());
+      const beforePending = this.app?.currentPendingCount ?? 0;
+      if (!this.#insertLineBreakAtCaret()) return;
+      if (seconds > 0 && !await this.#waitForPendingIncrease(beforePending, runToken)) return;
+      const pending = [...this.elements.pendingList.querySelectorAll(".pending-card")]
+        .find((node) => node.querySelector(".pending-text")?.textContent === WAIT_DEMO_TEXT);
+      pending?.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+      if (pending) {
+        this.targetArrowTarget = pending;
+        requestAnimationFrame(() => this.#refreshTargetArrow());
+      }
       this.elements.waitStatus.textContent = seconds === 0
         ? "0秒なので、読み上げ待ちはすぐ終わります。"
         : `${seconds} 秒の読み上げ待ちに入りました。左のカードを見てください。`;
-
-      const startedAt = performance.now();
-      const durationMs = seconds * 1000;
-      do {
-        if (runToken !== this.demoRunToken) return;
-        const elapsed = performance.now() - startedAt;
-        const remaining = Math.max(0, durationMs - elapsed) / 1000;
-        pending.querySelector(".pending-timer").textContent = `${remaining.toFixed(1)}秒`;
-        if (remaining <= 0) break;
-        await this.#sleep(80);
-      } while (true);
-
-      if (runToken !== this.demoRunToken) return;
-      await this.#sleep(180);
-      this.#removeWaitDemoPending();
-      this.#appendDemoHistory(WAIT_DEMO_TEXT);
-      const newestHistory = this.elements.messageList.querySelector(".tutorial-demo-message");
+      if (!await this.#waitForHistoryText(WAIT_DEMO_TEXT, runToken, seconds * 1000 + 3500)) return;
+      const newestHistory = [...this.elements.messageList.querySelectorAll(".message-card")]
+        .find((node) => node.querySelector(".message-text")?.textContent === WAIT_DEMO_TEXT);
       newestHistory?.scrollIntoView({ behavior: "smooth", block: "start", inline: "nearest" });
       this.#updateHighlights("wait");
       this.elements.waitStatus.textContent = "待ち時間が終わりました。文章は読み上げ履歴のいちばん上へ移ります。";
@@ -512,34 +488,6 @@ export class TutorialController {
     }
   }
 
-  #showWaitDemoPending(text, seconds) {
-    this.#removeWaitDemoPending();
-    const node = this.elements.pendingTemplate.content.firstElementChild.cloneNode(true);
-    node.classList.add("tutorial-wait-pending", "tutorial-target");
-    node.querySelector(".pending-state").textContent = "読み上げ待ち";
-    node.querySelector(".pending-timer").textContent = `${seconds.toFixed(1)}秒`;
-    node.querySelector(".pending-text").textContent = text;
-    const cancel = node.querySelector(".pending-cancel");
-    cancel.disabled = true;
-    cancel.textContent = "待機中";
-    if (this.waitPendingCountSnapshot == null) {
-      this.waitPendingCountSnapshot = this.elements.pendingCount.textContent;
-      const count = Number.parseInt(this.waitPendingCountSnapshot, 10);
-      this.elements.pendingCount.textContent = String((Number.isFinite(count) ? count : 0) + 1);
-    }
-    this.elements.pendingList.prepend(node);
-    this.waitDemoPending = node;
-    return node;
-  }
-
-  #removeWaitDemoPending() {
-    if (this.waitDemoPending?.isConnected) this.waitDemoPending.remove();
-    this.waitDemoPending = null;
-    if (this.waitPendingCountSnapshot != null) {
-      this.elements.pendingCount.textContent = this.waitPendingCountSnapshot;
-      this.waitPendingCountSnapshot = null;
-    }
-  }
 
   #resetDownloadAcknowledgement() {
     this.downloadAcknowledged = false;
@@ -823,6 +771,7 @@ export class TutorialController {
     this.elements.demoStatus.textContent = "文字を少しずつ入力してみます。";
 
     try {
+      await this.#beginTemporaryWait();
       this.#moveCaretToEnd();
       if (composer.value && !composer.value.endsWith("\n")) {
         composer.setRangeText("\n", composer.selectionStart, composer.selectionEnd, "end");
@@ -834,17 +783,19 @@ export class TutorialController {
       await this.#sleep(260);
       if (runToken !== this.demoRunToken) return;
 
-      const beforePending = this.app?.tutorialPendingCount ?? 0;
+      const beforePending = this.app?.currentPendingCount ?? 0;
       this.#insertLineBreakAtCaret();
       if (!await this.#waitForPendingIncrease(beforePending, runToken)) return;
       this.elements.demoStatus.textContent = "読み上げ待ちに入りました。";
 
       await this.#sleep(420);
       if (runToken !== this.demoRunToken) return;
-      await this.app?.cancelLatestTutorialPending?.({ refresh: "pending" });
-      this.#appendDemoHistory(text);
-      this.elements.demoStatus.textContent = "読み上げ履歴に追加されました。3行を超えると、いちばん古い行は入力欄から消えます。もう一度試せます。";
+      await this.#pressRealButton(this.elements.forceSpeakButton, runToken);
+      if (!await this.#waitForPendingDecrease(beforePending + 1, runToken)) return;
+      if (!await this.#waitForHistoryText(text, runToken)) return;
+      this.elements.demoStatus.textContent = "本物の読み上げ履歴に追加されました。3行を超えると、いちばん古い行は入力欄から消えます。もう一度試せます。";
     } finally {
+      await this.#restoreTemporaryWait();
       if (runToken === this.demoRunToken) {
         this.demoRunning = false;
         this.elements.linebreakDemo.disabled = false;
@@ -864,8 +815,9 @@ export class TutorialController {
     this.#rememberComposer();
 
     try {
-      while ((this.app?.tutorialPendingCount ?? 0) > 0) {
-        if (!await this.app?.cancelLatestTutorialPending?.()) break;
+      await this.#beginTemporaryWait();
+      while ((this.app?.currentPendingCount ?? 0) > 0) {
+        if (!await this.app?.cancelLatestPending?.()) break;
       }
 
       const currentLines = this.elements.composer.value
@@ -886,9 +838,9 @@ export class TutorialController {
       this.elements.correctionStatus.textContent = "1行目を直した状態で、実際の「現在の文章で訂正する」を押します。";
       await this.#pressRealButton(this.elements.correctionButton, runToken);
       if (!await this.#waitForAnyPendingText(correction, runToken)) return;
-      this.#renderDemoHistory();
-      this.elements.correctionStatus.textContent = "1行目だけ訂正されました。これは操作例なので、ここでは通常の訂正対象数の制限を無視しています。";
+      this.elements.correctionStatus.textContent = "1行目だけ訂正されました。本物の読み上げ待ちをそのまま訂正しています。";
     } finally {
+      await this.#restoreTemporaryWait();
       if (runToken === this.demoRunToken) {
         this.demoRunning = false;
         this.elements.correctionDemo.disabled = false;
@@ -900,7 +852,7 @@ export class TutorialController {
 
   async #prepareCancelExample() {
     if (this.cancelExamplePreparing || this.demoRunning) return;
-    if (this.app?.latestTutorialPendingText === CANCEL_DEMO_TEXT) return;
+    if (this.app?.latestPendingText === CANCEL_DEMO_TEXT) return;
     this.cancelExamplePreparing = true;
     this.demoRunning = true;
     const runToken = ++this.demoRunToken;
@@ -910,8 +862,8 @@ export class TutorialController {
     this.#rememberComposer();
 
     try {
-      await this.app?.cancelLatestTutorialPending?.();
-      this.#renderDemoHistory();
+      await this.#beginTemporaryWait();
+      await this.app?.cancelLatestPending?.();
       const composer = this.elements.composer;
       this.#moveCaretToEnd();
       if (composer.value && !composer.value.endsWith("\n")) {
@@ -919,13 +871,13 @@ export class TutorialController {
       }
       this.elements.cancelStatus.textContent = "取り消すための文章を、1文字ずつ入力しています。";
       if (!await this.#typeText(CANCEL_DEMO_TEXT, runToken)) return;
-      const beforePending = this.app?.tutorialPendingCount ?? 0;
+      const beforePending = this.app?.currentPendingCount ?? 0;
       this.#insertLineBreakAtCaret();
       if (!await this.#waitForPendingIncrease(beforePending, runToken)) return;
-      this.#renderDemoHistory();
       this.#updateHighlights("cancel");
       this.elements.cancelStatus.textContent = "読み上げ待ちに入りました。オレンジで囲まれた「取り消す」を見てください。";
     } finally {
+      await this.#restoreTemporaryWait();
       if (runToken === this.demoRunToken) {
         this.demoRunning = false;
         this.cancelExamplePreparing = false;
@@ -938,19 +890,18 @@ export class TutorialController {
 
   async #runCancelDemo() {
     if (this.demoRunning) return;
-    if ((this.app?.tutorialPendingCount ?? 0) === 0) await this.#prepareCancelExample();
-    if ((this.app?.tutorialPendingCount ?? 0) === 0) return;
+    if ((this.app?.currentPendingCount ?? 0) === 0) await this.#prepareCancelExample();
+    if ((this.app?.currentPendingCount ?? 0) === 0) return;
     this.demoRunning = true;
     const runToken = ++this.demoRunToken;
     this.elements.cancelDemo.disabled = true;
     this.elements.back.disabled = true;
     this.elements.next.disabled = true;
-    const beforePending = this.app?.tutorialPendingCount ?? 0;
+    const beforePending = this.app?.currentPendingCount ?? 0;
     try {
       this.elements.cancelStatus.textContent = "「取り消す」を押します。";
       await this.#pressRealButton(this.elements.cancelCurrentButton, runToken);
       if (!await this.#waitForPendingDecrease(beforePending, runToken)) return;
-      this.#renderDemoHistory();
       this.elements.cancelStatus.textContent = "取り消しました。読み上げ待ちから文章が消えました。";
     } finally {
       if (runToken === this.demoRunToken) {
@@ -962,27 +913,7 @@ export class TutorialController {
     }
   }
 
-  #appendDemoHistory(text) {
-    this.demoHistoryTexts.push(text);
-    this.#renderDemoHistory();
-  }
 
-  #renderDemoHistory() {
-    for (const node of this.document.querySelectorAll(".tutorial-demo-message")) node.remove();
-    const fragment = this.document.createDocumentFragment();
-    for (const text of [...this.demoHistoryTexts].reverse()) {
-      const node = this.elements.messageTemplate.content.firstElementChild.cloneNode(true);
-      node.classList.add("tutorial-demo-message");
-      node.querySelector(".message-text").textContent = text;
-      const time = node.querySelector(".message-time");
-      const now = new Date();
-      time.dateTime = now.toISOString();
-      time.textContent = "いま";
-      fragment.append(node);
-    }
-    this.elements.messageList.prepend(fragment);
-    this.elements.emptyTimeline.hidden = true;
-  }
 
   #pickDemoText() {
     const candidates = DEMO_TEXTS.filter((text) => text !== this.lastDemoText);
@@ -1072,15 +1003,23 @@ export class TutorialController {
   }
 
   #waitForPendingIncrease(previousCount, runToken) {
-    return this.#waitFor(() => (this.app?.tutorialPendingCount ?? 0) > previousCount, runToken);
+    return this.#waitFor(() => (this.app?.currentPendingCount ?? 0) > previousCount, runToken);
   }
 
   #waitForPendingDecrease(previousCount, runToken) {
-    return this.#waitFor(() => (this.app?.tutorialPendingCount ?? 0) < previousCount, runToken);
+    return this.#waitFor(() => (this.app?.currentPendingCount ?? 0) < previousCount, runToken);
   }
 
   #waitForPendingText(text, runToken) {
-    return this.#waitFor(() => this.app?.latestTutorialPendingText === text, runToken);
+    return this.#waitFor(() => this.app?.latestPendingText === text, runToken);
+  }
+
+  #waitForHistoryText(text, runToken, timeoutMs = 2500) {
+    return this.#waitFor(
+      () => [...this.elements.messageList.querySelectorAll(".message-text")].some((node) => node.textContent === text),
+      runToken,
+      timeoutMs
+    );
   }
 
   #waitForAnyPendingText(text, runToken) {
@@ -1101,12 +1040,12 @@ export class TutorialController {
 
     this.elements.correctionStatus.textContent = "まず、訂正前の2行を読み上げ待ちへ送ります。";
     if (!await this.#typeText(first, runToken, 22)) return false;
-    let beforePending = this.app?.tutorialPendingCount ?? 0;
+    let beforePending = this.app?.currentPendingCount ?? 0;
     if (!this.#insertLineBreakAtCaret()) return false;
     if (!await this.#waitForPendingIncrease(beforePending, runToken)) return false;
 
     if (!await this.#typeText(second, runToken, 22)) return false;
-    beforePending = this.app?.tutorialPendingCount ?? 0;
+    beforePending = this.app?.currentPendingCount ?? 0;
     if (!this.#insertLineBreakAtCaret()) return false;
     if (!await this.#waitForPendingIncrease(beforePending, runToken)) return false;
     return runToken === this.demoRunToken;
@@ -1189,6 +1128,20 @@ export class TutorialController {
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
   }
 
+  async #beginTemporaryWait(seconds = 30) {
+    if (this.temporaryWaitOriginal == null) {
+      this.temporaryWaitOriginal = Number(this.app?.getReasoningSeconds?.() ?? 2);
+    }
+    await this.app?.setReasoningSeconds?.(seconds);
+  }
+
+  async #restoreTemporaryWait() {
+    if (this.temporaryWaitOriginal == null) return;
+    const value = this.temporaryWaitOriginal;
+    this.temporaryWaitOriginal = null;
+    await this.app?.setReasoningSeconds?.(value);
+  }
+
   #rememberComposer() {
     if (this.demoSnapshot) return;
     const composer = this.elements.composer;
@@ -1207,7 +1160,7 @@ export class TutorialController {
     this.elements.waitDemo.disabled = false;
     this.elements.cancelDemo.disabled = false;
     this.cancelExamplePreparing = false;
-    this.#removeWaitDemoPending();
+    void this.#restoreTemporaryWait();
     if (this.demoSnapshot) {
       const composer = this.elements.composer;
       composer.value = this.demoSnapshot.value;
@@ -1217,9 +1170,6 @@ export class TutorialController {
     for (const target of this.document.querySelectorAll(".tutorial-target, .tutorial-demo-active")) {
       target.classList.remove("tutorial-target", "tutorial-demo-active");
     }
-    for (const node of this.document.querySelectorAll(".tutorial-demo-message")) node.remove();
-    this.demoHistoryTexts = [];
-    this.elements.emptyTimeline.hidden = this.elements.messageList.children.length > 0;
     this.elements.demoStatus.textContent = "音声はまだ読み込みません。何度でも試せます。";
     this.elements.correctionStatus.textContent = "例文を1文字ずつ直して、実際の訂正ボタンを押します。";
     this.elements.waitStatus.textContent = "ここで変えた値は、そのまま本体の設定にも反映されます。";
@@ -1249,9 +1199,8 @@ export class TutorialController {
     }
     if (step === "conversations") {
       if (!this.conversationTutorialCompleted) {
-        const row = this.elements.conversationList.querySelector('[data-tutorial-conversation="true"]');
         const conversationPanelVisible = !this.elements.conversationPanel.hidden;
-        const target = conversationPanelVisible && row ? row : this.elements.conversationView;
+        const target = conversationPanelVisible ? this.elements.composer : this.elements.conversationView;
         target.classList.add("tutorial-target");
         primaryTarget = target;
       }
@@ -1321,7 +1270,6 @@ export class TutorialController {
       progress: byId("tutorial-progress"),
       back: byId("tutorial-back"),
       next: byId("tutorial-next"),
-      restart: byId("restart-tutorial"),
       linebreakDemo: byId("tutorial-linebreak-demo"),
       correctionDemo: byId("tutorial-correction-demo"),
       waitDemo: byId("tutorial-wait-demo"),
@@ -1345,19 +1293,15 @@ export class TutorialController {
       cancelStatus: byId("tutorial-cancel-status"),
       composer: byId("composer"),
       correctionButton: byId("correction-button"),
+      forceSpeakButton: byId("force-speak-button"),
       reasoningSeconds: byId("reasoning-seconds"),
       cancelCurrentButton: byId("cancel-current-button"),
       voiceEnable: byId("voice-enable"),
       timelineView: byId("timeline-view"),
       conversationView: byId("conversation-view"),
       conversationPanel: byId("conversation-panel"),
-      conversationList: byId("conversation-list"),
       pendingList: byId("pending-list"),
-      pendingCount: byId("pending-count"),
-      pendingTemplate: byId("pending-template"),
       messageList: byId("message-list"),
-      messageTemplate: byId("message-template"),
-      emptyTimeline: byId("empty-timeline"),
       targetArrow: byId("tutorial-target-arrow"),
     };
   }

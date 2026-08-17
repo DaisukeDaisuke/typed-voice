@@ -4,6 +4,7 @@ import { VoiceRuntimeAdapter } from "./app/voice-runtime-adapter.js";
 import { requireServiceWorker } from "./app/service-worker-required.js";
 import { initializeModelProfileUi } from "./app/model-profile-ui.js";
 import { TutorialController } from "./app/tutorial.js";
+import { initializeBackupUi } from "./app/backup-ui.js";
 
 await requireServiceWorker({ reloadKey: "typed-voice-app-coi-reloaded" });
 const voiceStatus = document.querySelector("#voice-status");
@@ -22,6 +23,7 @@ const app = new UiOrchestrator(document, {
   getModelProfile: () => modelProfileUi.profile,
 });
 await app.initialize();
+initializeBackupUi(document, { app, modelProfileUi });
 new TutorialController(document, { modelProfileUi, app }).initialize();
 
 

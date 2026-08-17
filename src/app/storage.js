@@ -1,5 +1,5 @@
 const DB_NAME = "typed-voice-app";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 const STORE_SESSIONS = "sessions";
 const STORE_MESSAGES = "messages";
@@ -35,9 +35,11 @@ function dateKey(timestamp = Date.now()) {
   return new Date(timestamp).toISOString().slice(0, 10);
 }
 
-function defaultGlobalStatistics() {
+function defaultStatisticsRecord(key, scope, metadata = {}) {
   return {
-    key: "global",
+    key,
+    scope,
+    ...metadata,
     conversationCount: 0,
     messageCount: 0,
     typedChars: 0,
@@ -49,7 +51,11 @@ function defaultGlobalStatistics() {
   };
 }
 
-function upgradeDatabase(db) {
+function defaultGlobalStatistics() {
+  return defaultStatisticsRecord("global", "global");
+}
+
+function upgradeDatabase(db, transaction, oldVersion) {
   if (!db.objectStoreNames.contains(STORE_SESSIONS)) {
     const sessions = db.createObjectStore(STORE_SESSIONS, { keyPath: "id" });
     sessions.createIndex("updatedAt", "updatedAt");
@@ -67,10 +73,23 @@ function upgradeDatabase(db) {
     db.createObjectStore(STORE_SETTINGS, { keyPath: "key" });
   }
   if (!db.objectStoreNames.contains(STORE_STATISTICS)) {
-    db.createObjectStore(STORE_STATISTICS, { keyPath: "key" });
+    const statistics = db.createObjectStore(STORE_STATISTICS, { keyPath: "key" });
+    statistics.createIndex("scope", "scope");
+    statistics.createIndex("sessionId", "sessionId");
+    statistics.createIndex("day", "day");
+  } else if (oldVersion < 2) {
+    const statistics = transaction.objectStore(STORE_STATISTICS);
+    if (!statistics.indexNames.contains("scope")) statistics.createIndex("scope", "scope");
+    if (!statistics.indexNames.contains("sessionId")) statistics.createIndex("sessionId", "sessionId");
+    if (!statistics.indexNames.contains("day")) statistics.createIndex("day", "day");
+  }
+  if (oldVersion < 2 && db.objectStoreNames.contains(STORE_ASSETS)) {
+    db.deleteObjectStore(STORE_ASSETS);
   }
   if (!db.objectStoreNames.contains(STORE_ASSETS)) {
-    db.createObjectStore(STORE_ASSETS, { keyPath: "assetId" });
+    const assets = db.createObjectStore(STORE_ASSETS, { keyPath: "key" });
+    assets.createIndex("assetId", "assetId");
+    assets.createIndex("manifestId", "manifestId");
   }
 }
 
@@ -78,7 +97,7 @@ export async function openConversationDatabase(indexedDBImpl = globalThis.indexe
   if (!indexedDBImpl) throw new Error("IndexedDB is unavailable");
   return new Promise((resolve, reject) => {
     const request = indexedDBImpl.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => upgradeDatabase(request.result);
+    request.onupgradeneeded = (event) => upgradeDatabase(request.result, request.transaction, event.oldVersion);
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
@@ -106,6 +125,7 @@ export class IndexedDbConversationRepository {
     await updateStatistics(this.db, {
       conversationCount: 1,
       timestamp: createdAt,
+      sessionId: id,
     });
     return session;
   }
@@ -212,12 +232,13 @@ export class IndexedDbConversationRepository {
       messageCount: 1,
       playbackMs: durationMs,
       timestamp: session.updatedAt,
+      sessionId: pending.sessionId,
     });
     return message;
   }
 
-  async recordInputStatistics({ typedChars = 0, deletedChars = 0, typingMs = 0, timestamp = Date.now() }) {
-    await updateStatistics(this.db, { typedChars, deletedChars, typingMs, timestamp });
+  async recordInputStatistics({ typedChars = 0, deletedChars = 0, typingMs = 0, timestamp = Date.now(), sessionId = null }) {
+    await updateStatistics(this.db, { typedChars, deletedChars, typingMs, timestamp, sessionId });
   }
 
   async getStatistics() {
@@ -250,16 +271,35 @@ async function updateStatistics(db, delta) {
   const transaction = db.transaction(STORE_STATISTICS, "readwrite");
   const done = transactionDone(transaction);
   const store = transaction.objectStore(STORE_STATISTICS);
-  const statistics = (await requestValue(store.get("global"))) ?? defaultGlobalStatistics();
-  for (const field of ["conversationCount", "messageCount", "typedChars", "deletedChars", "typingMs", "playbackMs"]) {
-    statistics[field] += Number(delta[field] || 0);
-  }
   const day = dateKey(delta.timestamp);
-  if (statistics.lastActiveDay !== day) {
-    statistics.activeDays += 1;
-    statistics.lastActiveDay = day;
+  const dayKey = `day:${day}`;
+  const sessionKey = delta.sessionId ? `session:${delta.sessionId}` : null;
+  const [globalStatistics, existingDayStatistics, existingSessionStatistics] = await Promise.all([
+    requestValue(store.get("global")),
+    requestValue(store.get(dayKey)),
+    sessionKey ? requestValue(store.get(sessionKey)) : Promise.resolve(null),
+  ]);
+  const globalRecord = globalStatistics ?? defaultGlobalStatistics();
+  globalRecord.key = "global";
+  globalRecord.scope = "global";
+  const dayRecord = existingDayStatistics ?? defaultStatisticsRecord(dayKey, "day", { day });
+  const sessionRecord = sessionKey
+    ? existingSessionStatistics ?? defaultStatisticsRecord(sessionKey, "session", { sessionId: delta.sessionId })
+    : null;
+  const sessionWasActiveToday = sessionRecord?.lastActiveDay === day;
+  const records = [globalRecord, dayRecord, ...(sessionRecord ? [sessionRecord] : [])];
+  for (const record of records) {
+    for (const field of ["conversationCount", "messageCount", "typedChars", "deletedChars", "typingMs", "playbackMs"]) {
+      record[field] += Number(delta[field] || 0);
+    }
+    record.lastActiveDay = day;
   }
-  store.put(statistics);
+  if (!existingDayStatistics) {
+    globalRecord.activeDays += 1;
+  }
+  dayRecord.activeDays = 1;
+  if (sessionRecord && !sessionWasActiveToday) sessionRecord.activeDays += 1;
+  for (const record of records) store.put(record);
   await done;
 }
 
@@ -269,7 +309,7 @@ export class MemoryConversationRepository {
     this.messages = new Map();
     this.pending = new Map();
     this.settings = new Map();
-    this.statistics = defaultGlobalStatistics();
+    this.statistics = new Map([["global", defaultGlobalStatistics()]]);
   }
 
   async createSession({ id = uuid(), createdAt = Date.now(), firstMessagePreview = "" } = {}) {
@@ -282,7 +322,7 @@ export class MemoryConversationRepository {
       messageCount: 0,
     };
     this.sessions.set(id, session);
-    this.#updateStats({ conversationCount: 1, timestamp: createdAt });
+    this.#updateStats({ conversationCount: 1, timestamp: createdAt, sessionId: id });
     return clone(session);
   }
 
@@ -338,7 +378,7 @@ export class MemoryConversationRepository {
     session.messageCount = sequence;
     session.updatedAt = Date.now();
     if (!session.firstMessagePreview) session.firstMessagePreview = pending.text.trim().slice(0, 80);
-    this.#updateStats({ messageCount: 1, playbackMs: durationMs, timestamp: session.updatedAt });
+    this.#updateStats({ messageCount: 1, playbackMs: durationMs, timestamp: session.updatedAt, sessionId: pending.sessionId });
     return clone(message);
   }
 
@@ -347,7 +387,7 @@ export class MemoryConversationRepository {
   }
 
   async getStatistics() {
-    return clone(this.statistics);
+    return clone(this.statistics.get("global") ?? defaultGlobalStatistics());
   }
 
   async getSetting(key, fallback = null) {
@@ -360,13 +400,26 @@ export class MemoryConversationRepository {
   }
 
   #updateStats(delta) {
-    for (const field of ["conversationCount", "messageCount", "typedChars", "deletedChars", "typingMs", "playbackMs"]) {
-      this.statistics[field] += Number(delta[field] || 0);
-    }
     const day = dateKey(delta.timestamp);
-    if (this.statistics.lastActiveDay !== day) {
-      this.statistics.activeDays += 1;
-      this.statistics.lastActiveDay = day;
+    const dayKey = `day:${day}`;
+    const sessionKey = delta.sessionId ? `session:${delta.sessionId}` : null;
+    const globalRecord = this.statistics.get("global") ?? defaultGlobalStatistics();
+    const existingDay = this.statistics.get(dayKey);
+    const dayRecord = existingDay ?? defaultStatisticsRecord(dayKey, "day", { day });
+    const sessionRecord = sessionKey
+      ? this.statistics.get(sessionKey) ?? defaultStatisticsRecord(sessionKey, "session", { sessionId: delta.sessionId })
+      : null;
+    const sessionWasActiveToday = sessionRecord?.lastActiveDay === day;
+    const records = [globalRecord, dayRecord, ...(sessionRecord ? [sessionRecord] : [])];
+    for (const record of records) {
+      for (const field of ["conversationCount", "messageCount", "typedChars", "deletedChars", "typingMs", "playbackMs"]) {
+        record[field] += Number(delta[field] || 0);
+      }
+      record.lastActiveDay = day;
     }
+    if (!existingDay) globalRecord.activeDays += 1;
+    dayRecord.activeDays = 1;
+    if (sessionRecord && !sessionWasActiveToday) sessionRecord.activeDays += 1;
+    for (const record of records) this.statistics.set(record.key, record);
   }
 }

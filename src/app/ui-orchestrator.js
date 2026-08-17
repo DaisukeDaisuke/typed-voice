@@ -10,9 +10,16 @@ import {
   createConversationFromSubmittedText,
   resolveCurrentConversation,
 } from "./conversation-session-policy.js";
+import {
+  clearAllApplicationData,
+  clearConversationData,
+  createApplicationBackup,
+  restoreApplicationBackup,
+} from "./application-backup.js";
 
 const DEFAULT_REASONING_SECONDS = 2;
 const CONVERSATION_PARAM = "conversation";
+const RESTORED_UI_SESSION_KEY = "typed-voice-restored-ui-v1";
 
 function formatTime(timestamp) {
   return new Intl.DateTimeFormat("ja-JP", {
@@ -44,12 +51,6 @@ export class UiOrchestrator {
     this.typingStartedAt = null;
     this.deletedChars = 0;
     this.pendingTicker = null;
-    this.tutorialExampleMode = false;
-    this.tutorialPendingIds = new Set();
-    this.tutorialTransientMessages = [];
-    this.tutorialMaxRevisionable = null;
-    this.tutorialConversationDemo = null;
-    this.tutorialConversationActive = false;
     this.ensureConversationPromise = null;
     this.secondaryView = "timeline";
     this.elements = this.#resolveElements();
@@ -83,6 +84,7 @@ export class UiOrchestrator {
       this.#showSecondaryView("timeline");
       this.focusComposer();
     }
+    this.#restoreUiStateAfterImport();
 
     this.channel?.addEventListener("message", () => void this.refreshAll());
     window.addEventListener("popstate", () => void this.#openFromUrl());
@@ -98,10 +100,59 @@ export class UiOrchestrator {
     return session;
   }
 
+  getBackupUiState() {
+    return {
+      currentSessionId: this.currentSession?.id ?? null,
+      composerValue: this.elements.composer.value,
+      composerSelectionStart: this.elements.composer.selectionStart,
+      composerSelectionEnd: this.elements.composer.selectionEnd,
+      secondaryView: this.secondaryView,
+    };
+  }
+
+  async createBackup() {
+    return createApplicationBackup({
+      db: this.repository?.db,
+      storage: globalThis.localStorage,
+      uiState: this.getBackupUiState(),
+    });
+  }
+
+  async restoreBackup(backup) {
+    await this.#cancelAllPendingJobs();
+    await restoreApplicationBackup({ db: this.repository?.db, storage: globalThis.localStorage }, backup);
+    if (backup.uiState) sessionStorage.setItem(RESTORED_UI_SESSION_KEY, JSON.stringify(backup.uiState));
+    const url = new URL(location.href);
+    if (backup.uiState?.currentSessionId) url.searchParams.set(CONVERSATION_PARAM, backup.uiState.currentSessionId);
+    else url.searchParams.delete(CONVERSATION_PARAM);
+    history.replaceState(null, "", url);
+    location.reload();
+  }
+
+  async resetForTutorial() {
+    await this.#cancelAllPendingJobs();
+    await clearAllApplicationData({ db: this.repository?.db, storage: globalThis.localStorage });
+    sessionStorage.removeItem(RESTORED_UI_SESSION_KEY);
+    const url = new URL(location.href);
+    url.searchParams.delete(CONVERSATION_PARAM);
+    location.replace(url);
+  }
+
+  async finishTutorialData() {
+    await this.#cancelAllPendingJobs();
+    await clearConversationData(this.repository?.db);
+    this.currentSession = null;
+    this.elements.composer.value = "";
+    this.elements.composer.setSelectionRange(0, 0);
+    await this.ensureCurrentConversation({ replaceUrl: true });
+    await this.refreshAll();
+    this.#showSecondaryView("timeline");
+    this.focusComposer();
+  }
+
   async startConversationFromSubmittedText(text) {
     const session = await createConversationFromSubmittedText(this.repository, text);
     this.currentSession = session;
-    this.tutorialConversationActive = false;
     this.#writeUrl(session.id, false);
     this.#showSecondaryView("timeline");
     this.#broadcast();
@@ -116,7 +167,6 @@ export class UiOrchestrator {
       const changed = !currentSession || currentSession.id !== session.id;
       this.currentSession = session;
       if (changed) {
-        this.tutorialConversationActive = false;
         this.#writeUrl(session.id, replaceUrl);
         this.#broadcast();
       }
@@ -130,7 +180,6 @@ export class UiOrchestrator {
   }
 
   async openConversation(id, { replaceUrl = false } = {}) {
-    this.tutorialConversationActive = false;
     const session = await this.repository.getSession(id);
     if (!session) return this.createConversation({ replaceUrl: true });
     this.currentSession = session;
@@ -151,10 +200,7 @@ export class UiOrchestrator {
     if (this.secondaryView !== "conversations") {
       const session = await this.ensureCurrentConversation();
       const allPending = await this.repository.listPending(session.id);
-      const pending = this.tutorialExampleMode
-        ? allPending.filter((item) => item.tutorialExample)
-        : allPending;
-      if (pending.some((item) => item.text.trim() === line.trim())) {
+      if (allPending.some((item) => item.text.trim() === line.trim())) {
         throw new Error("この行はすでに読み上げ待ちです。訂正する場合は上の訂正ボタンを使ってください。");
       }
     }
@@ -266,119 +312,38 @@ export class UiOrchestrator {
     }
   }
 
-  beginTutorialExamples() {
-    if (this.tutorialExampleMode) return;
-    this.tutorialExampleMode = true;
-    this.tutorialPendingIds.clear();
-    this.tutorialTransientMessages = [];
-    if (this.utterances) {
-      this.tutorialMaxRevisionable = this.utterances.maxRevisionable;
-      this.utterances.maxRevisionable = Number.MAX_SAFE_INTEGER;
-    }
+  get currentPendingCount() {
+    return [...(this.utterances?.jobs.values() ?? [])]
+      .filter((job) => job.sessionId === this.currentSession?.id).length;
   }
 
-  async beginTutorialConversationDemo() {
-    if (!this.tutorialConversationDemo) {
-      const now = Date.now();
-      this.tutorialConversationDemo = {
-        id: "__typed_voice_tutorial_conversation__",
-        createdAt: now,
-        updatedAt: now,
-        firstMessagePreview: "チュートリアル用の会話",
-        messageCount: 1,
-        message: {
-          id: "__typed_voice_tutorial_message__",
-          sessionId: "__typed_voice_tutorial_conversation__",
-          sequence: 1,
-          text: "これはチュートリアル用の一時的な履歴です。会話を切り替えると、表示される履歴も一緒に切り替わります。",
-          createdAt: now,
-          playedAt: now,
-          durationMs: 0,
-        },
-      };
-    }
-    await this.refreshConversationList();
-    return this.tutorialConversationDemo.id;
-  }
-
-  async openTutorialConversationDemo() {
-    if (!this.tutorialConversationDemo) await this.beginTutorialConversationDemo();
-    this.tutorialConversationActive = true;
-    await Promise.all([
-      this.refreshCurrentConversation(),
-      this.refreshConversationList(),
-    ]);
-    this.#showSecondaryView("timeline");
-    return true;
-  }
-
-  async closeTutorialConversationDemo({ remove = false } = {}) {
-    if (!this.tutorialConversationActive && !remove) return;
-    this.tutorialConversationActive = false;
-    if (remove) this.tutorialConversationDemo = null;
-    await Promise.all([
-      this.refreshCurrentConversation(),
-      this.refreshConversationList(),
-    ]);
-    this.#showSecondaryView("timeline");
-  }
-
-  get isTutorialConversationOpen() {
-    return this.tutorialConversationActive;
-  }
-
-  get tutorialPendingCount() {
-    return [...this.tutorialPendingIds].filter((id) => this.utterances?.jobs.has(id)).length;
-  }
-
-  get latestTutorialPendingText() {
-    return [...this.tutorialPendingIds]
-      .map((id) => this.utterances?.jobs.get(id))
-      .filter(Boolean)
+  get latestPendingText() {
+    return [...(this.utterances?.jobs.values() ?? [])]
+      .filter((job) => job.sessionId === this.currentSession?.id)
       .sort((left, right) => right.createdAt - left.createdAt)[0]?.text ?? null;
   }
 
-  async cancelLatestTutorialPending({ refresh = "all" } = {}) {
-    const jobs = [...this.tutorialPendingIds]
-      .map((id) => this.utterances?.jobs.get(id))
-      .filter(Boolean)
+  async cancelLatestPending({ refresh = "all" } = {}) {
+    const jobs = [...(this.utterances?.jobs.values() ?? [])]
+      .filter((job) => job.sessionId === this.currentSession?.id)
       .sort((left, right) => right.createdAt - left.createdAt);
     const latest = jobs[0];
     if (!latest) return false;
     const cancelled = await this.utterances.cancel(latest.id);
-    this.tutorialPendingIds.delete(latest.id);
     if (refresh === "pending") {
       const pending = await this.repository.listPending(this.currentSession.id);
-      this.#renderPending(pending.filter((item) => !item.tutorialExample || this.tutorialExampleMode));
+      this.#renderPending(pending);
     } else if (refresh !== "none") {
       await this.refreshAll();
     }
     return cancelled;
   }
 
-  async endTutorialExamples() {
-    const ids = [...this.tutorialPendingIds];
-    for (const id of ids) await this.utterances?.cancel(id);
-    this.tutorialPendingIds.clear();
-    this.tutorialTransientMessages = [];
-    this.tutorialExampleMode = false;
-    if (this.utterances && this.tutorialMaxRevisionable != null) {
-      this.utterances.maxRevisionable = this.tutorialMaxRevisionable;
-    }
-    this.tutorialMaxRevisionable = null;
-    this.tutorialConversationDemo = null;
-    this.tutorialConversationActive = false;
-    await this.refreshAll();
-  }
-
   async applyCorrectionFromComposer() {
     const session = await this.ensureCurrentConversation();
     const text = this.elements.composer.value;
     if (!text.trim()) throw new Error("訂正する文章を入力してください。");
-    const allPending = await this.repository.listPending(session.id);
-    const pending = this.tutorialExampleMode
-      ? allPending.filter((item) => item.tutorialExample)
-      : allPending;
+    const pending = await this.repository.listPending(session.id);
     const revisions = planComposerRevisions(
       text,
       pending,
@@ -397,25 +362,11 @@ export class UiOrchestrator {
 
   async forceQueueHead() {
     const session = await this.ensureCurrentConversation();
-    const allPending = await this.repository.listPending(session.id);
-    const pending = this.tutorialExampleMode
-      ? allPending.filter((item) => item.tutorialExample)
-      : allPending;
+    const pending = await this.repository.listPending(session.id);
     const target = [...pending]
       .filter((item) => this.utterances.jobs.has(item.id))
       .sort((left, right) => left.createdAt - right.createdAt)[0];
     if (!target) throw new Error("今すぐ読み上げできる文章がありません。");
-    if (this.tutorialExampleMode) {
-      await this.utterances.cancel(target.id);
-      this.tutorialPendingIds.delete(target.id);
-      this.tutorialTransientMessages.push({
-        text: target.text,
-        createdAt: Date.now(),
-      });
-      this.elements.status.textContent = "チュートリアルでは音を出さず、読み上げ履歴へ移しました。";
-      await this.refreshAll();
-      return;
-    }
     await this.utterances.forceReady(target.id);
     this.elements.status.textContent = "読み上げ待ち時間を終了しました。";
     await this.refreshAll();
@@ -423,14 +374,10 @@ export class UiOrchestrator {
 
   async cancelCurrentPending() {
     const session = await this.ensureCurrentConversation();
-    const allPending = await this.repository.listPending(session.id);
-    const pending = this.tutorialExampleMode
-      ? allPending.filter((item) => item.tutorialExample)
-      : allPending;
+    const pending = await this.repository.listPending(session.id);
     const target = [...pending].sort((left, right) => right.createdAt - left.createdAt)[0];
     if (!target) throw new Error("取り消せる読み上げ待ちがありません。");
     await this.utterances.cancel(target.id);
-    this.tutorialPendingIds.delete(target.id);
     this.elements.status.textContent = "読み上げ待ちを取り消しました。";
     await this.refreshAll();
     this.#broadcast();
@@ -448,28 +395,16 @@ export class UiOrchestrator {
 
   async refreshCurrentConversation() {
     const session = await this.ensureCurrentConversation();
-    if (this.tutorialConversationActive && this.tutorialConversationDemo) {
-      this.#renderMessages([this.tutorialConversationDemo.message]);
-      this.#renderPending([]);
-      this.elements.conversationTitle.textContent = this.tutorialConversationDemo.firstMessagePreview;
-      return;
-    }
     this.currentSession = session;
     const [messages, pending] = await Promise.all([
       this.repository.listMessages(session.id),
       this.repository.listPending(session.id),
     ]);
-    const visiblePending = [];
     for (const item of pending) {
-      if (item.tutorialExample && !this.tutorialExampleMode) {
-        await this.repository.deletePending(item.id);
-        continue;
-      }
       await this.utterances.resume(item);
-      visiblePending.push(item);
     }
     this.#renderMessages(messages);
-    this.#renderPending(visiblePending);
+    this.#renderPending(pending);
     this.elements.conversationTitle.textContent = this.currentSession.firstMessagePreview || "新しい会話";
 
   }
@@ -477,20 +412,10 @@ export class UiOrchestrator {
   async refreshConversationList() {
     const sessions = await this.repository.listSessions(100);
     const fragment = document.createDocumentFragment();
-    if (this.tutorialConversationDemo) {
-      const node = this.elements.conversationTemplate.content.firstElementChild.cloneNode(true);
-      node.dataset.sessionId = this.tutorialConversationDemo.id;
-      node.dataset.tutorialConversation = "true";
-      node.setAttribute("aria-current", this.tutorialConversationActive ? "true" : "false");
-      node.querySelector(".conversation-preview").textContent = this.tutorialConversationDemo.firstMessagePreview;
-      node.querySelector(".conversation-meta").textContent = "チュートリアル用 · 1件";
-      node.addEventListener("click", () => void this.openTutorialConversationDemo());
-      fragment.append(node);
-    }
     for (const session of sessions) {
       const node = this.elements.conversationTemplate.content.firstElementChild.cloneNode(true);
       node.dataset.sessionId = session.id;
-      node.setAttribute("aria-current", !this.tutorialConversationActive && session.id === this.currentSession?.id ? "true" : "false");
+      node.setAttribute("aria-current", session.id === this.currentSession?.id ? "true" : "false");
       node.querySelector(".conversation-preview").textContent = session.firstMessagePreview || "新しい会話";
       node.querySelector(".conversation-meta").textContent = `${formatTime(session.updatedAt)} · ${session.messageCount}件`;
       node.addEventListener("click", () => void this.openConversation(session.id));
@@ -509,17 +434,6 @@ export class UiOrchestrator {
 
   #renderMessages(messages) {
     const fragment = document.createDocumentFragment();
-    if (this.tutorialExampleMode && !this.tutorialConversationActive) {
-      for (const message of [...this.tutorialTransientMessages].reverse()) {
-        const node = this.elements.messageTemplate.content.firstElementChild.cloneNode(true);
-        node.classList.add("tutorial-transient-message");
-        node.querySelector(".message-text").textContent = message.text;
-        const time = node.querySelector(".message-time");
-        time.dateTime = new Date(message.createdAt).toISOString();
-        time.textContent = "いま";
-        fragment.append(node);
-      }
-    }
     for (const message of [...messages].reverse()) {
       const node = this.elements.messageTemplate.content.firstElementChild.cloneNode(true);
       node.querySelector(".message-text").textContent = message.text;
@@ -529,8 +443,7 @@ export class UiOrchestrator {
       fragment.append(node);
     }
     this.elements.messageList.replaceChildren(fragment);
-    this.elements.emptyTimeline.hidden = messages.length > 0
-      || (this.tutorialExampleMode && !this.tutorialConversationActive && this.tutorialTransientMessages.length > 0);
+    this.elements.emptyTimeline.hidden = messages.length > 0;
   }
 
   #renderPending(pending) {
@@ -555,12 +468,9 @@ export class UiOrchestrator {
     }
     this.elements.pendingList.replaceChildren(fragment);
     this.elements.pendingCount.textContent = String(pending.length);
-    const actionablePending = this.tutorialExampleMode
-      ? pending.filter((item) => item.tutorialExample)
-      : pending;
-    const hasRevisionable = actionablePending.some((item) => this.utterances.isRevisionable(item.id));
+    const hasRevisionable = pending.some((item) => this.utterances.isRevisionable(item.id));
     this.elements.correctionButton.disabled = !hasRevisionable;
-    this.elements.cancelCurrentButton.disabled = actionablePending.length === 0;
+    this.elements.cancelCurrentButton.disabled = pending.length === 0;
     this.elements.forceSpeakButton.disabled = pending.length === 0;
     this.#updatePendingTimers();
   }
@@ -570,11 +480,6 @@ export class UiOrchestrator {
     for (const node of this.elements.pendingList.querySelectorAll(".pending-card")) {
       const job = this.utterances.jobs.get(node.dataset.pendingId);
       if (!job) continue;
-      if (this.tutorialExampleMode && this.tutorialPendingIds.has(job.id)) {
-        node.querySelector(".pending-state").textContent = job.state === "editing" ? "訂正中（チュートリアル）" : "読み上げ待ち（チュートリアル）";
-        node.querySelector(".pending-timer").textContent = job.state === "editing" ? "入力待ち" : "例なので制限なし";
-        continue;
-      }
       const remaining = Math.max(0, job.reasoningDeadline - currentTime) / 1000;
       node.querySelector(".pending-timer").textContent = remaining > 0 ? `${remaining.toFixed(1)}秒` : "確定待ち";
       if (job.state === "editing") {
@@ -633,7 +538,6 @@ export class UiOrchestrator {
   }
 
   #reasoningSeconds() {
-    if (this.tutorialExampleMode) return 24 * 60 * 60;
     return this.getReasoningSeconds();
   }
 
@@ -645,22 +549,17 @@ export class UiOrchestrator {
       ? await this.startConversationFromSubmittedText(completed)
       : await this.ensureCurrentConversation();
     const typingMs = this.typingStartedAt == null ? 0 : Math.max(0, performance.now() - this.typingStartedAt);
-    if (!this.tutorialExampleMode) {
-      await this.repository.recordInputStatistics({
-        typedChars: completed.length,
-        deletedChars: this.deletedChars,
-        typingMs,
-      });
-    }
+    await this.repository.recordInputStatistics({
+      typedChars: completed.length,
+      deletedChars: this.deletedChars,
+      typingMs,
+      sessionId: session.id,
+    });
     const pending = await this.utterances.submit({
       sessionId: session.id,
       text: completed,
       reasoningSeconds: this.#reasoningSeconds(),
-      tutorialExample: this.tutorialExampleMode,
     });
-    if (this.tutorialExampleMode) {
-      this.tutorialPendingIds.add(pending.id);
-    }
     const retained = retainRecentSubmittedLines(composer.value, composer.selectionStart, 2);
     if (retained.value !== composer.value || retained.caret !== composer.selectionStart) {
       composer.value = retained.value;
@@ -686,6 +585,30 @@ export class UiOrchestrator {
     const url = new URL(location.href);
     url.searchParams.set(CONVERSATION_PARAM, sessionId);
     history[replace ? "replaceState" : "pushState"]({ sessionId }, "", url);
+  }
+
+  async #cancelAllPendingJobs() {
+    for (const id of [...(this.utterances?.jobs.keys() ?? [])]) {
+      await this.utterances.cancel(id).catch(() => false);
+    }
+  }
+
+  #restoreUiStateAfterImport() {
+    let restored = null;
+    try {
+      const raw = sessionStorage.getItem(RESTORED_UI_SESSION_KEY);
+      sessionStorage.removeItem(RESTORED_UI_SESSION_KEY);
+      if (raw) restored = JSON.parse(raw);
+    } catch {
+      sessionStorage.removeItem(RESTORED_UI_SESSION_KEY);
+    }
+    if (!restored) return;
+    const composerValue = typeof restored.composerValue === "string" ? restored.composerValue : "";
+    this.elements.composer.value = composerValue;
+    const start = Math.max(0, Math.min(composerValue.length, Number(restored.composerSelectionStart) || 0));
+    const end = Math.max(start, Math.min(composerValue.length, Number(restored.composerSelectionEnd) || start));
+    this.elements.composer.setSelectionRange(start, end);
+    this.#showSecondaryView(restored.secondaryView === "conversations" ? "conversations" : "timeline");
   }
 
   async #openFromUrl() {

@@ -52,7 +52,27 @@
       <p class="model-profile-warning" data-model-profile-warning hidden>推奨モデル以外では、品質やダウンロード容量を保証できません。</p>
       <p class="settings-note">モデル選択は現在プレビューです。</p>
     </div>
-    <button id="restart-tutorial" class="quiet-button settings-tutorial-button" type="button">チュートリアルをもう一度見る<span>モデルキャッシュはそのまま保持します</span></button>
+    <div class="settings-data-actions" aria-label="バックアップと復元">
+      <button id="backup-export-button" class="quiet-button" type="button">バックアップを書き出す</button>
+      <button id="backup-import-button" class="quiet-button" type="button">バックアップを読み込む</button>
+      <input id="backup-import-input" type="file" accept="application/json,.json" hidden>
+      <p id="backup-settings-status" class="settings-note" aria-live="polite">会話・履歴・設定・統計をJSONで保存できます。ダウンロード済み音声モデル本体は含みません。</p>
+    </div>
+    <button id="restart-tutorial" class="quiet-button settings-tutorial-button" type="button">チュートリアルをもう一度見る<span>先に完全バックアップを保存してから初期化します。モデルキャッシュは保持します</span></button>
+  </section>
+
+  <section id="tutorial-restart-dialog" class="backup-dialog-backdrop" hidden>
+    <div class="backup-dialog-card" role="dialog" aria-modal="true" aria-labelledby="tutorial-restart-dialog-title" aria-describedby="tutorial-restart-dialog-description">
+      <p class="eyebrow">チュートリアルをやり直す</p>
+      <h2 id="tutorial-restart-dialog-title">現在のデータを先に保存します</h2>
+      <p id="tutorial-restart-dialog-description">チュートリアルは本物の会話データベースを使います。現在の会話・履歴・読み上げ待ち・設定・統計を復元できるバックアップを保存してから、初期状態でやり直します。音声モデルのキャッシュは消しません。</p>
+      <button id="tutorial-restart-backup" class="quiet-button backup-dialog-download" type="button">バックアップをダウンロード</button>
+      <p id="tutorial-restart-status" class="backup-dialog-status" aria-live="polite">バックアップをダウンロードすると、初期化ボタンを押せるようになります。</p>
+      <div class="backup-dialog-actions">
+        <button id="tutorial-restart-cancel" class="quiet-button" type="button">やめる</button>
+        <button id="tutorial-restart-confirm" class="danger-button" type="button" disabled>初期化してやり直す</button>
+      </div>
+    </div>
   </section>
 
   <main class="app-shell">
@@ -310,10 +330,9 @@ https://tyc.rei-yumesaki.net
 
         <section class="tutorial-page" data-tutorial-step="conversations" data-tutorial-live="true" hidden>
           <p class="tutorial-kicker">会話を分ける</p>
-          <h3>会話一覧から、履歴を切り替えられます</h3>
-          <p>上の「会話一覧」を押してみてください。チュートリアル用の一時会話を1件だけ入れてあります。</p>
-          <p>そのカードを押すと、表示される読み上げ履歴も一緒に切り替わります。この一時会話はチュートリアルを終えると消えます。</p>
-          <p>会話一覧を表示したまま新しい文章を入力して改行すると、その1行を最初のプレビューにした新しい会話を自動で作り、その会話へ切り替わります。</p>
+          <h3>会話一覧を開いたまま、新しい会話を始められます</h3>
+          <p>上の「会話一覧」を押し、そのまま左の入力欄へ新しい文章を書いて改行してください。</p>
+          <p>新しいUUIDの会話をその場で作り、最初に送った1行を一覧のプレビューへ反映して、その会話へ切り替わります。過去の会話を押せば、履歴も一緒に切り替わります。</p>
           <p id="tutorial-conversation-status" class="tutorial-demo-status" aria-live="polite">まずは上の「会話一覧」を押してみましょう。</p>
         </section>
 
@@ -327,6 +346,14 @@ https://tyc.rei-yumesaki.net
             <button type="button" data-tutorial-jump="wait"><strong>待ち時間</strong>直すための時間</button>
             <button type="button" data-tutorial-jump="cancel"><strong>取り消し</strong>読む前なら止められます</button>
             <button type="button" data-tutorial-jump="conversations"><strong>会話一覧</strong>履歴を切り替えられます</button>
+          </div>
+          <div class="tutorial-backup-card">
+            <strong>バックアップと復元</strong>
+            <p>会話・履歴・設定・統計はいつでもJSONへ書き出せます。別のバックアップへ戻すときは、下へファイルをドロップしてください。</p>
+            <button id="tutorial-backup-export" class="quiet-button" type="button">今の状態をバックアップ</button>
+            <div id="tutorial-backup-drop" class="tutorial-backup-drop" role="button" tabindex="0" aria-controls="tutorial-backup-import">バックアップJSONをここへドロップ<br><span>またはクリックして選択</span></div>
+            <input id="tutorial-backup-import" type="file" accept="application/json,.json" hidden>
+            <p id="tutorial-backup-status" class="tutorial-demo-status" aria-live="polite">復元すると保存時点の会話・履歴・設定・統計へ戻ります。</p>
           </div>
         </section>
 

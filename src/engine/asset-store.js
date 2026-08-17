@@ -1,25 +1,15 @@
 import { createXXHash128 } from "hash-wasm";
 import { isXxh3_128, xxh3_128Stream } from "./xxh3-128.js";
+import { openConversationDatabase } from "../app/storage.js";
 
 export const MODEL_CACHE_NAME = "typed-voice-model-assets-v2";
-const DB_NAME = "typed-voice-assets";
-const DB_VERSION = 2;
-const STORE_NAME = "asset-metadata";
+const STORE_NAME = "assets";
 const VIRTUAL_PREFIX = "__typed_voice_assets/";
 const CACHE_CHUNK_BYTES = 16 * 1024 * 1024;
 const CACHE_CHUNK_QUERY = "__typed_voice_part";
 
 function openDatabase(indexedDBImpl = indexedDB) {
-  return new Promise((resolve, reject) => {
-    const request = indexedDBImpl.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (db.objectStoreNames.contains("voice-assets")) db.deleteObjectStore("voice-assets");
-      if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME, { keyPath: "key" });
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
+  return openConversationDatabase(indexedDBImpl);
 }
 
 function runTransaction(db, mode, operation) {
@@ -207,6 +197,25 @@ async function writeMetadata(db, record) {
   return runTransaction(db, "readwrite", (store) => store.put(record));
 }
 
+function normalizedAssetMetadata(manifest, asset, virtualUrl, verified) {
+  const installedAt = Date.now();
+  return {
+    key: keyFor(manifest.id, asset.id),
+    manifestId: manifest.id,
+    assetId: asset.id,
+    version: asset.source?.revision ?? manifest.runtimeSource?.revision ?? manifest.voice?.source?.revision ?? null,
+    virtualUrl,
+    sha256: asset.sha256.toLowerCase(),
+    xxh3_128: verified.xxh3_128,
+    size: verified.byteSize,
+    byteSize: verified.byteSize,
+    installedAt,
+    verifiedAt: installedAt,
+    source: asset.source,
+    licenseId: asset.licenseId ?? manifest.licenses?.voiceModel ?? null,
+  };
+}
+
 async function deleteMetadata(db, key) {
   return runTransaction(db, "readwrite", (store) => store.delete(key));
 }
@@ -231,17 +240,7 @@ async function verifyCachedAsset({ cache, db, manifest, asset, virtualUrl, onPro
     return false;
   }
   if (!metadata || metadata.xxh3_128 !== verified.xxh3_128 || metadata.sha256 !== asset.sha256.toLowerCase()) {
-    await writeMetadata(db, {
-      key: keyFor(manifest.id, asset.id),
-      manifestId: manifest.id,
-      assetId: asset.id,
-      virtualUrl,
-      sha256: asset.sha256.toLowerCase(),
-      xxh3_128: verified.xxh3_128,
-      byteSize: verified.byteSize,
-      verifiedAt: Date.now(),
-      source: asset.source,
-    });
+    await writeMetadata(db, normalizedAssetMetadata(manifest, asset, virtualUrl, verified));
   }
   return true;
 }
@@ -325,17 +324,7 @@ async function downloadAndVerifyAsset({ fetchImpl, cache, db, manifest, asset, v
     },
   }));
 
-  await writeMetadata(db, {
-    key: keyFor(manifest.id, asset.id),
-    manifestId: manifest.id,
-    assetId: asset.id,
-    virtualUrl,
-    sha256: asset.sha256.toLowerCase(),
-    xxh3_128: verified.xxh3_128,
-    byteSize: verified.byteSize,
-    verifiedAt: Date.now(),
-    source: asset.source,
-  });
+  await writeMetadata(db, normalizedAssetMetadata(manifest, asset, virtualUrl, verified));
 }
 
 export async function prepareVoiceAssets(manifest, options = {}) {

@@ -102,8 +102,37 @@ a { -webkit-tap-highlight-color: transparent; }
 .settings-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 .settings-heading h2 { margin: 0; font-size: 1.1rem; }
 .settings-note { margin: 9px 1px 0; color: #8a8176; font-size: 0.72rem; line-height: 1.45; }
+.settings-data-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+.settings-data-actions .settings-note { grid-column: 1 / -1; }
 .settings-tutorial-button { width: 100%; margin-top: 14px; text-align: left; font-weight: 700; }
 .settings-tutorial-button span { display: block; margin-top: 2px; color: #857d72; font-size: 0.7rem; font-weight: 500; }
+
+.backup-dialog-backdrop[hidden] { display: none; }
+.backup-dialog-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  overflow: auto;
+  background: rgb(0 0 0 / 0.72);
+  backdrop-filter: blur(10px);
+}
+.backup-dialog-card {
+  width: min(620px, 100%);
+  padding: 24px;
+  border: 1px solid #d8cfc4;
+  border-radius: 20px;
+  background: #fffdfa;
+  box-shadow: 0 28px 90px rgb(0 0 0 / 0.45);
+}
+.backup-dialog-card h2 { margin: 3px 0 12px; font-size: clamp(1.35rem, 4vw, 2rem); }
+.backup-dialog-card p { line-height: 1.65; }
+.backup-dialog-download { width: 100%; margin-top: 10px; min-height: 48px; font-weight: 700; }
+.backup-dialog-status { margin: 10px 0; color: #675f55; font-size: 0.86rem; }
+.backup-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.backup-dialog-actions button { min-height: 44px; }
 
 .model-profile-picker { display: grid; gap: 10px; }
 .model-toggle {
@@ -606,6 +635,29 @@ body.tutorial-window-dragging * { cursor: grabbing !important; }
 .tutorial-summary-grid button:hover,
 .tutorial-summary-grid button:focus-visible { border-color: #b85f28; background: #fff0e3; outline: none; }
 .tutorial-summary-grid strong { display: block; color: #2f2b27; font-size: 0.92rem; }
+.tutorial-backup-card {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid #d8c8ba;
+  border-radius: 16px;
+  background: #fffaf5;
+}
+.tutorial-backup-card > p { margin: 0; }
+.tutorial-backup-drop {
+  display: grid;
+  place-items: center;
+  min-height: 110px;
+  padding: 16px;
+  border: 2px dashed #bda692;
+  border-radius: 14px;
+  background: #fff;
+  text-align: center;
+  cursor: pointer;
+}
+.tutorial-backup-drop span { color: #81766c; font-size: 0.8rem; }
+.tutorial-backup-drop.is-dragover { border-style: solid; outline: 3px solid #d5b18f; outline-offset: 2px; }
 .tutorial-footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 24px 22px; border-top: 1px solid #e4ded6; }
 .tutorial-footer-end { display: flex; align-items: end; justify-content: flex-end; gap: 14px; }
 .tutorial-footer-meta { min-width: 72px; display: grid; justify-items: end; align-content: end; gap: 5px; }
