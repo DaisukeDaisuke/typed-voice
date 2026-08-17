@@ -370,7 +370,7 @@ body.tutorial-window-dragging * { cursor: grabbing !important; }
 .tutorial-page h3 { margin: 4px 0 10px; font-size: clamp(1.6rem, 4vw, 2.35rem); line-height: 1.2; letter-spacing: -0.045em; }
 .tutorial-page > p { max-width: 62ch; color: #675f56; line-height: 1.7; }
 .tutorial-page[data-tutorial-step="about"] > p { max-width: 54ch; }
-.tutorial-about-lines > span { display: block; }
+
 .tutorial-kicker { margin: 0 !important; color: #9d4d1e !important; font-size: 0.78rem; font-weight: 800; letter-spacing: 0.08em; }
 .tutorial-model-picker { margin-top: 22px; }
 .tutorial-callout { padding: 12px 14px; border-left: 4px solid #b85f28; border-radius: 8px; background: #f7e3d1; color: #563220 !important; }
