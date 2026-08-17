@@ -161,15 +161,23 @@ https://tyc.rei-yumesaki.net
   <section id="tutorial-overlay" class="tutorial-overlay" role="dialog" aria-modal="true" aria-labelledby="tutorial-title" hidden>
     <div class="tutorial-shell">
       <header class="tutorial-header">
-        <h2 id="tutorial-title">操作チュートリアル</h2>
+        <div class="tutorial-header-copy">
+          <span class="tutorial-header-brand">はじめての typed-voice</span>
+          <h2 id="tutorial-title">操作チュートリアル</h2>
+        </div>
       </header>
 
       <div class="tutorial-pages">
         <section class="tutorial-page" data-tutorial-step="about">
           <p class="tutorial-kicker">まず最初に</p>
           <h3>このツールについて</h3>
-          <p>typed-voiceは、入力した文章をその場で声にするためのツールです。話してほしい内容をキーボードで書いて、改行を合図に順番に読み上げます。</p>
-          <p class="tutorial-callout"><strong>プライバシーも大切にします。</strong>会話と入力内容はこのブラウザ内に保存し、音声合成も端末内で行います。外部へ通信するのは、モデルや試聴用WAVなど配布アセットを取得するときです。</p>
+          <p>typed-voiceは、入力した文章をその場で声にするためのツールです。</p>
+          <p>話してほしい内容をキーボードで書いて、改行を合図に順番に読み上げます。</p>
+          <div class="tutorial-callout tutorial-privacy-callout">
+            <strong>プライバシーも大切にします。</strong>
+            <p>会話と入力内容はこのブラウザ内に保存し、音声合成も端末内で行います。</p>
+            <p>外部へ通信するのは、モデルや試聴用WAVなど配布アセットを取得するときです。</p>
+          </div>
           <p>音声を使わずに会話や入力だけ試すこともできます。モデルの準備は、この次に選べます。</p>
         </section>
 
@@ -238,16 +246,33 @@ https://tyc.rei-yumesaki.net
           <p id="tutorial-cancel-status" class="tutorial-demo-status" aria-live="polite">まず、取り消すための文章を送ります。</p>
         </section>
 
+        <section class="tutorial-page" data-tutorial-step="conversations" data-tutorial-live="true" hidden>
+          <p class="tutorial-kicker">会話を分ける</p>
+          <h3>会話一覧から、履歴を切り替えられます</h3>
+          <p>上の「会話一覧」を押してみてください。チュートリアル用の一時会話を1件だけ入れてあります。</p>
+          <p>そのカードを押すと、表示される読み上げ履歴も一緒に切り替わります。この一時会話はチュートリアルを終えると消えます。</p>
+          <p id="tutorial-conversation-status" class="tutorial-demo-status" aria-live="polite">まずは上の「会話一覧」を押してみましょう。</p>
+        </section>
+
         <section class="tutorial-page" data-tutorial-step="finish" hidden>
           <p class="tutorial-kicker">あとから見直せます</p>
           <h3>気になるところだけ、もう一度見てみましょう</h3>
-          <p>下の項目を押すと、その操作のページへ戻れます。見終わったら「7 / 8へ戻る」でここへ戻ってこられます。</p>
+          <p>下の項目を押すと、その操作のページへ戻れます。見終わったら、左右どちらの戻るボタンからでもこの一覧へ戻ってこられます。</p>
           <div class="tutorial-summary-grid">
             <button type="button" data-tutorial-jump="linebreak"><strong>Enter</strong>改行すると読み上げ</button>
             <button type="button" data-tutorial-jump="correction"><strong>訂正</strong>読む前なら直せます</button>
             <button type="button" data-tutorial-jump="wait"><strong>待ち時間</strong>直すための時間</button>
             <button type="button" data-tutorial-jump="cancel"><strong>取り消し</strong>読む前なら止められます</button>
+            <button type="button" data-tutorial-jump="conversations"><strong>会話一覧</strong>履歴を切り替えられます</button>
           </div>
+        </section>
+
+        <section class="tutorial-page" data-tutorial-step="free" data-tutorial-live="true" hidden>
+          <p class="tutorial-kicker">ひと休み</p>
+          <h3>自由に使ってみましょう！</h3>
+          <p>入力、改行、訂正、取り消し、会話の切り替え。ここまでの操作を好きに触ってみてください。</p>
+          <p class="tutorial-callout"><strong>まだ読み上げはできません！</strong> ここでは操作だけ試せます。音声データは次のページで、容量を確認してからダウンロードします。</p>
+          <p id="tutorial-free-status" class="tutorial-demo-status" aria-live="polite">気が済んだら、右下から音声データの準備へ進みましょう。</p>
         </section>
 
         <section class="tutorial-page" data-tutorial-step="download" hidden>
@@ -282,7 +307,6 @@ https://tyc.rei-yumesaki.net
         <div class="tutorial-footer-end">
           <button id="tutorial-next" class="primary-button tutorial-next-button" type="button">次へ</button>
           <div class="tutorial-footer-meta">
-            <span class="tutorial-footer-brand">はじめての typed-voice</span>
             <div class="tutorial-progress-anchor">
               <span class="tutorial-attention-arrow tutorial-guide-arrow" aria-hidden="true">
                 <span class="tutorial-guide-arrow-shape">
@@ -290,7 +314,7 @@ https://tyc.rei-yumesaki.net
                   <span class="tutorial-guide-arrow-head"></span>
                 </span>
               </span>
-              <strong id="tutorial-progress" class="tutorial-progress" aria-live="polite">1 / 8</strong>
+              <strong id="tutorial-progress" class="tutorial-progress" aria-live="polite">1 / 10</strong>
             </div>
           </div>
         </div>

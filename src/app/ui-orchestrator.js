@@ -43,6 +43,8 @@ export class UiOrchestrator {
     this.tutorialExampleMode = false;
     this.tutorialPendingIds = new Set();
     this.tutorialMaxRevisionable = null;
+    this.tutorialConversationDemo = null;
+    this.tutorialConversationActive = false;
     this.elements = this.#resolveElements();
   }
 
@@ -87,6 +89,7 @@ export class UiOrchestrator {
   }
 
   async openConversation(id, { replaceUrl = false } = {}) {
+    this.tutorialConversationActive = false;
     const session = await this.repository.getSession(id);
     if (!session) return this.createConversation({ replaceUrl: true });
     this.currentSession = session;
@@ -230,6 +233,56 @@ export class UiOrchestrator {
     }
   }
 
+  async beginTutorialConversationDemo() {
+    if (!this.tutorialConversationDemo) {
+      const now = Date.now();
+      this.tutorialConversationDemo = {
+        id: "__typed_voice_tutorial_conversation__",
+        createdAt: now,
+        updatedAt: now,
+        firstMessagePreview: "チュートリアル用の会話",
+        messageCount: 1,
+        message: {
+          id: "__typed_voice_tutorial_message__",
+          sessionId: "__typed_voice_tutorial_conversation__",
+          sequence: 1,
+          text: "これはチュートリアル用の一時的な履歴です。会話を切り替えると、表示される履歴も一緒に切り替わります。",
+          createdAt: now,
+          playedAt: now,
+          durationMs: 0,
+        },
+      };
+    }
+    await this.refreshConversationList();
+    return this.tutorialConversationDemo.id;
+  }
+
+  async openTutorialConversationDemo() {
+    if (!this.tutorialConversationDemo) await this.beginTutorialConversationDemo();
+    this.tutorialConversationActive = true;
+    await Promise.all([
+      this.refreshCurrentConversation(),
+      this.refreshConversationList(),
+    ]);
+    this.#showSecondaryView("timeline");
+    return true;
+  }
+
+  async closeTutorialConversationDemo({ remove = false } = {}) {
+    if (!this.tutorialConversationActive && !remove) return;
+    this.tutorialConversationActive = false;
+    if (remove) this.tutorialConversationDemo = null;
+    await Promise.all([
+      this.refreshCurrentConversation(),
+      this.refreshConversationList(),
+    ]);
+    this.#showSecondaryView("timeline");
+  }
+
+  get isTutorialConversationOpen() {
+    return this.tutorialConversationActive;
+  }
+
   get tutorialPendingCount() {
     return [...this.tutorialPendingIds].filter((id) => this.utterances?.jobs.has(id)).length;
   }
@@ -263,6 +316,8 @@ export class UiOrchestrator {
       this.utterances.maxRevisionable = this.tutorialMaxRevisionable;
     }
     this.tutorialMaxRevisionable = null;
+    this.tutorialConversationDemo = null;
+    this.tutorialConversationActive = false;
     await this.refreshAll();
   }
 
@@ -328,6 +383,12 @@ export class UiOrchestrator {
 
   async refreshCurrentConversation() {
     if (!this.currentSession) return;
+    if (this.tutorialConversationActive && this.tutorialConversationDemo) {
+      this.#renderMessages([this.tutorialConversationDemo.message]);
+      this.#renderPending([]);
+      this.elements.conversationTitle.textContent = this.tutorialConversationDemo.firstMessagePreview;
+      return;
+    }
     this.currentSession = await this.repository.getSession(this.currentSession.id) ?? this.currentSession;
     const [messages, pending] = await Promise.all([
       this.repository.listMessages(this.currentSession.id),
@@ -351,10 +412,20 @@ export class UiOrchestrator {
   async refreshConversationList() {
     const sessions = await this.repository.listSessions(100);
     const fragment = document.createDocumentFragment();
+    if (this.tutorialConversationDemo) {
+      const node = this.elements.conversationTemplate.content.firstElementChild.cloneNode(true);
+      node.dataset.sessionId = this.tutorialConversationDemo.id;
+      node.dataset.tutorialConversation = "true";
+      node.setAttribute("aria-current", this.tutorialConversationActive ? "true" : "false");
+      node.querySelector(".conversation-preview").textContent = this.tutorialConversationDemo.firstMessagePreview;
+      node.querySelector(".conversation-meta").textContent = "チュートリアル用 · 1件";
+      node.addEventListener("click", () => void this.openTutorialConversationDemo());
+      fragment.append(node);
+    }
     for (const session of sessions) {
       const node = this.elements.conversationTemplate.content.firstElementChild.cloneNode(true);
       node.dataset.sessionId = session.id;
-      node.setAttribute("aria-current", session.id === this.currentSession?.id ? "true" : "false");
+      node.setAttribute("aria-current", !this.tutorialConversationActive && session.id === this.currentSession?.id ? "true" : "false");
       node.querySelector(".conversation-preview").textContent = session.firstMessagePreview || "新しい会話";
       node.querySelector(".conversation-meta").textContent = `${formatTime(session.updatedAt)} · ${session.messageCount}件`;
       node.addEventListener("click", () => void this.openConversation(session.id));

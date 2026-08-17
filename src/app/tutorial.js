@@ -102,12 +102,14 @@ export class TutorialController {
     this.downloadProgressLast = null;
     this.targetArrowTarget = null;
     this.summaryReturnIndex = null;
+    this.conversationTutorialCompleted = false;
     this.elements = this.#resolveElements();
   }
 
   initialize() {
     this.elements.overlay.addEventListener("pointerdown", () => this.#acknowledgeStep());
     this.elements.overlay.addEventListener("keydown", () => this.#acknowledgeStep());
+    this.document.addEventListener("click", (event) => this.#guardTutorialNavigation(event), true);
     globalThis.addEventListener?.("resize", () => this.#refreshTargetArrow(), { passive: true });
     this.document.addEventListener("scroll", () => this.#refreshTargetArrow(), { capture: true, passive: true });
     this.elements.back.addEventListener("click", () => this.previous());
@@ -126,6 +128,13 @@ export class TutorialController {
     this.elements.downloadButton.addEventListener("click", () => void this.#runVoiceDownload());
     this.elements.waitSeconds.addEventListener("change", () => void this.#applyWaitSetting());
     this.elements.waitDemo.addEventListener("click", () => void this.#runWaitDemo());
+    this.elements.conversationView.addEventListener("click", () => {
+      globalThis.setTimeout(() => this.#handleConversationListOpened(), 0);
+    });
+    this.elements.conversationList.addEventListener("click", (event) => {
+      if (!event.target.closest('[data-tutorial-conversation="true"]')) return;
+      globalThis.setTimeout(() => void this.#handleTutorialConversationOpened(), 0);
+    });
     for (const button of this.elements.summaryJumpButtons) {
       button.addEventListener("click", () => this.#jumpFromSummary(button.dataset.tutorialJump));
     }
@@ -162,6 +171,7 @@ export class TutorialController {
     this.#renderDownloadDisclosure();
     this.#resetDownloadProgress();
     this.summaryReturnIndex = null;
+    this.conversationTutorialCompleted = false;
     this.stepIndex = 0;
     this.elements.overlay.hidden = false;
     this.document.body.classList.add("tutorial-open");
@@ -210,7 +220,11 @@ export class TutorialController {
       candidate.hidden = index !== this.stepIndex;
     }
     this.elements.overlay.classList.toggle("tutorial-live", page.dataset.tutorialLive === "true");
+    this.elements.overlay.setAttribute("aria-modal", page.dataset.tutorialLive === "true" ? "false" : "true");
     this.elements.overlay.dataset.step = page.dataset.tutorialStep;
+    if (page.dataset.tutorialStep !== "conversations") {
+      void this.app?.closeTutorialConversationDemo?.({ remove: true });
+    }
     this.elements.progress.textContent = `${this.stepIndex + 1} / ${this.elements.pages.length}`;
     this.elements.overlay.classList.add("tutorial-needs-attention");
     this.elements.back.disabled = this.stepIndex === 0;
@@ -219,11 +233,15 @@ export class TutorialController {
       : "戻る";
     this.elements.next.textContent = this.summaryReturnIndex != null && this.stepIndex !== this.summaryReturnIndex
       ? `${this.summaryReturnIndex + 1} / ${this.elements.pages.length}へ戻る`
-      : this.stepIndex === this.elements.pages.length - 1 ? "使い始める" : "次へ";
-    this.elements.next.disabled = page.dataset.tutorialStep === "download" && !this.downloadCompleted;
+      : page.dataset.tutorialStep === "free"
+        ? "次に、音声データをダウンロードしてみる"
+        : this.stepIndex === this.elements.pages.length - 1 ? "使い始める" : "次へ";
+    this.elements.next.disabled = (page.dataset.tutorialStep === "download" && !this.downloadCompleted)
+      || (page.dataset.tutorialStep === "conversations" && !this.conversationTutorialCompleted);
     this.#updateHighlights(page.dataset.tutorialStep);
     if (page.dataset.tutorialStep === "wait") this.#syncWaitSetting();
     if (page.dataset.tutorialStep === "cancel") void this.#prepareCancelExample();
+    if (page.dataset.tutorialStep === "conversations") void this.#prepareConversationTutorial();
     if (page.dataset.tutorialStep === "download" && !this.downloadCompleted) void this.#loadActualDownloadPlan();
     this.elements.pagesContainer.scrollTop = 0;
     if (page.dataset.tutorialStep === "download" && !this.downloadCompleted && !this.downloadAcknowledged) {
@@ -237,6 +255,57 @@ export class TutorialController {
 
   #acknowledgeStep() {
     this.elements.overlay.classList.remove("tutorial-needs-attention");
+  }
+
+  #guardTutorialNavigation(event) {
+    if (this.elements.overlay.hidden) return;
+    const link = event.target.closest?.("a[href]");
+    if (link && !this.elements.overlay.contains(link)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const status = this.elements.overlay.dataset.step === "free"
+        ? this.elements.freeStatus
+        : this.elements.conversationStatus;
+      if (status) status.textContent = "外部ページはチュートリアルが終わってから開けます。";
+      return;
+    }
+    const blockedAction = event.target.closest?.("#voice-enable, #force-speak-button, #new-conversation");
+    if (blockedAction && !this.elements.overlay.contains(blockedAction)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (this.elements.freeStatus) {
+        this.elements.freeStatus.textContent = blockedAction.id === "new-conversation"
+          ? "新しい会話を作るのはチュートリアルが終わってから試せます。ここでは用意した一時会話で切り替えを試せます。"
+          : "音声は次のページでデータを保存してから使えるようになります。";
+      }
+    }
+  }
+
+  async #prepareConversationTutorial() {
+    await this.app?.beginTutorialConversationDemo?.();
+    if (this.elements.overlay.dataset.step !== "conversations") return;
+    this.elements.conversationStatus.textContent = this.conversationTutorialCompleted
+      ? "切り替えできました。会話一覧から別の会話を選ぶと、履歴も一緒に切り替わります。"
+      : "まずは上の「会話一覧」を押してみましょう。";
+    this.#updateHighlights("conversations");
+  }
+
+  #handleConversationListOpened() {
+    if (this.elements.overlay.dataset.step !== "conversations" || this.conversationTutorialCompleted) return;
+    const row = this.elements.conversationList.querySelector('[data-tutorial-conversation="true"]');
+    if (!row) return;
+    this.elements.conversationStatus.textContent = "一覧が開きました。「チュートリアル用の会話」を押して、履歴を切り替えてみましょう。";
+    this.#updateHighlights("conversations");
+  }
+
+  async #handleTutorialConversationOpened() {
+    if (this.elements.overlay.dataset.step !== "conversations") return;
+    await this.#waitFor(() => this.app?.isTutorialConversationOpen === true, this.demoRunToken, 2500);
+    if (!this.app?.isTutorialConversationOpen) return;
+    this.conversationTutorialCompleted = true;
+    this.elements.next.disabled = false;
+    this.elements.conversationStatus.textContent = "切り替わりました。上の「会話一覧」を使えば、会話ごとに履歴を行き来できます。";
+    this.#updateHighlights("conversations");
   }
 
   #jumpFromSummary(stepName) {
@@ -1069,6 +1138,19 @@ export class TutorialController {
       this.elements.cancelCurrentButton.classList.add("tutorial-target");
       primaryTarget = this.elements.cancelCurrentButton;
     }
+    if (step === "conversations") {
+      if (!this.conversationTutorialCompleted) {
+        const row = this.elements.conversationList.querySelector('[data-tutorial-conversation="true"]');
+        const conversationPanelVisible = !this.elements.conversationPanel.hidden;
+        const target = conversationPanelVisible && row ? row : this.elements.conversationView;
+        target.classList.add("tutorial-target");
+        primaryTarget = target;
+      }
+    }
+    if (step === "free") {
+      this.elements.next.classList.add("tutorial-target");
+      primaryTarget = this.elements.next;
+    }
     if (step === "download" && !this.downloadCompleted) {
       if (!this.downloadAcknowledged) {
         this.elements.downloadAck.classList.add("tutorial-target");
@@ -1132,6 +1214,8 @@ export class TutorialController {
       correctionDemo: byId("tutorial-correction-demo"),
       waitDemo: byId("tutorial-wait-demo"),
       cancelDemo: byId("tutorial-cancel-demo"),
+      conversationStatus: byId("tutorial-conversation-status"),
+      freeStatus: byId("tutorial-free-status"),
       sampleButton: byId("tutorial-sample-button"),
       sampleStatus: byId("tutorial-sample-status"),
       downloadSize: byId("tutorial-download-size"),
@@ -1151,6 +1235,11 @@ export class TutorialController {
       correctionButton: byId("correction-button"),
       reasoningSeconds: byId("reasoning-seconds"),
       cancelCurrentButton: byId("cancel-current-button"),
+      voiceEnable: byId("voice-enable"),
+      timelineView: byId("timeline-view"),
+      conversationView: byId("conversation-view"),
+      conversationPanel: byId("conversation-panel"),
+      conversationList: byId("conversation-list"),
       pendingList: byId("pending-list"),
       pendingCount: byId("pending-count"),
       pendingTemplate: byId("pending-template"),
