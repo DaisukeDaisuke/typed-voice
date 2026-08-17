@@ -5,6 +5,7 @@
  */
 
 const MODEL_CACHE = "typed-voice-model-assets-v2";
+const KANALIZER_MODEL_CACHE = "typed-voice-kanalizer-model-v1";
 const SOURCE_CACHE_KEY = new URL(self.location.href).searchParams.get("source-cache") || "legacy-v4";
 const SOURCE_CACHE = `typed-voice-source-${SOURCE_CACHE_KEY}`;
 const MODEL_PREFIX = new URL("__typed_voice_assets/", self.registration.scope).pathname;
@@ -14,12 +15,15 @@ const SHELL = [
   "./",
   "./index.html",
   "./poc.html",
+  "./licenses.html",
   "./voice-manifest.json",
   "./LICENSE.txt",
   "./NOTICE.txt",
   "./THIRD_PARTY_NOTICES.md",
   "./licenses/BOSON-HIGGS-AUDIO-2-LICENSE.txt",
   "./licenses/META-LLAMA-3-LICENSE.txt",
+  "./licenses/VOICEVOX-KANALIZER-LICENSE.txt",
+  "./licenses/KANALIZER-RUST-LICENSES.md",
   "./ort-wasm-simd-threaded.mjs",
   "./ort-wasm-simd-threaded.wasm",
   "./ort-wasm-simd-threaded.jsep.mjs",
@@ -41,7 +45,7 @@ self.addEventListener("activate", (event) => {
       caches.keys().then((keys) =>
         Promise.all(
           keys
-            .filter((key) => key.startsWith("typed-voice-") && key !== SOURCE_CACHE && key !== MODEL_CACHE)
+            .filter((key) => key.startsWith("typed-voice-") && key !== SOURCE_CACHE && key !== MODEL_CACHE && key !== KANALIZER_MODEL_CACHE)
             .map((key) => caches.delete(key))
         )
       ),

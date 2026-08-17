@@ -25,6 +25,9 @@ await Promise.all([
   mkdir(join(destination, "licenses"), { recursive: true }).then(() =>
     cp(join(root, "licenses"), join(destination, "licenses"), { recursive: true })
   ),
+  mkdir(join(destination, "licenses"), { recursive: true }).then(() =>
+    cp(join(root, "third_party", "kanalizer", "LICENSE"), join(destination, "licenses", "VOICEVOX-KANALIZER-LICENSE.txt"))
+  ),
 ]);
 
 console.log(`Copied ${runtimeFiles.length} ONNX Runtime Web runtime assets and legal notices.`);

@@ -27,6 +27,7 @@ export default defineConfig({
       input: {
         app: resolve(rootDirectory, "index.html"),
         poc: resolve(rootDirectory, "poc.html"),
+        licenses: resolve(rootDirectory, "licenses.html"),
       },
     },
   },

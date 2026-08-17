@@ -8,3 +8,6 @@
 	url = https://github.com/gzuidhof/coi-serviceworker.git
 	branch = master
 	shallow = true
+[submodule "third_party/kanalizer"]
+	path = third_party/kanalizer
+	url = https://github.com/VOICEVOX/kanalizer.git

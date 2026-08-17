@@ -1,6 +1,11 @@
 import "./poc.css";
 import { EngineClient } from "./engine/engine-client.js";
 import { requireServiceWorker } from "./app/service-worker-required.js";
+import {
+  hasKanalizerCandidate,
+  normalizeAsciiLetterRunsForPoc,
+  prepareKanalizerOffline,
+} from "./text/kanalizer-normalizer.js";
 
 const isolationStatus = document.querySelector("#isolation-status");
 const engineStatus = document.querySelector("#engine-status");
@@ -11,6 +16,10 @@ const speakButton = document.querySelector("#speak-button");
 const speechText = document.querySelector("#speech-text");
 const speechSpeed = document.querySelector("#speech-speed");
 const voiceProfile = document.querySelector("#voice-profile");
+const normalizeEnglish = document.querySelector("#normalize-english");
+const normalizeButton = document.querySelector("#normalize-button");
+const kanalizerStatus = document.querySelector("#kanalizer-status");
+const normalizedText = document.querySelector("#normalized-text");
 
 const REMOTE_MANIFEST_URLS = {
   "mobile-int4": "https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/mobile-int4/typed-voice-manifest.json",
@@ -30,6 +39,7 @@ let manifest = null;
 let prepared = false;
 let initialized = false;
 let busy = false;
+let normalizerBusy = false;
 
 await requireServiceWorker({ reloadKey: "typed-voice-poc-coi-reloaded" });
 isolationStatus.textContent = globalThis.crossOriginIsolated
@@ -48,12 +58,30 @@ voiceProfile.addEventListener("change", async () => {
   await loadVoiceManifest(voiceProfile.value);
 });
 
+speechText.addEventListener("input", () => {
+  normalizedText.textContent = "";
+});
+
+normalizeButton.addEventListener("click", async () => {
+  const text = speechText.value.trim();
+  if (!text) return;
+  await runNormalizerTask(async () => {
+    await normalizeForPoc(text);
+  });
+});
+
 prepareButton.addEventListener("click", async () => {
   await runButtonTask(async () => {
     engineStatus.textContent = `${manifest.displayName} runtimeを取得し、ストリーミングXXH3-128検証後にオフラインCacheへ保存しています。`;
     const result = await client.prepare();
+    const kanalizer = await prepareKanalizerOffline({
+      onStatus(message) {
+        kanalizerStatus.textContent = message;
+      },
+    });
     prepared = true;
-    engineStatus.textContent = `オフライン音声準備完了: ${(result.totalBytes / 1024 / 1024).toFixed(1)} MiB`;
+    const totalBytes = result.totalBytes + kanalizer.modelBytes + kanalizer.dictionaryBytes + kanalizer.wasmBytes;
+    engineStatus.textContent = `オフライン音声準備完了: ${(totalBytes / 1024 / 1024).toFixed(1)} MiB（音声 + Kanalizer）`;
   });
 });
 
@@ -78,12 +106,17 @@ speakButton.addEventListener("click", async () => {
   try {
     await audioContext.resume();
     await runButtonTask(async () => {
+      let synthesisText = text;
+      if (normalizeEnglish.checked) {
+        const normalized = await normalizeForPoc(text);
+        synthesisText = normalized.text;
+      }
       const utteranceId = crypto.randomUUID();
       const startedAt = performance.now();
       const result = await client.synthesize({
         utteranceId,
         generation: 1,
-        text,
+        text: synthesisText,
         options: { language: "ja", speed, seed: 2026081601 },
       });
       const elapsed = performance.now() - startedAt;
@@ -155,6 +188,25 @@ function normalizeProfile(profile) {
   return Object.hasOwn(PROFILE_LABELS, profile) ? profile : "fp16";
 }
 
+async function normalizeForPoc(text) {
+  if (!hasKanalizerCandidate(text)) {
+    kanalizerStatus.textContent = "正規化対象の英字列はありません。Kanalizerモデルは読み込みません。";
+    normalizedText.textContent = text;
+    return { text, replacements: [], modelRevision: null };
+  }
+  const result = await normalizeAsciiLetterRunsForPoc(text, {
+    onStatus(message) {
+      kanalizerStatus.textContent = message;
+    },
+  });
+  normalizedText.textContent = result.text;
+  const summary = result.replacements.map(({ source, reading }) => `${source}→${reading}`).join(" / ");
+  kanalizerStatus.textContent = summary
+    ? `正規化完了: ${summary}`
+    : "正規化対象の英字列はありません。";
+  return result;
+}
+
 async function playFloat32(audioContext, samples, sampleRate) {
   const buffer = audioContext.createBuffer(1, samples.length, sampleRate);
   buffer.copyToChannel(samples, 0);
@@ -180,11 +232,26 @@ async function runButtonTask(task) {
   }
 }
 
+async function runNormalizerTask(task) {
+  normalizerBusy = true;
+  syncControls();
+  try {
+    await task();
+  } catch (error) {
+    kanalizerStatus.textContent = error instanceof Error ? error.message : String(error);
+  } finally {
+    normalizerBusy = false;
+    syncControls();
+  }
+}
+
 function syncControls() {
   const hasAssets = Array.isArray(manifest?.assets) && manifest.assets.length > 0;
   const preparable = Boolean(manifest) && manifest.preparable !== false && hasAssets;
   const installable = Boolean(manifest) && manifest.installable !== false;
   voiceProfile.disabled = busy;
+  normalizeEnglish.disabled = busy || normalizerBusy;
+  normalizeButton.disabled = busy || normalizerBusy;
   prepareButton.disabled = busy || !preparable || initialized;
   initializeButton.disabled = busy || !installable || !prepared || initialized;
   speakButton.disabled = busy || !initialized;

@@ -31,7 +31,17 @@
       <button id="initialize-button" type="button">エンジンを起動</button>
     </div>
     <label for="speech-text">読み上げる文章</label>
-    <textarea id="speech-text" rows="5">東京都税関関税許可局、関税許可を急遽却下</textarea>
+    <textarea id="speech-text" rows="5">私はWebAssemblyを使って音声合成を試します。</textarea>
+    <section class="normalizer-poc" aria-label="英単語の読み正規化PoC">
+      <label class="normalizer-toggle">
+        <input id="normalize-english" type="checkbox" checked>
+        英字列をKanalizerでカタカナ読みに正規化する
+      </label>
+      <p class="normalizer-note">英字列の抽出条件はPoC用です。「日本語に挟まれた英単語」の製品仕様上の定義はまだ固定しません。</p>
+      <button id="normalize-button" type="button">正規化だけ確認</button>
+      <p id="kanalizer-status" class="status" aria-live="polite">既知語はKanalizer v3辞書で処理し、辞書にない部分だけv5モデルを取得します。</p>
+      <pre id="normalized-text" class="status" aria-live="polite"></pre>
+    </section>
     <label for="speech-speed">速度</label>
     <div class="speed-control">
       <input id="speech-speed" type="number" min="0.5" max="2" step="0.1" value="1">
@@ -57,8 +67,8 @@ https://tyc.rei-yumesaki.net
 ■他者に対して二次利用（素材としての利用）を許可する形で公開すること。</pre>
     </section>
     <section class="license-notice" aria-label="ライセンス表記">
-      <p>Higgs Audio 2 / Meta Llama 3 を利用するランタイムについては、同梱の第三者ライセンスとNOTICEが適用されます。</p>
-      <p><a href="./THIRD_PARTY_NOTICES.md">第三者ライセンス・帰属情報</a></p>
+      <p>音声コーパス、Higgs Audio 2 / Meta Llama 3、VOICEVOX Kanalizerなどには、それぞれ独立した利用条件・ライセンスが適用されます。</p>
+      <p><a href="./licenses.html">ライセンス・利用条件を確認する</a></p>
     </section>
   </main>
   <script type="module" src="/src/poc-main.js"></script>

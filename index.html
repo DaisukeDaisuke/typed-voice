@@ -19,10 +19,41 @@
     <nav class="topbar-actions" aria-label="アプリメニュー">
       <button id="timeline-view" class="quiet-button" type="button" aria-pressed="true">履歴</button>
       <button id="conversation-view" class="quiet-button" type="button" aria-pressed="false">会話一覧</button>
+      <button id="settings-button" class="quiet-button" type="button" aria-expanded="false" aria-controls="settings-panel">設定</button>
       <a class="quiet-link" href="./poc.html">音声テスト</a>
-      <a class="quiet-link" href="./THIRD_PARTY_NOTICES.md">ライセンス</a>
+      <a class="quiet-link" href="./licenses.html">ライセンス</a>
     </nav>
   </header>
+
+  <section id="settings-panel" class="settings-panel" aria-labelledby="settings-heading" hidden>
+    <div class="settings-heading">
+      <div>
+        <p class="eyebrow">設定</p>
+        <h2 id="settings-heading">音声モデル</h2>
+      </div>
+      <button id="settings-close" class="quiet-button small" type="button">閉じる</button>
+    </div>
+    <div class="model-profile-picker" data-model-profile-control>
+      <div class="model-toggle" role="radiogroup" aria-label="音声モデル">
+        <label><input type="radio" name="settings-model-profile" value="fp32"><span>オリジナル</span></label>
+        <label><input type="radio" name="settings-model-profile" value="fp16"><span>推奨</span></label>
+        <label><input type="radio" name="settings-model-profile" value="mobile-int8"><span>低メモリ</span></label>
+        <label><input type="radio" name="settings-model-profile" value="mobile-int4"><span>非推奨</span></label>
+      </div>
+      <div class="model-profile-summary" aria-live="polite">
+        <strong data-model-profile-title></strong>
+        <div class="model-profile-facts">
+          <span data-model-profile-device></span>
+          <span data-model-profile-quality></span>
+          <span data-model-profile-precision></span>
+          <span data-model-profile-size></span>
+        </div>
+      </div>
+      <p class="model-profile-warning" data-model-profile-warning hidden>推奨モデル以外では、品質やダウンロード容量を保証できません。</p>
+      <p class="settings-note">モデル選択は現在プレビューです。</p>
+    </div>
+    <button id="restart-tutorial" class="quiet-button settings-tutorial-button" type="button">チュートリアルをもう一度見る<span>モデルキャッシュはそのまま保持します</span></button>
+  </section>
 
   <main class="app-shell">
     <section id="composer-panel" class="composer-panel" aria-label="入力と統計">
@@ -120,6 +151,84 @@ https://tyc.rei-yumesaki.net
       </section>
     </section>
   </main>
+
+  <section id="tutorial-overlay" class="tutorial-overlay" role="dialog" aria-modal="true" aria-labelledby="tutorial-title" hidden>
+    <div class="tutorial-shell">
+      <header class="tutorial-header">
+        <div>
+          <p class="eyebrow">はじめての typed-voice</p>
+          <h2 id="tutorial-title">操作チュートリアル</h2>
+        </div>
+        <strong id="tutorial-progress" class="tutorial-progress" aria-live="polite">1 / 5</strong>
+      </header>
+
+      <div class="tutorial-pages">
+        <section class="tutorial-page" data-tutorial-step="model">
+          <p class="tutorial-kicker">最初にひとつだけ</p>
+          <h3>使うモデルを選びます</h3>
+          <p>迷ったら「推奨」のままで大丈夫です。ここでの選択は保存されますが、この段階ではモデルを読み込みません。</p>
+          <div class="model-profile-picker tutorial-model-picker" data-model-profile-control>
+            <div class="model-toggle" role="radiogroup" aria-label="チュートリアルの音声モデル">
+              <label><input type="radio" name="tutorial-model-profile" value="fp32"><span>オリジナル</span></label>
+              <label><input type="radio" name="tutorial-model-profile" value="fp16"><span>推奨</span></label>
+              <label><input type="radio" name="tutorial-model-profile" value="mobile-int8"><span>低メモリ</span></label>
+              <label><input type="radio" name="tutorial-model-profile" value="mobile-int4"><span>非推奨</span></label>
+            </div>
+            <div class="model-profile-summary" aria-live="polite">
+              <strong data-model-profile-title></strong>
+              <div class="model-profile-facts">
+                <span data-model-profile-device></span>
+                <span data-model-profile-quality></span>
+                <span data-model-profile-precision></span>
+                <span data-model-profile-size></span>
+              </div>
+            </div>
+            <p class="model-profile-warning" data-model-profile-warning hidden>推奨モデル以外では、品質やダウンロード容量を保証できません。</p>
+          </div>
+        </section>
+
+        <section class="tutorial-page" data-tutorial-step="linebreak" data-tutorial-live="true" hidden>
+          <p class="tutorial-kicker">送信</p>
+          <h3>改行すると、その1行を送れます</h3>
+          <p>この入力欄では、Enterで改行した瞬間に直前の1行が「読み上げ待ち」へ入ります。改行自体は入力欄に残ります。</p>
+          <button id="tutorial-linebreak-demo" class="tutorial-demo-button" type="button">OK、実際のUIで動きを見る</button>
+          <p id="tutorial-demo-status" class="tutorial-demo-status" aria-live="polite">デモは入力欄と待ち表示だけを動かし、音声モデルは読み込みません。</p>
+        </section>
+
+        <section class="tutorial-page" data-tutorial-step="correction" data-tutorial-live="true" hidden>
+          <p class="tutorial-kicker">訂正</p>
+          <h3>読み上げ前なら、文章を差し替えられます</h3>
+          <p>入力欄に残っている直近の文章を直して「現在の文章で訂正する」を押します。読み上げ待ち中の文章だけが訂正対象です。</p>
+          <p class="tutorial-callout">言い直したいときに、新しいメッセージとして送り直す必要はありません。</p>
+        </section>
+
+        <section class="tutorial-page" data-tutorial-step="cancel" data-tutorial-live="true" hidden>
+          <p class="tutorial-kicker">取り消し</p>
+          <h3>読ませたくない文章は、待ち時間中に取り消せます</h3>
+          <p>上の「取り消す」は直近の読み上げ待ちを止めます。待ち一覧にある個別の「取り消し」でも、その文章だけを止められます。</p>
+          <button id="tutorial-cancel-demo" class="tutorial-demo-button" type="button">取り消しの動きを見る</button>
+          <p id="tutorial-cancel-status" class="tutorial-demo-status" aria-live="polite">デモ用の読み上げ待ちだけを消します。</p>
+        </section>
+
+        <section class="tutorial-page" data-tutorial-step="finish" hidden>
+          <p class="tutorial-kicker">準備完了</p>
+          <h3>これで基本操作は完了です</h3>
+          <p>モデルは右上の「設定」からいつでも変更できます。チュートリアルも設定から再開でき、そのときモデルキャッシュは削除しません。</p>
+          <div class="tutorial-summary-grid">
+            <span><strong>Enter</strong>改行して送信</span>
+            <span><strong>訂正</strong>待ち時間中に差し替え</span>
+            <span><strong>取り消し</strong>読ませる前に停止</span>
+            <span><strong>履歴 / 会話一覧</strong>読み上げ履歴と会話を切り替え</span>
+          </div>
+        </section>
+      </div>
+
+      <footer class="tutorial-footer">
+        <button id="tutorial-back" class="quiet-button tutorial-nav-button" type="button">戻る</button>
+        <button id="tutorial-next" class="primary-button tutorial-next-button" type="button">次へ</button>
+      </footer>
+    </div>
+  </section>
 
   <!-- handled by src/app/ui-orchestrator.js -->
   <template id="conversation-template">

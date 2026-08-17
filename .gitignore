@@ -6,3 +6,8 @@ dist/
 /public/NOTICE.txt
 /public/THIRD_PARTY_NOTICES.md
 /public/licenses/
+/src/kanalizer-wasm/
+/src/kanalizer-dictionary/dictionary.idx
+/src/kanalizer-dictionary/dictionary.str
+/src/kanalizer-dictionary/metadata.json
+/kanalizer-patch-worktree/

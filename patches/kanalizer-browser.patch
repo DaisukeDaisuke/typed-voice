@@ -1,0 +1,156 @@
+diff --git a/infer/Cargo.toml b/infer/Cargo.toml
+index 8e03ac5..2952b0f 100644
+--- a/infer/Cargo.toml
++++ b/infer/Cargo.toml
+@@ -8,3 +8,9 @@ license = "MIT"
+ [workspace]
+ members = ["crates/kanalizer-rs", "crates/kanalizer-py"]
+ resolver = "3"
++
++[profile.release]
++lto = true
++opt-level = "s"
++codegen-units = 1
++strip = true
+diff --git a/infer/crates/kanalizer-rs/Cargo.toml b/infer/crates/kanalizer-rs/Cargo.toml
+index 2676cf2..66b756e 100644
+--- a/infer/crates/kanalizer-rs/Cargo.toml
++++ b/infer/crates/kanalizer-rs/Cargo.toml
+@@ -6,6 +6,10 @@ license.workspace = true
+ exclude = ["tasks", "models"]
+ description.workspace = true
+ repository.workspace = true
++build = false
++
++[lib]
++crate-type = ["cdylib", "rlib"]
+ 
+ [[bench]]
+ name = "benchmark"
+@@ -14,15 +18,12 @@ harness = false
+ [features]
+ default = ["compress_model"]
+ 
++external_model = ["dep:wasm-bindgen"]
+ getrandom_on_wasm32_unknown = ["dep:rand", "getrandom/wasm_js"]
+ compress_model = ["dep:brotli-decompressor"]
+ 
+ [dependencies]
+-anyhow = "1.0.95"
+ brotli-decompressor = { version = "4.0.2", optional = true }
+-cfg-elif = "0.6.3"
+-clap = { version = "4.5.29", features = ["derive"] }
+-duplicate = "2.0.0"
+ educe = "0.6.0"
+ getrandom = { version = "0.3.1", optional = true }
+ itertools = "0.14.0"
+@@ -32,6 +33,7 @@ num-traits = "0.2.19"
+ rand = { version = "0.9.0", optional = true }
+ safetensors = "0.4.5"
+ thiserror = "2.0.12"
++wasm-bindgen = { version = "0.2", optional = true }
+ 
+ [target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dependencies]
+ rand = "0.9.0"
+diff --git a/infer/crates/kanalizer-rs/src/inference.rs b/infer/crates/kanalizer-rs/src/inference.rs
+index 75acddf..abf952e 100644
+--- a/infer/crates/kanalizer-rs/src/inference.rs
++++ b/infer/crates/kanalizer-rs/src/inference.rs
+@@ -428,6 +428,7 @@ impl std::fmt::Debug for Kanalizer {
+     }
+ }
+ 
++#[cfg(not(feature = "external_model"))]
+ impl Default for Kanalizer {
+     fn default() -> Self {
+         Self::new()
+@@ -436,6 +437,7 @@ impl Default for Kanalizer {
+ 
+ impl Kanalizer {
+     /// 新しいインスタンスを生成する。
++    #[cfg(not(feature = "external_model"))]
+     pub fn new() -> Self {
+         static MODEL: std::sync::LazyLock<Vec<u8>> = std::sync::LazyLock::new(|| {
+             cfg_elif::expr::cfg!(if (docsrs) {
+@@ -461,6 +463,17 @@ impl Kanalizer {
+             })
+         });
+         let weights = safetensors::SafeTensors::deserialize(&MODEL).expect("Model is corrupted");
++        Self::from_weights(weights)
++    }
++
++    #[cfg(feature = "external_model")]
++    pub fn from_model_bytes(model: &[u8]) -> std::result::Result<Self, String> {
++        let weights = safetensors::SafeTensors::deserialize(model)
++            .map_err(|error| format!("Model is corrupted: {error}"))?;
++        Ok(Self::from_weights(weights))
++    }
++
++    fn from_weights(weights: safetensors::SafeTensors) -> Self {
+         let inner = BaseE2k::new(
+             weights,
+             constants::ASCII_ENTRIES
+diff --git a/infer/crates/kanalizer-rs/src/lib.rs b/infer/crates/kanalizer-rs/src/lib.rs
+index b5a4296..51215b2 100644
+--- a/infer/crates/kanalizer-rs/src/lib.rs
++++ b/infer/crates/kanalizer-rs/src/lib.rs
+@@ -30,18 +30,24 @@ mod layers;
+ 
+ use std::{collections::HashSet, sync::LazyLock};
+ 
++#[cfg(feature = "external_model")]
++use wasm_bindgen::prelude::*;
++
+ pub use constants::{ASCII_ENTRIES, KANAS};
+ pub use error::*;
+ pub use inference::*;
+ 
++#[cfg(not(feature = "external_model"))]
+ static KANALIZER: LazyLock<Kanalizer> = LazyLock::new(Kanalizer::new);
+ 
+ /// 変換を行うためのオプションを指定する構造体。
++#[cfg(not(feature = "external_model"))]
+ pub struct ConvertBuilder {
+     word: String,
+     options: ConvertOptions,
+ }
+ 
++#[cfg(not(feature = "external_model"))]
+ impl ConvertBuilder {
+     fn new(word: &str) -> Self {
+         Self {
+@@ -83,10 +89,34 @@ impl ConvertBuilder {
+ }
+ 
+ /// 変換を行う。
++#[cfg(not(feature = "external_model"))]
+ pub fn convert(word: &str) -> ConvertBuilder {
+     ConvertBuilder::new(word)
+ }
+ 
++#[cfg(feature = "external_model")]
++#[wasm_bindgen]
++pub struct KanalizerModel {
++    inner: Kanalizer,
++}
++
++#[cfg(feature = "external_model")]
++#[wasm_bindgen]
++impl KanalizerModel {
++    #[wasm_bindgen(constructor)]
++    pub fn new(model_bytes: &[u8]) -> std::result::Result<KanalizerModel, JsValue> {
++        let inner = Kanalizer::from_model_bytes(model_bytes)
++            .map_err(|message| JsValue::from_str(&message))?;
++        Ok(Self { inner })
++    }
++
++    pub fn convert(&self, word: &str) -> std::result::Result<String, JsValue> {
++        self.inner
++            .convert(word, &ConvertOptions::default())
++            .map_err(|error| JsValue::from_str(&error.to_string()))
++    }
++}
++
+ /// Kanalizerの入力に使える文字の一覧。
+ pub static INPUT_CHARS: LazyLock<HashSet<char>> = LazyLock::new(|| {
+     [

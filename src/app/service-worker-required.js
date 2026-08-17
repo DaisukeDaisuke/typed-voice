@@ -1,6 +1,6 @@
 // Bump only this key when deployed HTML/JS/CSS/runtime source must be discarded.
 // The prepared model cache uses a separate fixed key and is intentionally preserved.
-const SOURCE_CACHE_KEY = "2026-08-17-10";
+const SOURCE_CACHE_KEY = "2026-08-17-13";
 
 export async function requireServiceWorker({ reloadKey = "typed-voice-coi-reloaded" } = {}) {
   if (!("serviceWorker" in navigator)) {
