@@ -475,6 +475,7 @@ body.tutorial-window-dragging * { cursor: grabbing !important; }
   animation: tutorial-scroll-finger 1.2s ease-in-out infinite;
 }
 .tutorial-scroll-mouse {
+  position: relative;
   width: 66px;
   height: 66px;
   display: grid;
@@ -482,10 +483,13 @@ body.tutorial-window-dragging * { cursor: grabbing !important; }
   color: #762b0c;
 }
 .tutorial-scroll-mouse svg { width: 100%; height: 100%; overflow: visible; }
-.tutorial-scroll-mouse-wheel {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: tutorial-scroll-mouse-wheel 1.2s ease-in-out infinite;
+.tutorial-scroll-mouse .tutorial-scroll-mouse-motion {
+  position: absolute;
+  left: calc(100% + 5px);
+  top: -3px;
+  width: 22px;
+  height: 72px;
+  animation: tutorial-scroll-mouse-motion 1.2s ease-in-out infinite;
 }
 .tutorial-scroll-track {
   position: relative;
@@ -513,9 +517,9 @@ body.tutorial-window-dragging * { cursor: grabbing !important; }
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(52px); }
 }
-@keyframes tutorial-scroll-mouse-wheel {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(11px); }
+@keyframes tutorial-scroll-mouse-motion {
+  0%, 100% { transform: translateY(7px); }
+  50% { transform: translateY(-7px); }
 }
 .tutorial-character-page { text-align: left; }
 .tutorial-character-page > p { max-width: 52ch; }
