@@ -11,6 +11,9 @@ const SOURCE_CACHE = `typed-voice-source-${SOURCE_CACHE_KEY}`;
 const HUGGINGFACE_RESOLVE_CACHE = `typed-voice-huggingface-resolve-${SOURCE_CACHE_KEY}`;
 const MODEL_PREFIX = new URL("__typed_voice_assets/", self.registration.scope).pathname;
 const MODEL_CHUNK_QUERY = "__typed_voice_part";
+const MODEL_DOWNLOAD_LOCK_LEASE_MS = 2 * 60 * 1000;
+const MODEL_DOWNLOAD_LOCK_RETRY_MS = 500;
+const modelDownloadLocks = new Map();
 const DEV_MODE = new URL(self.location.href).searchParams.get("dev") === "1";
 const SHELL = [
   "./",
@@ -58,18 +61,94 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("message", (event) => {
   const message = event.data;
-  if (message?.type !== "typed-voice:check-model-cache") return;
-  const port = event.ports?.[0];
-  if (!port) return;
-  event.waitUntil((async () => {
-    try {
-      const prepared = await isPreparedModelCached(message.manifestUrl, message.appBaseUrl);
-      port.postMessage({ ok: true, prepared });
-    } catch (error) {
-      port.postMessage({ ok: false, prepared: false, message: error instanceof Error ? error.message : String(error) });
-    }
-  })());
+  if (message?.type === "typed-voice:check-model-cache") {
+    const port = event.ports?.[0];
+    if (!port) return;
+    event.waitUntil((async () => {
+      try {
+        const prepared = await isPreparedModelCached(message.manifestUrl, message.appBaseUrl);
+        port.postMessage({ ok: true, prepared });
+      } catch (error) {
+        port.postMessage({ ok: false, prepared: false, message: error instanceof Error ? error.message : String(error) });
+      }
+    })());
+    return;
+  }
+  if (message?.type === "typed-voice:model-download-lock-acquire") {
+    const port = event.ports?.[0];
+    if (!port) return;
+    event.waitUntil(handleModelDownloadLockAcquire(event, message, port));
+    return;
+  }
+  if (message?.type === "typed-voice:model-download-lock-renew") {
+    renewModelDownloadLock(event, message);
+    return;
+  }
+  if (message?.type === "typed-voice:model-download-lock-release") {
+    releaseModelDownloadLock(event, message);
+  }
 });
+
+function normalizedModelDownloadLockKey(value) {
+  const key = String(value ?? "");
+  if (!key || key.length > 8192) return null;
+  return key;
+}
+
+function modelDownloadLockOwnerMatches(lock, event, message) {
+  return Boolean(lock)
+    && lock.clientId === event.source?.id
+    && lock.requestId === String(message.requestId ?? "");
+}
+
+async function handleModelDownloadLockAcquire(event, message, port) {
+  const key = normalizedModelDownloadLockKey(message.key);
+  const requestId = String(message.requestId ?? "");
+  const clientId = event.source?.id;
+  if (!key || !requestId || !clientId) {
+    port.postMessage({ ok: false, granted: false, message: "invalid model download lock request" });
+    return;
+  }
+
+  const now = Date.now();
+  let lock = modelDownloadLocks.get(key);
+  if (lock && lock.expiresAt <= now) {
+    modelDownloadLocks.delete(key);
+    lock = null;
+  }
+  if (lock && !modelDownloadLockOwnerMatches(lock, event, message)) {
+    const ownerClient = await self.clients.get(lock.clientId).catch(() => null);
+    if (ownerClient) {
+      port.postMessage({ ok: true, granted: false, retryAfterMs: MODEL_DOWNLOAD_LOCK_RETRY_MS });
+      return;
+    }
+    modelDownloadLocks.delete(key);
+    lock = null;
+  }
+
+  modelDownloadLocks.set(key, {
+    clientId,
+    requestId,
+    expiresAt: now + MODEL_DOWNLOAD_LOCK_LEASE_MS,
+  });
+  port.postMessage({ ok: true, granted: true, leaseMs: MODEL_DOWNLOAD_LOCK_LEASE_MS });
+}
+
+function renewModelDownloadLock(event, message) {
+  const key = normalizedModelDownloadLockKey(message.key);
+  if (!key) return;
+  const lock = modelDownloadLocks.get(key);
+  if (!modelDownloadLockOwnerMatches(lock, event, message)) return;
+  lock.expiresAt = Date.now() + MODEL_DOWNLOAD_LOCK_LEASE_MS;
+}
+
+function releaseModelDownloadLock(event, message) {
+  const key = normalizedModelDownloadLockKey(message.key);
+  if (!key) return;
+  const lock = modelDownloadLocks.get(key);
+  if (!modelDownloadLockOwnerMatches(lock, event, message)) return;
+  modelDownloadLocks.delete(key);
+}
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;

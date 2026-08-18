@@ -1,5 +1,8 @@
+import { acquireModelDownloadLock } from "../app/model-download-lock.js";
+
 export class EngineClient {
   constructor({ manifestUrl, appBaseUrl = null, onProgress = () => {} }) {
+    this.manifestUrl = manifestUrl;
     this.worker = new Worker(new URL("./engine.worker.js", import.meta.url), { type: "module" });
     this.pending = new Map();
     this.onProgress = onProgress;
@@ -18,7 +21,12 @@ export class EngineClient {
 
   async prepare(preferredThreadCount = 0) {
     await this.configured;
-    return this.request("prepare", { preferredThreadCount });
+    const lock = await acquireModelDownloadLock(this.manifestUrl);
+    try {
+      return await this.request("prepare", { preferredThreadCount });
+    } finally {
+      lock.release();
+    }
   }
 
   async getManifest() {
