@@ -131,6 +131,8 @@ a { -webkit-tap-highlight-color: transparent; }
 
 .settings-tutorial-button { width: 100%; margin-top: 14px; text-align: left; font-weight: 700; }
 .settings-tutorial-button span { display: block; margin-top: 2px; color: #857d72; font-size: 0.7rem; font-weight: 500; }
+.remote-audio-format-setting { margin-top: 10px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; color: #6f675f; font-size: 0.78rem; }
+.remote-audio-format-setting select { min-height: 38px; max-width: 220px; padding: 6px 9px; border: 1px solid #d2ccc3; border-radius: 10px; background: #fbfaf8; color: #413d37; }
 .remote-mode-banner[hidden] { display: none; }
 .remote-mode-banner {
   position: sticky;

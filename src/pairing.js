@@ -1,6 +1,7 @@
 import "./pairing.css";
 import jsQR from "jsqr";
 import { decodeRemotePairingQrText, validateRemotePairingPayload } from "./app/remote-mode-policy.js";
+import { decryptRemotePairingFile } from "./app/remote-pairing-file.js";
 import { writeRemotePairing } from "./app/remote-pairing-store.js";
 import { resolvePairingScanRect } from "./app/pairing-scan-policy.js";
 
@@ -10,6 +11,8 @@ const placeholder = document.getElementById("pairing-camera-placeholder");
 const status = document.getElementById("pairing-status");
 const retry = document.getElementById("pairing-retry");
 const backLocal = document.getElementById("pairing-back-local");
+const pairingFile = document.getElementById("pairing-file");
+const pairingFileButton = document.getElementById("pairing-file-button");
 const context = canvas.getContext("2d", { willReadFrequently: true });
 const pairingPageUrl = new URL(document.location.href);
 let stream = null;
@@ -30,7 +33,7 @@ function stopCamera() {
   video.srcObject = null;
 }
 
-function decodeQrPayload(text) {
+async function decodeQrPayload(text) {
   let value;
   try {
     value = decodeRemotePairingQrText(text);
@@ -41,9 +44,13 @@ function decodeQrPayload(text) {
 }
 
 async function completePairing(text) {
-  const pairing = decodeQrPayload(text);
+  const pairing = await decodeQrPayload(text);
+  await savePairing(pairing, "QRを読み取りました。接続情報をこの端末へ保存しています…");
+}
+
+async function savePairing(pairing, progressMessage) {
   scanning = false;
-  status.textContent = "QRを読み取りました。接続情報をこの端末へ保存しています…";
+  status.textContent = progressMessage;
   await writeRemotePairing(pairing);
   stopCamera();
   const target = new URL("index.html", document.baseURI);
@@ -51,6 +58,15 @@ async function completePairing(text) {
   if (conversation) target.searchParams.set("conversation", conversation);
   status.textContent = "保存できました。クライアントモードへ戻ります。";
   document.location.replace(target.href);
+}
+
+async function completePairingFile(file) {
+  if (!file) return;
+  if (file.size < 1 || file.size > 16 * 1024) throw new Error("接続キーファイルのサイズが正しくありません。");
+  status.textContent = "接続キーファイルを復号しています…";
+  const value = await decryptRemotePairingFile(await file.arrayBuffer());
+  const pairing = await validateRemotePairingPayload(value);
+  await savePairing(pairing, "接続キーファイルを確認しました。接続情報をこの端末へ保存しています…");
 }
 
 function getScanRect() {
@@ -117,5 +133,14 @@ async function startCamera() {
 }
 
 retry.addEventListener("click", () => void startCamera());
+pairingFileButton.addEventListener("click", () => pairingFile.click());
+pairingFile.addEventListener("change", () => {
+  const [file] = pairingFile.files ?? [];
+  pairingFile.value = "";
+  if (!file) return;
+  void completePairingFile(file).catch((error) => {
+    status.textContent = error instanceof Error ? error.message : String(error);
+  });
+});
 globalThis.addEventListener("pagehide", stopCamera, { once: true });
 void startCamera();

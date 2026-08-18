@@ -9,7 +9,6 @@ import { reconcileTutorialPersistence } from "./app/tutorial-persistence.js";
 import { initializeOfflineRuntimeResetUi } from "./app/offline-runtime-reset.js";
 import { initializeRemoteModeUi } from "./app/remote-mode-ui.js";
 import { NoVoiceRuntime } from "./app/no-voice-runtime.js";
-import { RemoteWssTransport } from "./app/remote-wss-transport.js";
 
 const FULL_TUTORIAL_ROUTE = Object.freeze([
   "about",
@@ -47,7 +46,27 @@ const voiceStatus = document.querySelector("#voice-status");
 const manifestUrl = new URL(`${import.meta.env.BASE_URL}voice-manifest.json`, document.baseURI).href;
 const appBaseUrl = new URL(import.meta.env.BASE_URL, document.baseURI).href;
 let voiceRuntime;
-if (remoteModeUi.isServerMode) {
+if (remoteModeUi.isServerMode && remoteModeUi.pairing) {
+  const { RemoteVoiceRuntime } = await import("./app/remote-voice-runtime.js");
+  voiceRuntime = new RemoteVoiceRuntime(remoteModeUi.pairing, {
+    audioFormat: remoteModeUi.audioFormat,
+    onOpen() {
+      remoteModeUi.showTransportConnected();
+    },
+    onAuthenticated() {
+      remoteModeUi.showHandshakeSuccess();
+    },
+    onServerConfig(config) {
+      remoteModeUi.applyServerConfig(config);
+    },
+    onFailure(error) {
+      remoteModeUi.showHandshakeFailure(error instanceof Error ? error.message : String(error));
+    },
+    onClose() {
+      remoteModeUi.showHandshakeFailure("以前の接続が切断されました。パソコン側に表示された新しいQRを読み取ってください。");
+    },
+  });
+} else if (remoteModeUi.isServerMode) {
   voiceRuntime = new NoVoiceRuntime();
 } else {
   const { VoiceRuntimeAdapter } = await import("./app/voice-runtime-adapter.js");
@@ -63,6 +82,8 @@ const modelProfileUi = await blocking.registerBlockingAsync("画面設定", asyn
   report({ detail: "保存済みの音声設定を読み込んでいます。" });
   return initializeModelProfileUi(document);
 });
+remoteModeUi.attachModelProfileUi(modelProfileUi);
+remoteModeUi.attachVoiceRuntime(voiceRuntime);
 const app = new UiOrchestrator(document, {
   voiceRuntime,
   getModelProfile: () => modelProfileUi.profile,
@@ -79,7 +100,11 @@ const selectedModelCached = remoteModeUi.isServerMode
     });
 await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
   report({ detail: "バックアップとチュートリアルを準備しています。" });
-  initializeBackupUi(document, { app, modelProfileUi });
+  initializeBackupUi(document, {
+    app,
+    modelProfileUi,
+    restartOverride: remoteModeUi.isServerMode ? () => remoteModeUi.reconnectServer() : null,
+  });
   const offlineRuntimeResetUi = initializeOfflineRuntimeResetUi(document, {
     db: app.repository?.db,
     modelProfileUi,
@@ -226,19 +251,8 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
   });
   await remoteModeUi.activateStoredConnection();
   if (remoteModeUi.isServerMode && remoteModeUi.startupAction === "handshake" && remoteModeUi.pairing) {
-    const remoteTransport = new RemoteWssTransport(remoteModeUi.pairing.endpoint, {
-      onOpen() {
-        remoteModeUi.showTransportConnected();
-      },
-      onFailure(error) {
-        remoteModeUi.showHandshakeFailure(error instanceof Error ? error.message : String(error));
-      },
-      onClose() {
-        remoteModeUi.showHandshakeFailure("以前の接続が切断されました。パソコン側に表示された新しいQRを読み取ってください。");
-      },
-    });
-    remoteTransport.connect();
-    globalThis.addEventListener("pagehide", () => remoteTransport.close(), { once: true });
+    voiceRuntime.connect();
+    globalThis.addEventListener("pagehide", () => voiceRuntime.close?.(), { once: true });
   }
   if (remoteModeUi.isServerMode) {
     voiceStatus.textContent = "クライアントモードでは、この端末の音声モデルを読み込みません。";

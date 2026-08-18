@@ -13,6 +13,7 @@ class FakeWebSocket {
     this.url = url;
     this.readyState = FakeWebSocket.CONNECTING;
     this.listeners = new Map();
+    this.sent = [];
     FakeWebSocket.instances.push(this);
   }
 
@@ -35,30 +36,41 @@ class FakeWebSocket {
     this.readyState = FakeWebSocket.CLOSED;
     this.emit("close", { code: 1000 });
   }
+
+  send(value) {
+    this.sent.push(value);
+  }
 }
 FakeWebSocket.instances = [];
+
+const PAIRING = {
+  endpoint: "wss://example-name.trycloudflare.com/remote",
+  authenticationKey: Buffer.alloc(32, 1).toString("base64url"),
+  encryptionKey: Buffer.alloc(32, 2).toString("base64url"),
+};
 
 test("保存済み接続先へWSSで接続し、socket openだけでは認証済みにしない", () => {
   FakeWebSocket.instances.length = 0;
   let opened = 0;
-  const transport = new RemoteWssTransport("wss://example-name.trycloudflare.com/typed-voice", {
+  const transport = new RemoteWssTransport(PAIRING, {
     WebSocketImpl: FakeWebSocket,
     connectTimeoutMs: 10000,
     onOpen() { opened += 1; },
   });
   transport.connect();
   const socket = FakeWebSocket.instances[0];
-  assert.equal(socket.url, "wss://example-name.trycloudflare.com/typed-voice");
+  assert.equal(socket.url, PAIRING.endpoint);
   socket.open();
   assert.equal(opened, 1);
   assert.equal(transport.authenticated, false);
+  assert.equal(socket.sent.length, 1);
   transport.close();
 });
 
 test("認証済みWSS接続が切断されたら切断通知へ進む", () => {
   FakeWebSocket.instances.length = 0;
   let disconnected = 0;
-  const transport = new RemoteWssTransport("wss://example-name.trycloudflare.com/typed-voice", {
+  const transport = new RemoteWssTransport(PAIRING, {
     WebSocketImpl: FakeWebSocket,
     connectTimeoutMs: 10000,
     onClose() { disconnected += 1; },
@@ -72,7 +84,7 @@ test("認証済みWSS接続が切断されたら切断通知へ進む", () => {
 });
 
 test("WSS以外の接続先は接続前に拒否する", () => {
-  const transport = new RemoteWssTransport("https://example-name.trycloudflare.com/typed-voice", {
+  const transport = new RemoteWssTransport({ ...PAIRING, endpoint: "https://example-name.trycloudflare.com/remote" }, {
     WebSocketImpl: FakeWebSocket,
   });
   assert.throws(() => transport.connect());

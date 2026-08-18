@@ -6,10 +6,11 @@ import {
 } from "./application-backup.js";
 
 export class BackupUiController {
-  constructor(documentRef = document, { app = null, modelProfileUi = null } = {}) {
+  constructor(documentRef = document, { app = null, modelProfileUi = null, restartOverride = null } = {}) {
     this.document = documentRef;
     this.app = app;
     this.modelProfileUi = modelProfileUi;
+    this.restartOverride = restartOverride;
     this.restartBackupVerified = false;
     this.restartDialogGeneration = 0;
     this.elements = this.#resolveElements();
@@ -24,7 +25,13 @@ export class BackupUiController {
       this.elements.settingsImportInput.value = "";
     });
 
-    this.elements.restart.addEventListener("click", () => this.#openRestartDialog());
+    this.elements.restart.addEventListener("click", () => {
+      if (this.restartOverride) {
+        void this.restartOverride();
+        return;
+      }
+      this.#openRestartDialog();
+    });
     this.elements.restartCancel.addEventListener("click", () => this.#closeRestartDialog());
     this.elements.restartBackup.addEventListener("click", () => void this.#downloadRestartBackup());
     this.elements.restartBackupConfirm.addEventListener("click", () => this.#confirmRestartBackupSaved());

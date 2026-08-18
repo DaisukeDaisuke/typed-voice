@@ -27,6 +27,7 @@ export default defineConfig({
       input: {
         app: resolve(rootDirectory, "index.html"),
         pairing: resolve(rootDirectory, "pairing.html"),
+        serverEngine: resolve(rootDirectory, "server-engine.html"),
         poc: resolve(rootDirectory, "poc.html"),
         licenses: resolve(rootDirectory, "licenses.html"),
       },

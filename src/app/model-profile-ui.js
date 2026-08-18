@@ -66,6 +66,7 @@ export class ModelProfileUi {
     this.storage = storage;
     this.committedProfile = normalizeProfile(safeRead(storage, MODEL_PROFILE_STORAGE_KEY));
     this.profile = this.committedProfile;
+    this.remoteProfile = null;
     this.controls = [];
     this.settingsButton = null;
     this.settingsPanel = null;
@@ -90,6 +91,7 @@ export class ModelProfileUi {
   }
 
   select(profile, { persist = true } = {}) {
+    if (this.remoteProfile) return this.remoteProfile;
     this.profile = normalizeProfile(profile);
     if (persist) {
       this.committedProfile = this.profile;
@@ -117,6 +119,7 @@ export class ModelProfileUi {
   }
 
   restoreCommittedSelection() {
+    if (this.remoteProfile) return this.remoteProfile;
     this.profile = this.committedProfile;
     this.#render();
     this.document.dispatchEvent(new CustomEvent("typed-voice:model-profile-ui-change", {
@@ -134,6 +137,20 @@ export class ModelProfileUi {
     if (!this.settingsButton || !this.settingsPanel) return;
     this.settingsPanel.hidden = true;
     this.settingsButton.setAttribute("aria-expanded", "false");
+  }
+
+  setRemoteProfile(profile) {
+    this.remoteProfile = normalizeProfile(profile);
+    this.#render();
+    this.document.dispatchEvent(new CustomEvent("typed-voice:remote-model-profile", {
+      detail: { profile: this.remoteProfile },
+    }));
+    return this.remoteProfile;
+  }
+
+  clearRemoteProfile() {
+    this.remoteProfile = null;
+    this.#render();
   }
 
   #bindSettingsPanel() {
@@ -160,8 +177,8 @@ export class ModelProfileUi {
 
   #render() {
     for (const control of this.controls) {
-      const readOnly = control.hasAttribute("data-model-profile-readonly");
-      const selectedProfile = readOnly ? this.committedProfile : this.profile;
+      const readOnly = this.remoteProfile !== null || control.hasAttribute("data-model-profile-readonly");
+      const selectedProfile = this.remoteProfile ?? (readOnly ? this.committedProfile : this.profile);
       const profile = MODEL_PROFILES[selectedProfile];
       for (const input of control.querySelectorAll('input[type="radio"]')) {
         input.checked = input.value === selectedProfile;

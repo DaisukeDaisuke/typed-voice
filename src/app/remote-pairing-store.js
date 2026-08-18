@@ -41,3 +41,7 @@ export function readRemotePairing(indexedDBImpl = globalThis.indexedDB) {
 export function writeRemotePairing(pairing, indexedDBImpl = globalThis.indexedDB) {
   return withStore("readwrite", (store) => requestResult(store.put(pairing, PAIRING_KEY)), indexedDBImpl);
 }
+
+export function deleteRemotePairing(indexedDBImpl = globalThis.indexedDB) {
+  return withStore("readwrite", (store) => requestResult(store.delete(PAIRING_KEY)), indexedDBImpl);
+}

@@ -95,6 +95,14 @@
     </div>
     <button id="settings-model-picker" class="quiet-button settings-tutorial-button" type="button">モデルを変更<span>モデル選択と必要なダウンロードだけを開きます。</span></button>
     <button id="settings-server-connect" class="quiet-button settings-tutorial-button" type="button">クライアントモード起動（必須ではありません）<span>別のパソコンに音声合成を任せるためのモードへ切り替えます。</span></button>
+    <button id="settings-server-forget" class="quiet-button settings-tutorial-button" type="button" hidden>サーバー登録解除<span>現在のサーバー接続を切断し、保存した接続情報を削除してオフラインモードへ戻ります。</span></button>
+    <label class="remote-audio-format-setting" for="remote-audio-format">
+      <span>クライアントモードの音声転送</span>
+      <select id="remote-audio-format">
+        <option value="float32">最高品質（Float32）</option>
+        <option value="pcm16">通信量を抑える（PCM16）</option>
+      </select>
+    </label>
     <button id="restart-tutorial" class="quiet-button settings-tutorial-button" type="button">チュートリアルをもう一度見る<span>先に会話・設定のバックアップを保存してから初期化します。モデルキャッシュは保持します。やり直しにはインターネット接続が必要です</span></button>
     <details class="settings-advanced">
       <summary>高度</summary>

@@ -28,6 +28,9 @@
       </div>
       <p id="pairing-status" class="pairing-status" aria-live="assertive">カメラの許可を待っています。</p>
       <button id="pairing-retry" class="pairing-primary-action" type="button" hidden>カメラをもう一度起動</button>
+      <input id="pairing-file" type="file" accept=".tvrkey,.txt,application/octet-stream,text/plain" hidden>
+      <button id="pairing-file-button" class="pairing-secondary-action" type="button">接続キーファイルを選ぶ</button>
+      <p>QRを使えない場合は、パソコン側の起動完了ログに表示された <code>.tvrkey</code> ファイルをこの端末へ移して選択できます。raw binaryのままでも、同じ内容をBase64/Base64URL化したテキストでも読み取れます。</p>
     </section>
     <section class="pairing-privacy-note">
       <strong>接続情報について</strong>

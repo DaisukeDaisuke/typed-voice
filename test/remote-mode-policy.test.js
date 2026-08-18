@@ -9,6 +9,10 @@ import {
   resolveRemoteStartupAction,
   validateRemotePairingPayload,
 } from "../src/app/remote-mode-policy.js";
+import {
+  bytesToBase64Url,
+  computeRemotePairingChecksum,
+} from "../src/app/remote-protocol.js";
 
 test("server=1だけがクライアントモードを選ぶ", () => {
   assert.equal(isServerModeUrl("https://example.test/index.html?server=1"), true);
@@ -32,37 +36,35 @@ test("モード切替は既存のURL情報を保ったままserverだけを変�
   assert.equal(local.searchParams.has("server"), false);
 });
 
-test("QRはQuick Tunnelと分離した2種類の鍵だけを受け付ける", () => {
-  const valid = validateRemotePairingPayload({
-    protocolVersion: "1",
-    endpoint: "wss://example-name.trycloudflare.com/typed-voice",
-    encryptionKey: "a".repeat(43),
-    authenticationKey: "b".repeat(43),
-  });
-  assert.equal(valid.endpoint, "wss://example-name.trycloudflare.com/typed-voice");
-  assert.throws(() => validateRemotePairingPayload({
-    protocolVersion: "1",
-    endpoint: "wss://example.com/typed-voice",
-    encryptionKey: "a".repeat(43),
-    authenticationKey: "b".repeat(43),
-  }));
-  assert.throws(() => validateRemotePairingPayload({
-    protocolVersion: "1",
-    endpoint: "wss://example-name.trycloudflare.com/typed-voice",
-    encryptionKey: "a".repeat(43),
-    authenticationKey: "a".repeat(43),
-  }));
+test("QRはQuick Tunnel・32-byte分離鍵・checksumが一致した場合だけ受け付ける", async () => {
+  const endpoint = "wss://example-name.trycloudflare.com/remote";
+  const authKey = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
+  const encryptionKey = Uint8Array.from({ length: 32 }, (_, index) => 255 - index);
+  const checksum = await computeRemotePairingChecksum(endpoint, authKey, encryptionKey);
+  const payload = {
+    v: 1,
+    u: endpoint,
+    a: bytesToBase64Url(authKey),
+    e: bytesToBase64Url(encryptionKey),
+    c: bytesToBase64Url(checksum),
+  };
+  const valid = await validateRemotePairingPayload(payload);
+  assert.equal(valid.endpoint, endpoint);
+  await assert.rejects(validateRemotePairingPayload({ ...payload, u: "wss://example.com/remote" }));
+  await assert.rejects(validateRemotePairingPayload({ ...payload, e: payload.a }));
+  await assert.rejects(validateRemotePairingPayload({ ...payload, c: bytesToBase64Url(new Uint8Array(16)) }));
 });
 
-test("QR文字列はUTF-8 JSONをbase64url化して日本語も往復する", () => {
+test("QR文字列はraw UTF-8 JSONをそのまま往復する", () => {
   const source = {
-    protocolVersion: "1",
-    endpoint: "wss://example-name.trycloudflare.com/typed-voice",
-    encryptionKey: "a".repeat(43),
-    authenticationKey: "b".repeat(43),
+    v: 1,
+    u: "wss://example-name.trycloudflare.com/remote",
+    a: "a".repeat(43),
+    e: "b".repeat(43),
+    c: "c".repeat(22),
     label: "東京都税関関税許可局",
   };
   const encoded = encodeRemotePairingQrText(source);
-  assert.match(encoded, /^typed-voice:1:[A-Za-z0-9_-]+$/);
+  assert.equal(encoded, JSON.stringify(source));
   assert.deepEqual(decodeRemotePairingQrText(encoded), source);
 });

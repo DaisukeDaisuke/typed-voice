@@ -5,8 +5,12 @@ import {
   resolveRemoteStartupAction,
 } from "./remote-mode-policy.js";
 import {
+  deleteRemotePairing,
   readRemotePairing,
 } from "./remote-pairing-store.js";
+import { RemoteAudioFormat } from "./remote-protocol.js";
+
+const REMOTE_AUDIO_FORMAT_KEY = "typed-voice-remote-audio-format";
 
 export class RemoteModeUi {
   constructor(documentRef, { pairing }) {
@@ -25,6 +29,9 @@ export class RemoteModeUi {
     this.localButton = this.document.getElementById("remote-mode-client");
     this.headerLaunchButton = this.document.getElementById("client-mode-launch");
     this.modelPickerButton = this.document.getElementById("settings-model-picker");
+    this.restartTutorialButton = this.document.getElementById("restart-tutorial");
+    this.forgetServerButton = this.document.getElementById("settings-server-forget");
+    this.audioFormatSelect = this.document.getElementById("remote-audio-format");
     this.connectionBlocker = this.document.getElementById("remote-connection-blocker");
     this.connectionTitle = this.document.getElementById("remote-connection-title");
     this.connectionState = this.document.getElementById("remote-connection-state");
@@ -37,11 +44,20 @@ export class RemoteModeUi {
     this.settingsPanel = this.document.getElementById("settings-panel");
     this.main = this.document.querySelector("main");
     this.openReconnectTutorial = null;
+    this.modelProfileUi = null;
+    this.voiceRuntime = null;
+    this.serverConfig = null;
     this.connected = false;
     this.transportConnected = false;
     this.connectionStartedAt = 0;
     this.connectionTimer = 0;
+    const storedAudioFormat = globalThis.localStorage?.getItem?.(REMOTE_AUDIO_FORMAT_KEY);
+    if (this.audioFormatSelect) this.audioFormatSelect.value = storedAudioFormat === "pcm16" ? "pcm16" : "float32";
     if (this.isServerMode) this.lockLocalControls();
+  }
+
+  get audioFormat() {
+    return this.audioFormatSelect?.value === "pcm16" ? RemoteAudioFormat.PCM16LE : RemoteAudioFormat.FLOAT32LE;
   }
 
   shouldRunServerTutorialAtStartup() {
@@ -67,12 +83,66 @@ export class RemoteModeUi {
     this.localButton?.addEventListener("click", () => this.restartInLocalMode());
     this.connectionRescanButton?.addEventListener("click", () => this.openPairingPage());
     this.connectionLocalButton?.addEventListener("click", () => this.restartInLocalMode());
+    this.forgetServerButton?.addEventListener("click", () => void this.unregisterServer());
+    this.audioFormatSelect?.addEventListener("change", () => {
+      globalThis.localStorage?.setItem?.(REMOTE_AUDIO_FORMAT_KEY, this.audioFormatSelect.value === "pcm16" ? "pcm16" : "float32");
+    });
     if (this.settingsButton && this.isServerMode) {
       this.settingsButton.firstChild.textContent = "クライアントモードの説明を見る";
       const description = this.settingsButton.querySelector("span");
       if (description) description.textContent = "接続方法と必要なものを、全画面の説明でもう一度確認します。";
     }
-    if (this.modelPickerButton && this.isServerMode) this.modelPickerButton.hidden = true;
+    if (this.modelPickerButton && this.isServerMode) {
+      this.modelPickerButton.hidden = false;
+      this.modelPickerButton.disabled = true;
+      this.modelPickerButton.firstChild.textContent = "モデルはサーバー側で設定されています";
+      const description = this.modelPickerButton.querySelector("span");
+      if (description) description.textContent = "接続後、パソコン側で選択されたモデルを表示します。この端末からは変更できません。";
+    }
+    if (this.restartTutorialButton && this.isServerMode) {
+      this.restartTutorialButton.firstChild.textContent = "サーバーへ再接続";
+      const description = this.restartTutorialButton.querySelector("span");
+      if (description) description.textContent = "保存済みの接続先へWSSを張り直します。会話や設定は初期化しません。";
+    }
+    if (this.forgetServerButton) this.forgetServerButton.hidden = !this.isServerMode;
+  }
+
+  attachModelProfileUi(modelProfileUi) {
+    this.modelProfileUi = modelProfileUi ?? null;
+    if (this.serverConfig?.modelProfile) this.#applyServerModelProfile(this.serverConfig.modelProfile);
+  }
+
+  attachVoiceRuntime(voiceRuntime) {
+    this.voiceRuntime = voiceRuntime ?? null;
+  }
+
+  applyServerConfig(config) {
+    this.serverConfig = config ?? null;
+    if (config?.modelProfile) this.#applyServerModelProfile(config.modelProfile);
+  }
+
+  #applyServerModelProfile(profile) {
+    const selected = this.modelProfileUi?.setRemoteProfile?.(profile) ?? profile;
+    if (this.modelPickerButton) {
+      this.modelPickerButton.disabled = true;
+      this.modelPickerButton.firstChild.textContent = "モデルはサーバー側で設定されています";
+      const description = this.modelPickerButton.querySelector("span");
+      if (description) description.textContent = `現在: ${selected}。この端末からは変更できません。`;
+    }
+  }
+
+  async reconnectServer() {
+    if (!this.isServerMode || !this.pairing || !this.voiceRuntime) return false;
+    this.startConnectionDisplay();
+    this.voiceRuntime.reconnect?.();
+    return true;
+  }
+
+  async unregisterServer() {
+    this.voiceRuntime?.close?.();
+    await deleteRemotePairing().catch(() => {});
+    this.pairing = null;
+    this.restartInLocalMode();
   }
 
   lockLocalControls() {
