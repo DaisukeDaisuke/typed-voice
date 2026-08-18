@@ -15,6 +15,7 @@ const DEV_MODE = new URL(self.location.href).searchParams.get("dev") === "1";
 const SHELL = [
   "./",
   "./index.html",
+  "./pairing.html",
   "./poc.html",
   "./licenses.html",
   "./voice-manifest.json",
@@ -73,6 +74,7 @@ self.addEventListener("message", (event) => {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
+  if (url.protocol === "https:" && url.hostname.endsWith(".trycloudflare.com")) return;
   if (isHuggingFaceResolveUrl(url) && event.request.cache !== "no-store") {
     event.respondWith(readHuggingFaceResolveAsset(event.request));
     return;

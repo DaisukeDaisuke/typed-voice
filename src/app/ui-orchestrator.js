@@ -227,23 +227,6 @@ export class UiOrchestrator {
     this.focusComposer();
   }
 
-  async submitComposer() {
-    const composer = this.elements.composer;
-    const line = getComposerLineAtCaret(composer.value, composer.selectionStart);
-    if (!line.trim()) return;
-    if (this.secondaryView !== "conversations") {
-      const session = await this.ensureCurrentConversation();
-      const allPending = await this.repository.listPending(session.id);
-      if (allPending.some((item) => item.text.trim() === line.trim())) {
-        throw new Error("この行はすでに読み上げ待ちです。訂正する場合は上の訂正ボタンを使ってください。");
-      }
-    }
-    const lineEnd = composer.value.indexOf("\n", composer.selectionStart);
-    const insertAt = lineEnd === -1 ? composer.value.length : lineEnd;
-    composer.setRangeText("\n", insertAt, insertAt, "end");
-    return this.#finalizeComposerLineBreak();
-  }
-
   focusComposer() {
     this.elements.composer.focus({ preventScroll: true });
   }
@@ -794,10 +777,6 @@ export class UiOrchestrator {
   }
 
   #bindEvents() {
-    this.elements.submitButton.addEventListener("click", () => {
-      this.#unlockVoiceFromUserGesture();
-      void this.#runUiTask(() => this.submitComposer());
-    });
     this.elements.correctionButton.addEventListener("click", () => {
       this.#unlockVoiceFromUserGesture();
       void this.#runUiTask(() => this.applyCorrectionFromComposer());
@@ -1016,7 +995,6 @@ export class UiOrchestrator {
       composer: byId("composer"),
       reasoningSeconds: byId("reasoning-seconds"),
       speechSpeed: byId("speech-speed"),
-      submitButton: byId("submit-button"),
       voiceLoadProgress: byId("voice-load-progress"),
       voiceLoadProgressBar: byId("voice-load-progress-bar"),
       voiceLoadStatus: byId("voice-load-status"),

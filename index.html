@@ -60,6 +60,7 @@
         </div>
       </details>
       <button id="settings-button" class="quiet-button" type="button" aria-expanded="false" aria-controls="settings-panel">設定</button>
+      <button id="client-mode-launch" class="quiet-button" type="button">クライアントモード起動</button>
       <a class="quiet-link" href="./poc.html">音声テスト</a>
       <a class="quiet-link" href="./licenses.html">ライセンス</a>
     </nav>
@@ -93,6 +94,7 @@
       <p class="model-profile-warning" data-model-profile-warning hidden>推奨モデル以外では、品質やダウンロード容量を保証できません。</p>
     </div>
     <button id="settings-model-picker" class="quiet-button settings-tutorial-button" type="button">モデルを変更<span>モデル選択と必要なダウンロードだけを開きます。</span></button>
+    <button id="settings-server-connect" class="quiet-button settings-tutorial-button" type="button">クライアントモード起動（必須ではありません）<span>別のパソコンに音声合成を任せるためのモードへ切り替えます。</span></button>
     <button id="restart-tutorial" class="quiet-button settings-tutorial-button" type="button">チュートリアルをもう一度見る<span>先に会話・設定のバックアップを保存してから初期化します。モデルキャッシュは保持します。やり直しにはインターネット接続が必要です</span></button>
     <details class="settings-advanced">
       <summary>高度</summary>
@@ -108,6 +110,33 @@
         <p id="offline-runtime-reset-status" class="settings-advanced-status" aria-live="polite"></p>
       </div>
     </details>
+  </section>
+
+  <aside id="remote-mode-banner" class="remote-mode-banner" aria-live="polite" hidden>
+    <div class="remote-mode-banner-copy">
+      <span class="remote-mode-kicker">クライアントモード</span>
+      <strong id="remote-mode-status-title">保存した接続先を確認しています</strong>
+      <span id="remote-mode-status-detail">この機能は必須ではありません。いつでも通常のモードへ戻せます。</span>
+    </div>
+    <button id="remote-mode-rescan" class="quiet-button" type="button">新しいQRを読み取る</button>
+    <button id="remote-mode-client" class="quiet-button" type="button">オフラインモードで再起動</button>
+  </aside>
+
+  <section id="remote-connection-blocker" class="remote-connection-blocker" role="status" aria-live="polite" hidden>
+    <div class="remote-connection-card">
+      <span class="remote-mode-kicker">クライアントモード</span>
+      <h2 id="remote-connection-title">音声合成サーバーへ接続しています</h2>
+      <p id="remote-connection-state" class="remote-connection-state">未接続 - 0秒経過</p>
+      <div class="remote-connection-endpoint">
+        <span>接続先</span>
+        <code id="remote-connection-endpoint">WSS接続先を確認しています</code>
+      </div>
+      <p id="remote-connection-detail" class="remote-connection-detail">接続と認証が完了するまで、通常の操作は利用できません。</p>
+      <div class="remote-connection-actions">
+        <button id="remote-connection-rescan" class="quiet-button" type="button">新しいQRを読み取る</button>
+        <button id="remote-connection-local" class="quiet-button" type="button">オフラインモードで再起動</button>
+      </div>
+    </div>
   </section>
 
   <section id="tutorial-restart-dialog" class="backup-dialog-backdrop" hidden>
@@ -204,7 +233,6 @@
             <span>読み上げ速度</span>
             <span><input id="speech-speed" type="number" min="0.5" max="2" step="0.1" value="1"> 倍</span>
           </label>
-          <button id="submit-button" class="primary-button" type="button">提出</button>
         </div>
         <section class="pending-section" aria-labelledby="pending-heading">
           <div class="section-heading compact">
@@ -254,7 +282,7 @@ https://tyc.rei-yumesaki.net
         <div id="message-list" class="message-list"></div>
         <div id="empty-timeline" class="empty-state">
           <strong>まだメッセージはありません</strong>
-          <span>左の入力欄から提出すると、ここへ順番に残ります。</span>
+          <span>左の入力欄で改行すると、ここへ順番に残ります。</span>
         </div>
       </section>
 
@@ -310,6 +338,91 @@ https://tyc.rei-yumesaki.net
           </div>
           <p class="tutorial-about-lines">音声を使わずに、会話や入力だけ試すこともできます。</p>
           <p>モデルの準備は、この次に選べます。</p>
+        </section>
+
+        <section class="tutorial-page tutorial-server-page" data-tutorial-step="server-mode-about" hidden>
+          <p class="tutorial-kicker">任意の機能</p>
+          <h3>クライアントモードに切り替えます。</h3>
+          <div class="tutorial-server-optional">
+            <strong>これは必須ではありません。</strong>
+            <p>今までどおり、この端末だけで音声合成する使い方もできます。</p>
+            <p>誤ってこのページを開いた場合は、<a class="server-mode-local-link" href="./index.html">「閉じる」</a>を押してください。</p>
+          </div>
+          <ul class="tutorial-server-points">
+            <li>音声合成をゲーミングパソコンなどにしてもらい、モバイル回線経由でこのデバイスに転送し、再生するためのモードへ切り替えます。</li>
+            <li><strong>クライアントモードでは、利用中はインターネット接続が必要です。</strong> 合成した音声データは、接続したパソコンからこの端末へダウンロードします。</li>
+            <li>QRコードはオフラインでパソコンへ接続するためのものではありません。インターネット経由で、起動中の音声合成サーバーへ接続するための情報を読み取ります。</li>
+            <li>QRコードはeSIMや、モバイル回線の接続情報ではありません。クライアントモードから、インターネット経由でパソコンと情報を送受信するための接続情報が入っており、回線そのものを書き換えるものではありません。</li>
+          </ul>
+        </section>
+
+        <section class="tutorial-page tutorial-server-page" data-tutorial-step="server-mode-trust" hidden>
+          <p class="tutorial-kicker">接続する前に確認</p>
+          <h3>サーバーを管理している人に、会話内容が見られます</h3>
+          <div class="tutorial-server-danger">
+            <strong>サーバーを管理している人は、あなたが読み込んだQR接続情報で接続したあと、送信した会話内容をすべて見ることができます。</strong>
+            <p>SNS、インターネット上の第三者、Google検索などからQRを受け取ったり、この画面へ誘導された場合は接続しないでください。</p>
+            <p>たとえ信頼している友達でも、あなたがサーバーの作成を依頼していない相手からQRを受け取った場合は、<a class="server-mode-local-link" href="./index.html">「閉じる」</a>を押してください。</p>
+          </div>
+        </section>
+
+        <section class="tutorial-page tutorial-server-page" data-tutorial-step="server-mode-setup" hidden>
+          <p class="tutorial-kicker">パソコン側の準備</p>
+          <h3>音声合成をするWindowsパソコンを準備します</h3>
+          <p><strong>つよ～いゲーミングパソコンが必要です。</strong></p>
+          <p>プログラミングの知識も必要です。パソコンへ <code>typed-voice-server</code>、Chrome、<code>Cloudflare.cloudflared</code> を導入します。</p>
+          <a class="tutorial-server-setup-link" href="https://github.com/DaisukeDaisuke/typed-voice-server" target="_blank" rel="noopener noreferrer">サーバーのWindowsでのセットアップ方法を見る</a>
+          <p class="tutorial-callout">セットアップが終わると、パソコン側に接続用のQRコードを表示できます。</p>
+        </section>
+
+        <section class="tutorial-page tutorial-server-page" data-tutorial-step="server-mode-pairing" hidden>
+          <p class="tutorial-kicker">接続の準備</p>
+          <h3>パソコンに表示されたQRを、この端末で読み取ります</h3>
+          <p>次のページで外側のカメラの使用許可を求めます。</p>
+          <p>許可すると、QR読み取りが開始されます。</p>
+          <div class="tutorial-callout tutorial-server-pairing-note">
+            <strong>カメラ映像とQRの読み取り処理は、この端末内で行います。</strong>
+            <p>カメラ映像そのものを送信するためには使いません。</p>
+          </div>
+          <div class="tutorial-server-pairing-copy">
+            <p>QRには、サーバーを起動している間だけ有効な接続情報が入っています。</p>
+            <p>サーバーを終了すると、その接続情報は失効します。</p>
+          </div>
+          <p class="tutorial-server-pairing-copy">パソコンに表示されるQRは、eSIMや、課金情報、モバイル回線接続情報ではありません。</p>
+          <p class="tutorial-server-pairing-copy">パソコン上で動作するサーバーへモバイル回線経由で接続する認証情報です。</p>
+        </section>
+
+        <section class="tutorial-page tutorial-server-page" data-tutorial-step="server-mode-reconnect" hidden>
+          <p class="tutorial-kicker">再接続</p>
+          <h3>音声合成サーバーへ接続できませんでした</h3>
+          <p class="tutorial-server-reconnect-copy">前回の接続設定では、音声合成サーバーへ<span class="tutorial-keep-phrase">接続できませんでした。</span></p>
+          <div class="tutorial-callout tutorial-server-pairing-note">
+            <strong>サーバーを再起動すると、以前の接続情報は失効します。</strong>
+            <p>クライアントモードでは、サーバーへの接続が必須です。</p>
+            <p>もちろん<a class="server-mode-local-link" href="./index.html">「閉じる」</a>を押すことで、あなたのデバイスで音声合成を行うこともできます。</p>
+          </div>
+        </section>
+
+        <section class="tutorial-page tutorial-server-page" data-tutorial-step="server-mode-reconnect-trust" hidden>
+          <p class="tutorial-kicker">接続する前に確認</p>
+          <h3>サーバーを管理している人に、会話内容が見られます</h3>
+          <div class="tutorial-server-danger">
+            <strong>サーバーを管理している人は、あなたが読み込んだQR接続情報で接続したあと、送信した会話内容をすべて見ることができます。</strong>
+            <p>SNS、インターネット上の第三者、Google検索などからQRを受け取ったり、この画面へ誘導された場合は接続しないでください。</p>
+            <p>たとえ信頼している友達でも、あなたがサーバーの作成を依頼していない相手からQRを受け取った場合は、<a class="server-mode-local-link" href="./index.html">「閉じる」</a>を押してください。</p>
+          </div>
+        </section>
+
+        <section class="tutorial-page tutorial-server-page" data-tutorial-step="server-mode-reconnect-qr" hidden>
+          <p class="tutorial-kicker">再接続</p>
+          <h3>サーバーを起動して、QRを表示してください</h3>
+          <p class="tutorial-server-reconnect-copy">Windowsパソコンで <code>typed-voice-server</code> を起動し、<span class="tutorial-keep-phrase">接続用のQRコードを生成してください。</span></p>
+          <div class="tutorial-callout tutorial-server-pairing-note">
+            <strong>新しく表示されたQRコードを、この端末で読み取ります。</strong>
+            <p>正しくQRコードを読み取ると、接続情報が更新され、即座にサーバーへ接続します。</p>
+          </div>
+          <p>「QRを読み取る」を押すと、カメラを使う読取ページへ移動します。</p>
+          <button id="remote-reconnect-help" class="tutorial-server-help-button" type="button">分からない場合はこちら</button>
         </section>
 
         <section class="tutorial-page" data-tutorial-step="model">

@@ -329,6 +329,7 @@ export class TutorialController {
       this.activeVisits = activeVisits;
       this.visitStates = new Map(activeVisits.map((visit) => [visit.visitId, Object.create(null)]));
       this.activeProfile = profile;
+      this.elements.overlay.dataset.profile = profile.name;
       this.stepIndex = 0;
       // profileState/visitStates are runtime-only. Persistent resume data must
       // use a separate, explicitly serializable checkpoint contract.
