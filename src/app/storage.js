@@ -239,7 +239,7 @@ export class IndexedDbConversationRepository {
     await updateStatistics(this.db, {
       messageCount: 1,
       playbackMs: durationMs,
-      timestamp: session.updatedAt,
+      timestamp: playedAt ?? pending.createdAt,
       sessionId: pending.sessionId,
     });
     return message;
@@ -386,7 +386,12 @@ export class MemoryConversationRepository {
     session.messageCount = sequence;
     session.updatedAt = Date.now();
     if (!session.firstMessagePreview) session.firstMessagePreview = pending.text.trim().slice(0, 80);
-    this.#updateStats({ messageCount: 1, playbackMs: durationMs, timestamp: session.updatedAt, sessionId: pending.sessionId });
+    this.#updateStats({
+      messageCount: 1,
+      playbackMs: durationMs,
+      timestamp: playedAt ?? pending.createdAt,
+      sessionId: pending.sessionId,
+    });
     return clone(message);
   }
 
