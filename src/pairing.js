@@ -1,9 +1,10 @@
 import "./pairing.css";
-import jsQR from "jsqr";
 import { decodeRemotePairingQrText, validateRemotePairingPayload } from "./app/remote-mode-policy.js";
 import { decryptRemotePairingFile } from "./app/remote-pairing-file.js";
 import { writeRemotePairing } from "./app/remote-pairing-store.js";
 import { resolvePairingScanRect } from "./app/pairing-scan-policy.js";
+
+const JSQR_URL = "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js";
 
 const video = document.getElementById("pairing-video");
 const canvas = document.getElementById("pairing-canvas");
@@ -18,6 +19,8 @@ const pairingPageUrl = new URL(document.location.href);
 let stream = null;
 let scanning = false;
 let scanTimer = 0;
+let qrDecoder = null;
+let qrDecoderPromise = null;
 
 const localUrl = new URL("index.html", document.baseURI);
 const conversation = pairingPageUrl.searchParams.get("conversation");
@@ -34,13 +37,47 @@ function stopCamera() {
 }
 
 async function decodeQrPayload(text) {
+  const source = String(text ?? "").trim();
+  if (source.startsWith("tvrkey1:")) {
+    const value = await decryptRemotePairingFile(new TextEncoder().encode(source));
+    return validateRemotePairingPayload(value);
+  }
   let value;
   try {
-    value = decodeRemotePairingQrText(text);
+    value = decodeRemotePairingQrText(source);
   } catch {
-    throw new Error("typed-voice-serverのJSON QRを読み取ってください。");
+    throw new Error("typed-voice-serverの接続QRを読み取ってください。");
   }
   return validateRemotePairingPayload(value);
+}
+
+function loadQrDecoder() {
+  if (typeof qrDecoder === "function") return Promise.resolve(qrDecoder);
+  if (typeof globalThis.jsQR === "function") {
+    qrDecoder = globalThis.jsQR;
+    return Promise.resolve(qrDecoder);
+  }
+  if (qrDecoderPromise) return qrDecoderPromise;
+  qrDecoderPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = JSQR_URL;
+    script.async = true;
+    script.crossOrigin = "anonymous";
+    script.addEventListener("load", () => {
+      if (typeof globalThis.jsQR !== "function") {
+        reject(new Error("jsQRを読み込めませんでした。"));
+        return;
+      }
+      qrDecoder = globalThis.jsQR;
+      resolve(qrDecoder);
+    }, { once: true });
+    script.addEventListener("error", () => reject(new Error("jsQRをjsDelivrから取得できませんでした。")), { once: true });
+    document.head.append(script);
+  }).catch((error) => {
+    qrDecoderPromise = null;
+    throw error;
+  });
+  return qrDecoderPromise;
 }
 
 async function completePairing(text) {
@@ -91,7 +128,7 @@ async function scanFrame() {
       scan.height
     );
     const image = context.getImageData(0, 0, canvas.width, canvas.height);
-    const result = jsQR(image.data, image.width, image.height, { inversionAttempts: "attemptBoth" });
+    const result = qrDecoder(image.data, image.width, image.height, { inversionAttempts: "attemptBoth" });
     if (result?.data) {
       try {
         await completePairing(result.data);
@@ -111,7 +148,7 @@ async function startCamera() {
   status.textContent = "外側のカメラの使用を許可してください。";
   stopCamera();
   try {
-    if (typeof jsQR !== "function") throw new Error("QR読み取り機能を読み込めませんでした。");
+    await loadQrDecoder();
     const mediaStream = await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: { facingMode: { ideal: "environment" } },

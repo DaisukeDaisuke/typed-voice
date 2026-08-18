@@ -20,6 +20,7 @@ function startsWith(bytes, prefix) {
 function decodeBase64Text(text) {
   let source = String(text ?? "").trim();
   if (source.startsWith("typed-voice-key:1:")) source = source.slice("typed-voice-key:1:".length).trim();
+  else if (source.startsWith("tvrkey1:")) source = source.slice("tvrkey1:".length).trim();
   source = source.replace(/\s+/g, "").replace(/-/g, "+").replace(/_/g, "/");
   if (!source || !/^[A-Za-z0-9+/]*={0,2}$/.test(source)) throw new Error("接続キーファイルがraw binaryでもBase64でもありません。");
   source += "=".repeat((4 - source.length % 4) % 4);

@@ -35,6 +35,7 @@ test("接続キーファイルはraw binaryとBase64の両方を復号する", a
   assert.deepEqual(await decryptRemotePairingFile(raw, webcrypto), payload);
   const base64 = Buffer.from(raw).toString("base64url");
   assert.deepEqual(await decryptRemotePairingFile(new TextEncoder().encode(base64), webcrypto), payload);
+  assert.deepEqual(await decryptRemotePairingFile(new TextEncoder().encode(`tvrkey1:${base64}`), webcrypto), payload);
 });
 
 test("接続キーファイルの改ざんを拒否する", async () => {
