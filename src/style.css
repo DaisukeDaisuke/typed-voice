@@ -635,6 +635,7 @@ body.tutorial-window-dragging * { cursor: grabbing !important; }
 }
 .tutorial-character-page { text-align: left; }
 .tutorial-character-page > p { max-width: 52ch; }
+.tutorial-character-credit { white-space: nowrap; }
 .tutorial-character-card {
   margin: 22px 0;
   display: grid;
