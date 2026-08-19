@@ -1,6 +1,11 @@
 # typed-voice
 とある日曜劇場の真似事（AIで実装中）。現在のPoCは `kizuna-intelligence/tsukuyomichan-omnivoice-full-finetune` から変換した実モデルをブラウザ上で動かします。別のOmniVoiceモデル、compressed/GPTQ版、Piper Plusを代替音声には使用しません。
 
+# Live Preview
+
+https://daisukedaisuke.github.io/typed-voice
+
+
 | 配布profile | Hugging Face直リンク | 用途 | 量子化 |
 | --- | --- | --- | --- |
 | Mobile INT8 | [mobile-int8](https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/tree/mobile-int8) | ブラウザ向け標準候補 | LLMの定数MatMul weightのみ8-bit。activation / audio embeddings / audio heads / Higgs decoderはFP32 |
