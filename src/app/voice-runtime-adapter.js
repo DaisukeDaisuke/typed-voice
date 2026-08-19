@@ -1,8 +1,3 @@
-import { EngineClient } from "../engine/engine-client.js";
-import {
-  hasKanalizerCandidate,
-  normalizeAsciiLetterRuns,
-} from "../text/kanalizer-normalizer.js";
 import { queryPreparedModelCache } from "./service-worker-required.js";
 
 const REMOTE_MANIFEST_URLS = Object.freeze({
@@ -56,16 +51,23 @@ export class VoiceRuntimeAdapter {
   }
 
   async getProfilePlan(profile = "fp32") {
-    await this.#ensureProfileClient(profile);
-    const manifest = this.activeManifest;
+    const normalized = Object.hasOwn(REMOTE_MANIFEST_URLS, profile) || profile === "fp32" ? profile : "fp16";
+    const manifestUrl = this.manifestUrlForProfile(normalized);
+    let manifest = this.activeProfile === normalized ? this.activeManifest : null;
+    if (!manifest) {
+      const response = await fetch(manifestUrl, { cache: "no-cache" });
+      if (!response.ok) throw new Error(`音声モデル情報の取得に失敗しました (${response.status})`);
+      manifest = await response.json();
+      if (!manifest?.id || !Array.isArray(manifest.assets)) throw new Error("音声モデル情報が不正です。");
+    }
     const totalBytes = Array.isArray(manifest?.assets)
       ? manifest.assets.reduce((sum, asset) => sum + Number(asset.byteSize || 0), 0)
       : 0;
     return {
-      profile: this.activeProfile,
+      profile: normalized,
       manifest,
       totalBytes,
-      manifestUrl: this.manifestUrlForProfile(this.activeProfile),
+      manifestUrl,
     };
   }
 
@@ -195,8 +197,9 @@ export class VoiceRuntimeAdapter {
     }
     try {
       let synthesisText = text;
-      if (hasKanalizerCandidate(text)) {
+      if (/[A-Za-z]+/.test(text)) {
         this.#emitProgress({ stage: "normalize", phase: "kanalizer", utteranceId, generation, completed: 0, totalSteps: 1 });
+        const { normalizeAsciiLetterRuns } = await import("../text/kanalizer-normalizer.js");
         const normalized = await normalizeAsciiLetterRuns(text);
         synthesisText = normalized.text;
         this.#emitProgress({ stage: "normalize", phase: "kanalizer", utteranceId, generation, completed: 1, totalSteps: 1 });
@@ -285,6 +288,7 @@ export class VoiceRuntimeAdapter {
       this.ready = false;
     }
     await this.client?.dispose().catch(() => {});
+    const { EngineClient } = await import("../engine/engine-client.js");
     this.client = new EngineClient({
       manifestUrl: this.manifestUrlForProfile(normalized),
       appBaseUrl: this.appBaseUrl,

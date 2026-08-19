@@ -6,61 +6,568 @@
 
 const MODEL_CACHE = "typed-voice-model-assets-v2";
 const KANALIZER_MODEL_CACHE = "typed-voice-kanalizer-model-v1";
-const SOURCE_CACHE_KEY = new URL(self.location.href).searchParams.get("source-cache") || "legacy-v4";
-const SOURCE_CACHE = `typed-voice-source-${SOURCE_CACHE_KEY}`;
-const HUGGINGFACE_RESOLVE_CACHE = `typed-voice-huggingface-resolve-${SOURCE_CACHE_KEY}`;
+const SOURCE_CACHE_PREFIX = "typed-voice-source-";
+const SOURCE_METADATA_CACHE = "typed-voice-source-metadata-v1";
+const HUGGINGFACE_RESOLVE_CACHE = "typed-voice-huggingface-resolve-v1";
+const SOURCE_ASSET_MAP_URL = new URL("source-asset-map.json", self.registration.scope).href;
+const SOURCE_STATE_URL = new URL("__typed_voice_source/state-v1.json", self.registration.scope).href;
+const SOURCE_VERIFY_URL = new URL("__typed_voice_source/verify", self.registration.scope);
 const MODEL_PREFIX = new URL("__typed_voice_assets/", self.registration.scope).pathname;
 const MODEL_CHUNK_QUERY = "__typed_voice_part";
 const MODEL_DOWNLOAD_LOCK_LEASE_MS = 2 * 60 * 1000;
 const MODEL_DOWNLOAD_LOCK_RETRY_MS = 500;
+const SOURCE_PROTOCOL_VERSION = 1;
 const modelDownloadLocks = new Map();
+const sourceApplyControllers = new Map();
+const sourceClientGenerations = new Map();
 const DEV_MODE = new URL(self.location.href).searchParams.get("dev") === "1";
-const SHELL = [
-  "./",
-  "./index.html",
-  "./pairing.html",
-  "./poc.html",
-  "./licenses.html",
-  "./voice-manifest.json",
-  "./LICENSE.txt",
-  "./NOTICE.txt",
-  "./THIRD_PARTY_NOTICES.md",
-  "./licenses/BOSON-HIGGS-AUDIO-2-LICENSE.txt",
-  "./licenses/META-LLAMA-3-LICENSE.txt",
-  "./licenses/VOICEVOX-KANALIZER-LICENSE.txt",
-  "./licenses/KANALIZER-RUST-LICENSES.md",
-  "./ort-wasm-simd-threaded.mjs",
-  "./ort-wasm-simd-threaded.wasm",
-  "./ort-wasm-simd-threaded.jsep.mjs",
-  "./ort-wasm-simd-threaded.jsep.wasm",
-  "./ort-wasm-simd-threaded.jspi.mjs",
-  "./ort-wasm-simd-threaded.jspi.wasm",
-  "./ort-wasm-simd-threaded.asyncify.mjs",
-  "./ort-wasm-simd-threaded.asyncify.wasm"
-];
+let candidateSourceAssetMapPromise = null;
 
 self.addEventListener("install", (event) => {
-  if (!DEV_MODE) event.waitUntil(caches.open(SOURCE_CACHE).then((cache) => cache.addAll(SHELL)));
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    Promise.all([
-      caches.keys().then((keys) =>
-        Promise.all(
-          keys
-            .filter((key) => key.startsWith("typed-voice-") && key !== SOURCE_CACHE && key !== MODEL_CACHE && key !== KANALIZER_MODEL_CACHE && key !== HUGGINGFACE_RESOLVE_CACHE)
-            .map((key) => caches.delete(key))
-        )
-      ),
-      self.clients.claim(),
-    ])
-  );
+  event.waitUntil(self.clients.claim());
 });
+
+function sourceCacheName(generation) {
+  return `${SOURCE_CACHE_PREFIX}${generation}`;
+}
+
+function isSourceGenerationCacheName(name) {
+  return new RegExp(`^${SOURCE_CACHE_PREFIX}[0-9a-f]{32}$`).test(String(name || ""));
+}
+
+function isAnySourcePayloadCacheName(name) {
+  const value = String(name || "");
+  return value.startsWith(SOURCE_CACHE_PREFIX) && value !== SOURCE_METADATA_CACHE;
+}
+
+function sourceMapMetadataUrl(generation) {
+  return new URL(`__typed_voice_source/maps/${encodeURIComponent(generation)}.json`, self.registration.scope).href;
+}
+
+function normalizeSourceAssetMap(raw) {
+  const generation = String(raw?.generation || "").toLowerCase();
+  if (raw?.version !== 2
+    || raw?.algorithm !== "xxh3-128"
+    || !/^[0-9a-f]{32}$/.test(generation)
+    || !raw.assets
+    || typeof raw.assets !== "object") {
+    throw new Error("Source asset map is invalid");
+  }
+  const assets = Object.create(null);
+  for (const [path, entry] of Object.entries(raw.assets)) {
+    const normalizedPath = normalizeSourcePath(path);
+    const xxh3_128 = String(entry?.xxh3_128 || "").toLowerCase();
+    const byteSize = Number(entry?.byteSize);
+    const extension = String(entry?.extension || "").toLowerCase();
+    const group = ["core", "client", "engine", "optional"].includes(entry?.group) ? entry.group : "optional";
+    if (!normalizedPath || !/^[0-9a-f]{32}$/.test(xxh3_128)) continue;
+    if (!Number.isSafeInteger(byteSize) || byteSize < 0) continue;
+    assets[normalizedPath] = Object.freeze({ xxh3_128, byteSize, extension, group });
+  }
+  return Object.freeze({ version: 2, algorithm: "xxh3-128", generation, assets: Object.freeze(assets) });
+}
+
+function normalizeSourcePath(path) {
+  const value = String(path || "").replaceAll("\\", "/").replace(/^\.\//, "");
+  if (!value || value.startsWith("/") || value.includes("../")) return null;
+  return value;
+}
+
+function defaultSourceState() {
+  return { version: 1, acceptedGeneration: null, locations: Object.create(null) };
+}
+
+function normalizeSourceState(raw) {
+  const state = defaultSourceState();
+  const acceptedGeneration = String(raw?.acceptedGeneration || "").toLowerCase();
+  if (/^[0-9a-f]{32}$/.test(acceptedGeneration)) state.acceptedGeneration = acceptedGeneration;
+  if (raw?.locations && typeof raw.locations === "object") {
+    for (const [key, value] of Object.entries(raw.locations)) {
+      const cacheName = String(value?.cacheName || "");
+      const path = normalizeSourcePath(value?.path);
+      if (!key || !isSourceGenerationCacheName(cacheName) || !path) continue;
+      state.locations[key] = { cacheName, path };
+    }
+  }
+  return state;
+}
+
+async function loadSourceState() {
+  const cache = await caches.open(SOURCE_METADATA_CACHE);
+  const response = await cache.match(SOURCE_STATE_URL);
+  if (!response) return defaultSourceState();
+  try {
+    return normalizeSourceState(await response.json());
+  } catch {
+    return defaultSourceState();
+  }
+}
+
+async function saveSourceState(state) {
+  const cache = await caches.open(SOURCE_METADATA_CACHE);
+  await cache.put(SOURCE_STATE_URL, new Response(JSON.stringify(state), {
+    headers: { "content-type": "application/json" },
+  }));
+}
+
+async function storeSourceAssetMap(manifest) {
+  const cache = await caches.open(SOURCE_METADATA_CACHE);
+  await cache.put(sourceMapMetadataUrl(manifest.generation), new Response(JSON.stringify(manifest), {
+    headers: { "content-type": "application/json" },
+  }));
+}
+
+async function loadSourceAssetMap(generation) {
+  if (!/^[0-9a-f]{32}$/.test(String(generation || ""))) return null;
+  const cache = await caches.open(SOURCE_METADATA_CACHE);
+  const response = await cache.match(sourceMapMetadataUrl(generation));
+  if (!response) return null;
+  try {
+    return normalizeSourceAssetMap(await response.json());
+  } catch {
+    return null;
+  }
+}
+
+async function getCandidateSourceAssetMap() {
+  if (!candidateSourceAssetMapPromise) {
+    candidateSourceAssetMapPromise = (async () => {
+      const response = await fetch(SOURCE_ASSET_MAP_URL, { cache: "no-store" });
+      if (!response.ok) throw new Error(`Source asset map fetch failed: ${response.status}`);
+      const manifest = normalizeSourceAssetMap(await response.json());
+      await storeSourceAssetMap(manifest);
+      return manifest;
+    })().catch((error) => {
+      candidateSourceAssetMapPromise = null;
+      throw error;
+    });
+  }
+  return candidateSourceAssetMapPromise;
+}
+
+function sourceReuseKey(path, entry) {
+  return `${entry.xxh3_128}:${entry.byteSize}:${entry.extension || sourceExtension(path)}`;
+}
+
+function sourceExtension(path) {
+  const match = /(?:^|\/)[^/]*(\.[A-Za-z0-9]+)$/.exec(path);
+  return match ? match[1].toLowerCase() : "";
+}
+
+function sourceAssetUrl(path) {
+  return new URL(path, self.registration.scope).href;
+}
+
+function sourceVerificationUrl(path) {
+  const url = new URL(SOURCE_VERIFY_URL.href);
+  url.searchParams.set("path", path);
+  return url.href;
+}
+
+function sourcePathForRequest(request) {
+  const url = new URL(request.url);
+  const scope = new URL(self.registration.scope);
+  if (url.origin !== scope.origin || !url.pathname.startsWith(scope.pathname)) return null;
+  let path = url.pathname.slice(scope.pathname.length);
+  if (!path || path === "/") path = "index.html";
+  return normalizeSourcePath(path.replace(/^\//, ""));
+}
+
+function normalizeSourceGroups(groups) {
+  const requested = Array.isArray(groups) ? groups : [];
+  const result = new Set(requested.filter((group) => ["core", "client", "engine", "optional"].includes(group)));
+  if (result.size === 0) result.add("core");
+  return result;
+}
+
+function sourceEntriesForGroups(manifest, groups) {
+  const selected = normalizeSourceGroups(groups);
+  return Object.entries(manifest?.assets || {}).filter(([, entry]) => selected.has(entry.group));
+}
+
+function sourceGroupSignature(manifest, groups) {
+  return sourceEntriesForGroups(manifest, groups)
+    .map(([path, entry]) => sourceReuseKey(path, entry))
+    .sort()
+    .join("\n");
+}
+
+async function sourceLocationResponse(state, reuseKey) {
+  const location = state.locations[reuseKey];
+  if (!location) return null;
+  try {
+    const cache = await caches.open(location.cacheName);
+    const response = await cache.match(sourceAssetUrl(location.path));
+    if (response) return response;
+  } catch {
+    // A stale location is removed below.
+  }
+  delete state.locations[reuseKey];
+  return null;
+}
+
+async function repairCandidateLocationsFromCache(candidate, state, groups) {
+  const cacheName = sourceCacheName(candidate.generation);
+  const cache = await caches.open(cacheName);
+  let changed = false;
+  for (const [path, entry] of sourceEntriesForGroups(candidate, groups)) {
+    const reuseKey = sourceReuseKey(path, entry);
+    if (state.locations[reuseKey]) continue;
+    const response = await cache.match(sourceAssetUrl(path));
+    if (!response) continue;
+    state.locations[reuseKey] = { cacheName, path };
+    changed = true;
+  }
+  if (changed) await saveSourceState(state);
+  return changed;
+}
+
+async function getSourceVerificationPlan({ groups } = {}) {
+  const state = await loadSourceState();
+  const accepted = state.acceptedGeneration
+    ? await loadSourceAssetMap(state.acceptedGeneration)
+    : null;
+  if (!accepted) {
+    return {
+      generation: state.acceptedGeneration,
+      entries: [],
+      availableBytes: 0,
+      missingBytes: 0,
+      missingCount: 0,
+    };
+  }
+
+  const entries = [];
+  let availableBytes = 0;
+  let missingBytes = 0;
+  let missingCount = 0;
+  for (const [path, entry] of sourceEntriesForGroups(accepted, groups)) {
+    const reuseKey = sourceReuseKey(path, entry);
+    const cached = await sourceLocationResponse(state, reuseKey);
+    if (!cached) {
+      missingBytes += entry.byteSize;
+      missingCount += 1;
+      continue;
+    }
+    availableBytes += entry.byteSize;
+    entries.push({
+      path,
+      byteSize: entry.byteSize,
+      xxh3_128: entry.xxh3_128,
+      url: sourceVerificationUrl(path),
+    });
+  }
+  await saveSourceState(state);
+  return {
+    generation: accepted.generation,
+    entries,
+    availableBytes,
+    missingBytes,
+    missingCount,
+  };
+}
+
+async function invalidateAcceptedSourceAsset({ generation, path } = {}) {
+  const normalizedGeneration = String(generation || "").toLowerCase();
+  const normalizedPath = normalizeSourcePath(path);
+  if (!normalizedPath || !/^[0-9a-f]{32}$/.test(normalizedGeneration)) return false;
+  const state = await loadSourceState();
+  if (state.acceptedGeneration !== normalizedGeneration) return false;
+  const accepted = await loadSourceAssetMap(normalizedGeneration);
+  const entry = accepted?.assets?.[normalizedPath];
+  if (!entry) return false;
+  const reuseKey = sourceReuseKey(normalizedPath, entry);
+  const location = state.locations[reuseKey] ?? null;
+  const urlsToDelete = new Set([
+    sourceAssetUrl(normalizedPath),
+    ...(location?.path ? [sourceAssetUrl(location.path)] : []),
+  ]);
+  for (const cacheName of (await caches.keys()).filter(isAnySourcePayloadCacheName)) {
+    const cache = await caches.open(cacheName);
+    for (const url of urlsToDelete) await cache.delete(url);
+  }
+  delete state.locations[reuseKey];
+  await saveSourceState(state);
+  return true;
+}
+
+async function readSourceVerificationAsset(request) {
+  const url = new URL(request.url);
+  const path = normalizeSourcePath(url.searchParams.get("path"));
+  if (!path) return new Response("Invalid source verification path", { status: 400 });
+  const state = await loadSourceState();
+  if (!state.acceptedGeneration) return new Response("No accepted source generation", { status: 404 });
+  const accepted = await loadSourceAssetMap(state.acceptedGeneration);
+  const entry = accepted?.assets?.[path];
+  if (!entry) return new Response("Source asset is not part of the accepted generation", { status: 404 });
+  const response = await sourceLocationResponse(state, sourceReuseKey(path, entry));
+  await saveSourceState(state);
+  if (!response) return new Response("Source asset is unavailable", { status: 404 });
+  return response;
+}
+
+async function planSourceAssets({ groups, knownAcceptedKey = null } = {}) {
+  const state = await loadSourceState();
+  let candidate;
+  try {
+    candidate = await getCandidateSourceAssetMap();
+  } catch (error) {
+    if (!state.acceptedGeneration) throw error;
+    candidate = await loadSourceAssetMap(state.acceptedGeneration);
+    if (!candidate) throw error;
+  }
+  await repairCandidateLocationsFromCache(candidate, state, groups);
+  const hadLegacyAcceptedSource = Boolean(String(knownAcceptedKey || ""));
+
+  if (!state.acceptedGeneration && !hadLegacyAcceptedSource) {
+    state.acceptedGeneration = candidate.generation;
+    await saveSourceState(state);
+  }
+
+  const accepted = state.acceptedGeneration
+    ? await loadSourceAssetMap(state.acceptedGeneration)
+    : null;
+  let missingAcceptedBytes = 0;
+  let missingAcceptedCount = 0;
+  for (const [path, entry] of sourceEntriesForGroups(accepted, groups)) {
+    if (await sourceLocationResponse(state, sourceReuseKey(path, entry))) continue;
+    missingAcceptedBytes += entry.byteSize;
+    missingAcceptedCount += 1;
+  }
+  const generationChanged = state.acceptedGeneration
+    ? state.acceptedGeneration !== candidate.generation
+      && sourceGroupSignature(accepted, groups) !== sourceGroupSignature(candidate, groups)
+    : hadLegacyAcceptedSource;
+  const repairRequired = missingAcceptedCount > 0;
+  const updateAvailable = generationChanged || repairRequired;
+
+  let totalBytes = 0;
+  let fetchBytes = 0;
+  let reusableBytes = 0;
+  let assetCount = 0;
+  let fetchCount = 0;
+  for (const [path, entry] of sourceEntriesForGroups(candidate, groups)) {
+    assetCount += 1;
+    totalBytes += entry.byteSize;
+    const reuseKey = sourceReuseKey(path, entry);
+    if (await sourceLocationResponse(state, reuseKey)) {
+      reusableBytes += entry.byteSize;
+    } else {
+      fetchBytes += entry.byteSize;
+      fetchCount += 1;
+    }
+  }
+  await saveSourceState(state);
+  return {
+    generation: candidate.generation,
+    acceptedGeneration: state.acceptedGeneration,
+    updateAvailable,
+    totalBytes,
+    fetchBytes,
+    reusableBytes,
+    assetCount,
+    fetchCount,
+    generationChanged,
+    repairRequired,
+    missingAcceptedBytes,
+    missingAcceptedCount,
+  };
+}
+
+async function applySourceAssets({ groups, signal = null } = {}) {
+  if (signal?.aborted) throw signal.reason ?? new DOMException("Source update cancelled", "AbortError");
+  const candidate = await getCandidateSourceAssetMap();
+  const state = await loadSourceState();
+  await repairCandidateLocationsFromCache(candidate, state, groups);
+  const targetCacheName = sourceCacheName(candidate.generation);
+  const targetCache = await caches.open(targetCacheName);
+  let networkBytes = 0;
+  let reusedBytes = 0;
+  let fetchedCount = 0;
+
+  for (const [path, entry] of sourceEntriesForGroups(candidate, groups)) {
+    if (signal?.aborted) throw signal.reason ?? new DOMException("Source update cancelled", "AbortError");
+    const reuseKey = sourceReuseKey(path, entry);
+    const reused = await sourceLocationResponse(state, reuseKey);
+    if (reused) {
+      reusedBytes += entry.byteSize;
+      continue;
+    }
+    const response = await fetch(sourceAssetUrl(path), { cache: "no-cache", signal });
+    if (!response.ok) throw new Error(`Source asset fetch failed: ${response.status} ${path}`);
+    await targetCache.put(sourceAssetUrl(path), response.clone());
+    state.locations[reuseKey] = { cacheName: targetCacheName, path };
+    await saveSourceState(state);
+    networkBytes += entry.byteSize;
+    fetchedCount += 1;
+  }
+
+  if (signal?.aborted) throw signal.reason ?? new DOMException("Source update cancelled", "AbortError");
+  state.acceptedGeneration = candidate.generation;
+  await saveSourceState(state);
+  return {
+    generation: candidate.generation,
+    networkBytes,
+    reusedBytes,
+    fetchedCount,
+  };
+}
+
+async function pruneSourceCachesIfAllClientsCurrent(generation) {
+  if (!/^[0-9a-f]{32}$/.test(String(generation || ""))) return false;
+  const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: false });
+  if (windows.some((client) => sourceClientGenerations.get(client.id) !== generation)) return false;
+  const state = await loadSourceState();
+  if (state.acceptedGeneration !== generation) return false;
+  const manifest = await loadSourceAssetMap(generation);
+  if (!manifest) return false;
+  await pruneSourceCaches(manifest, state);
+  return true;
+}
+
+async function pruneSourceCaches(candidate, state) {
+  const requiredKeys = new Set(
+    Object.entries(candidate.assets).map(([path, entry]) => sourceReuseKey(path, entry))
+  );
+  for (const key of Object.keys(state.locations)) {
+    if (!requiredKeys.has(key)) delete state.locations[key];
+  }
+  await saveSourceState(state);
+
+  const keepUrlsByCache = new Map();
+  for (const [reuseKey, location] of Object.entries(state.locations)) {
+    if (!requiredKeys.has(reuseKey)) continue;
+    let urls = keepUrlsByCache.get(location.cacheName);
+    if (!urls) {
+      urls = new Set();
+      keepUrlsByCache.set(location.cacheName, urls);
+    }
+    urls.add(sourceAssetUrl(location.path));
+  }
+
+  for (const cacheName of (await caches.keys()).filter(isSourceGenerationCacheName)) {
+    const keepUrls = keepUrlsByCache.get(cacheName) || new Set();
+    const cache = await caches.open(cacheName);
+    for (const request of await cache.keys()) {
+      if (!keepUrls.has(request.url)) await cache.delete(request);
+    }
+    if ((await cache.keys()).length === 0) await caches.delete(cacheName);
+  }
+}
+
+async function acceptedSourceResponse(path) {
+  const state = await loadSourceState();
+  if (!state.acceptedGeneration) return { managed: false, response: null };
+  const accepted = await loadSourceAssetMap(state.acceptedGeneration);
+  const entry = accepted?.assets?.[path];
+  if (!entry) return { managed: false, response: null };
+  const reuseKey = sourceReuseKey(path, entry);
+  const cached = await sourceLocationResponse(state, reuseKey);
+  if (cached) {
+    await saveSourceState(state);
+    return { managed: true, response: cached };
+  }
+  await saveSourceState(state);
+  return { managed: true, response: null };
+}
+
+async function isUnapprovedCandidateSource(path) {
+  const state = await loadSourceState();
+  if (!state.acceptedGeneration) return false;
+  const candidate = await getCandidateSourceAssetMap().catch(() => null);
+  if (!candidate || candidate.generation === state.acceptedGeneration) return false;
+  return Boolean(candidate.assets?.[path]);
+}
 
 self.addEventListener("message", (event) => {
   const message = event.data;
+  if (message?.type === "typed-voice:source-protocol") {
+    event.ports?.[0]?.postMessage({ ok: true, version: SOURCE_PROTOCOL_VERSION });
+    return;
+  }
+  if (message?.type === "typed-voice:plan-source-assets") {
+    const port = event.ports?.[0];
+    if (!port) return;
+    const clientId = event.source?.id;
+    if (clientId) sourceClientGenerations.set(clientId, String(message.knownAcceptedKey || "").toLowerCase());
+    event.waitUntil((async () => {
+      try {
+        const plan = await planSourceAssets({
+          groups: message.groups,
+          knownAcceptedKey: message.knownAcceptedKey,
+        });
+        if (clientId && String(message.knownAcceptedKey || "").toLowerCase() === plan.generation) {
+          await pruneSourceCachesIfAllClientsCurrent(plan.generation);
+        }
+        port.postMessage({ ok: true, plan });
+      } catch (error) {
+        port.postMessage({ ok: false, message: error instanceof Error ? error.message : String(error) });
+      }
+    })());
+    return;
+  }
+  if (message?.type === "typed-voice:source-verification-plan") {
+    const port = event.ports?.[0];
+    if (!port) return;
+    event.waitUntil((async () => {
+      try {
+        const plan = await getSourceVerificationPlan({ groups: message.groups });
+        port.postMessage({ ok: true, plan });
+      } catch (error) {
+        port.postMessage({ ok: false, message: error instanceof Error ? error.message : String(error) });
+      }
+    })());
+    return;
+  }
+  if (message?.type === "typed-voice:invalidate-source-asset") {
+    const port = event.ports?.[0];
+    if (!port) return;
+    event.waitUntil((async () => {
+      try {
+        const invalidated = await invalidateAcceptedSourceAsset(message);
+        port.postMessage({ ok: true, result: { invalidated } });
+      } catch (error) {
+        port.postMessage({ ok: false, message: error instanceof Error ? error.message : String(error) });
+      }
+    })());
+    return;
+  }
+
+  if (message?.type === "typed-voice:apply-source-assets") {
+    const port = event.ports?.[0];
+    if (!port) return;
+    const requestId = String(message.requestId || "");
+    const clientId = event.source?.id;
+    if (!requestId || !clientId) {
+      port.postMessage({ ok: false, message: "invalid source update request" });
+      return;
+    }
+    const key = `${clientId}:${requestId}`;
+    const controller = new AbortController();
+    sourceApplyControllers.set(key, controller);
+    event.waitUntil((async () => {
+      try {
+        const result = await applySourceAssets({ groups: message.groups, signal: controller.signal });
+        port.postMessage({ ok: true, result });
+      } catch (error) {
+        port.postMessage({ ok: false, message: error instanceof Error ? error.message : String(error) });
+      } finally {
+        sourceApplyControllers.delete(key);
+      }
+    })());
+    return;
+  }
+  if (message?.type === "typed-voice:cancel-source-assets") {
+    const requestId = String(message.requestId || "");
+    const clientId = event.source?.id;
+    if (!requestId || !clientId) return;
+    sourceApplyControllers.get(`${clientId}:${requestId}`)?.abort(new DOMException("Source update cancelled", "AbortError"));
+    return;
+  }
   if (message?.type === "typed-voice:check-model-cache") {
     const port = event.ports?.[0];
     if (!port) return;
@@ -153,6 +660,10 @@ function releaseModelDownloadLock(event, message) {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
+  if (url.origin === self.location.origin && url.pathname === SOURCE_VERIFY_URL.pathname) {
+    event.respondWith(readSourceVerificationAsset(event.request).then(isolatedResponse));
+    return;
+  }
   if (url.origin === self.location.origin && url.pathname.startsWith(MODEL_PREFIX)) {
     event.respondWith(readPreparedModelAsset(event.request));
     return;
@@ -296,11 +807,29 @@ function createModelChunkStream(cache, virtualUrl, chunkCount) {
 }
 
 async function readShellAsset(request) {
+  const sourcePath = sourcePathForRequest(request);
+  if (sourcePath) {
+    const accepted = await acceptedSourceResponse(sourcePath).catch(() => ({ managed: false, response: null }));
+    if (accepted.response) return isolatedResponse(accepted.response);
+    if (accepted.managed) {
+      return isolatedResponse(new Response("Accepted source asset is unavailable until the update is approved", {
+        status: 503,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      }));
+    }
+    if (await isUnapprovedCandidateSource(sourcePath)) {
+      return isolatedResponse(new Response("New source asset is unavailable until the update is approved", {
+        status: 503,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      }));
+    }
+  }
+
   try {
     const response = await fetch(request);
-    if (response.ok) {
-      const cache = await caches.open(SOURCE_CACHE);
-      await cache.put(request, response.clone());
+    if (!response.ok) {
+      const cached = await caches.match(request);
+      if (cached) return isolatedResponse(cached);
     }
     return isolatedResponse(response);
   } catch (error) {

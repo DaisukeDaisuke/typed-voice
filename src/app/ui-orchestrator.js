@@ -5,7 +5,7 @@ import {
   retainRecentSubmittedLines,
 } from "./composer-policy.js";
 import { planComposerRevisions } from "./revision-target.js";
-import { prepareKanalizerOffline } from "../text/kanalizer-normalizer.js";
+
 import {
   createConversationFromSubmittedText,
   normalizeConversationId,
@@ -278,7 +278,9 @@ export class UiOrchestrator {
 
   async prepareOfflineVoice(profile = this.getModelProfile(), { onKanalizerStatus = () => {}, signal = null } = {}) {
     if (!this.voiceRuntime?.prepare) throw new Error("音声データを準備できません。");
+    const kanalizerModulePromise = import("../text/kanalizer-normalizer.js");
     const voice = await this.voiceRuntime.prepare(profile, { signal });
+    const { prepareKanalizerOffline } = await kanalizerModulePromise;
     const kanalizer = await prepareKanalizerOffline({ onStatus: onKanalizerStatus, signal });
     return {
       profile,

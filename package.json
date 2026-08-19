@@ -11,7 +11,7 @@
     "licenses:kanalizer": "bash scripts/generate-kanalizer-rust-licenses.sh",
     "build:piper-wasm": "bash scripts/build-piper-wasm.sh",
     "dev": "npm run prepare:runtime && vite",
-    "build": "npm run prepare:runtime && vite build",
+    "build": "npm run prepare:runtime && vite build && node scripts/generate-source-asset-map.mjs dist",
     "build:with-piper": "npm run build:piper-wasm && npm run build",
     "preview": "vite preview",
     "test": "node --test test/*.test.js"

@@ -64,7 +64,7 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Build production app and Voice PoC
+      - name: Build production app, Voice PoC, and source cache map
         run: npm run build
 
       - name: Configure Pages

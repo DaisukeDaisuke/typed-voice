@@ -123,16 +123,23 @@ export function createTutorialProfileDefinition(name, definition, availableStepI
   });
 }
 
-export function resolveStartupTutorialProfile({ tutorialComplete, selectedModelCached }) {
+export function resolveStartupTutorialProfile({ tutorialComplete, selectedModelCached, sourceUpdateAvailable = false }) {
   if (!tutorialComplete) return "full";
+  if (sourceUpdateAvailable) return "source-update";
   return selectedModelCached ? "end" : "model-picker-required";
 }
 
 export class TutorialController {
-  constructor(documentRef = document, { modelProfileUi = null, app = null, tutorialComplete = false } = {}) {
+  constructor(documentRef = document, {
+    modelProfileUi = null,
+    app = null,
+    tutorialComplete = false,
+    sourceUpdate = null,
+  } = {}) {
     this.document = documentRef;
     this.modelProfileUi = modelProfileUi;
     this.app = app;
+    this.sourceUpdate = sourceUpdate;
     this.tutorialComplete = Boolean(tutorialComplete);
     this.stepIndex = 0;
     this.activePages = [];
@@ -153,12 +160,17 @@ export class TutorialController {
     this.temporaryWaitOriginal = null;
     this.cancelExamplePreparing = false;
     this.downloadAcknowledged = false;
+    this.sourceUpdateAcknowledged = false;
+    this.sourceUpdateCompleted = !Boolean(sourceUpdate?.plan?.updateAvailable)
+      && Number(sourceUpdate?.plan?.fetchBytes || 0) === 0;
     const voiceState = this.app?.voiceRuntimeState;
     this.downloadCompleted = Boolean(
       voiceState?.prepared
       && voiceState.profile === (this.modelProfileUi?.profile ?? "fp16")
+      && this.sourceUpdateCompleted
     );
     this.downloadRunning = false;
+    this.downloadModelCached = false;
     this.downloadAbortController = null;
     this.downloadTask = null;
     this.sampleAudioContext = null;
@@ -201,6 +213,7 @@ export class TutorialController {
       button.addEventListener("click", () => void this.#runSamplePreview(button.dataset.tutorialSample));
     }
     this.elements.downloadAck.addEventListener("click", () => this.#acknowledgeDownload());
+    this.elements.sourceUpdateAck.addEventListener("click", () => this.#acknowledgeSourceUpdate());
     this.elements.downloadButton.addEventListener("click", () => void this.#runVoiceDownload());
     this.elements.waitSeconds.addEventListener("change", () => void this.#applyWaitSetting());
     this.elements.waitDemo.addEventListener("click", () => void this.#runWaitDemo());
@@ -236,9 +249,11 @@ export class TutorialController {
         state.modelLoadAudioUnlock = null;
       }
       const voiceState = this.app?.voiceRuntimeState;
+      this.downloadModelCached = false;
       this.downloadCompleted = Boolean(
         voiceState?.prepared
         && voiceState.profile === (this.modelProfileUi?.profile ?? "fp16")
+        && this.sourceUpdateCompleted
       );
       this.#resetDownloadAcknowledgement();
       this.#renderDownloadDisclosure();
@@ -341,9 +356,11 @@ export class TutorialController {
       }
       await profile.onOpen?.(this.#profileContext({ reason: "open" }));
       const voiceState = this.app?.voiceRuntimeState;
+      this.downloadModelCached = false;
       this.downloadCompleted = Boolean(
         voiceState?.prepared
         && voiceState.profile === (this.modelProfileUi?.profile ?? "fp16")
+        && this.sourceUpdateCompleted
       );
       this.#resetDownloadAcknowledgement();
       this.#renderDownloadDisclosure();
@@ -498,6 +515,7 @@ export class TutorialController {
         : visit?.nextLabel
           ?? (this.stepIndex === this.activePages.length - 1 ? this.activeProfile?.completionLabel ?? "使い始める" : "次へ");
     this.elements.next.disabled = (page.dataset.tutorialStep === "download" && !this.downloadCompleted)
+      || (page.dataset.tutorialStep === "source-update" && !this.sourceUpdateAcknowledged)
       || (page.dataset.tutorialStep === "conversations" && !this.conversationTutorialCompleted && this.conversationPracticeCount === 0)
       || (page.dataset.tutorialStep === "conversation-open" && !this.conversationOpenCompleted)
       || (page.dataset.tutorialStep === "model-load" && !visitState.modelLoadComplete);
@@ -509,7 +527,9 @@ export class TutorialController {
     if (page.dataset.tutorialStep === "download" && !this.downloadCompleted) void this.#loadActualDownloadPlan();
     this.#beginEnterStep(page);
     this.elements.pagesContainer.scrollTop = 0;
-    if (page.dataset.tutorialStep === "download" && !this.downloadCompleted && !this.downloadAcknowledged) {
+    if (page.dataset.tutorialStep === "source-update" && !this.sourceUpdateAcknowledged) {
+      this.elements.sourceUpdateAck.focus({ preventScroll: true });
+    } else if (page.dataset.tutorialStep === "download" && !this.downloadCompleted && !this.downloadAcknowledged) {
       this.elements.downloadAck.focus({ preventScroll: true });
     } else if (page.dataset.tutorialStep === "download" && !this.downloadCompleted) {
       this.elements.downloadButton.focus({ preventScroll: true });
@@ -525,6 +545,17 @@ export class TutorialController {
 
   #acknowledgeStep() {
     this.elements.overlay.classList.remove("tutorial-needs-attention");
+  }
+
+  #acknowledgeSourceUpdate() {
+    if (this.sourceUpdateAcknowledged) return;
+    this.sourceUpdateAcknowledged = true;
+    this.elements.sourceUpdateAck.disabled = true;
+    this.elements.sourceUpdateAck.textContent = "更新することに同意しました";
+    this.elements.next.disabled = false;
+    this.elements.overlay.classList.remove("tutorial-needs-attention");
+    this.#updateHighlights("source-update");
+    this.elements.next.focus({ preventScroll: true });
   }
 
   async #updateDeviceSynthesisCopy() {
@@ -1172,7 +1203,12 @@ export class TutorialController {
     if (!this.app?.getVoiceProfilePlan || this.downloadRunning || this.downloadCompleted) return;
     try {
       const profile = this.modelProfileUi?.profile ?? "fp16";
-      if (await this.app?.isVoiceProfileCached?.(profile)) {
+      const modelCached = Boolean(await this.app?.isVoiceProfileCached?.(profile));
+      this.downloadModelCached = modelCached;
+      const sourcePlan = this.sourceUpdate?.plan ?? null;
+      const sourcePending = !this.sourceUpdateCompleted
+        && (Boolean(sourcePlan?.updateAvailable) || Number(sourcePlan?.fetchBytes || 0) > 0);
+      if (modelCached && !sourcePending) {
         this.downloadCompleted = true;
         this.downloadAcknowledged = true;
         this.#renderDownloadDisclosure();
@@ -1181,16 +1217,22 @@ export class TutorialController {
         this.#updateHighlights("download");
         return;
       }
-      const plan = await this.app.getVoiceProfilePlan(profile);
-      const totalBytes = Number(plan?.totalBytes || 0);
-      if (totalBytes > 0 && !this.downloadRunning && !this.downloadCompleted) {
+      const modelPlan = modelCached ? null : await this.app.getVoiceProfilePlan(profile);
+      const modelBytes = modelCached ? 0 : Number(modelPlan?.totalBytes || 0);
+      const sourceBytes = sourcePending ? Number(sourcePlan?.fetchBytes || 0) : 0;
+      const totalBytes = modelBytes + sourceBytes;
+      if ((totalBytes > 0 || sourcePending) && !this.downloadRunning && !this.downloadCompleted) {
         const formatted = this.#formatBytes(totalBytes);
         const device = await this.#getDeviceLabel();
-        this.elements.downloadSize.textContent = formatted;
-        this.elements.downloadBytes.textContent = `予定 ${formatted}`;
+        this.elements.downloadSize.textContent = totalBytes > 0 ? formatted : "追加ダウンロードなし";
+        this.elements.downloadBytes.textContent = totalBytes > 0 ? `予定 ${formatted}` : "保存済みデータを再利用";
         this.elements.downloadAck.disabled = false;
-        this.elements.downloadAck.textContent = `私は ${formatted} をダウンロードして私の${device}に ${formatted} を保存することに同意する。了解した`;
-        this.elements.downloadStatus.textContent = `実際に保存する容量は ${formatted} です。確認するまでダウンロードは始まりません。`;
+        this.elements.downloadAck.textContent = totalBytes > 0
+          ? `私は ${formatted} をダウンロードして私の${device}に保存し、必要な更新を適用することに同意する。了解した`
+          : "保存済みデータを再利用して必要な更新を適用することに同意する。了解した";
+        this.elements.downloadStatus.textContent = totalBytes > 0
+          ? `モデルとアプリ更新を合わせた取得予定量は ${formatted} です。確認するまでダウンロードは始まりません。`
+          : "必要なファイルは保存済みです。同意後、再ダウンロードせず更新へ切り替えます。";
         this.#updateHighlights("download");
       }
     } catch {
@@ -1223,20 +1265,27 @@ export class TutorialController {
     this.elements.downloadButton.classList.add("tutorial-download-cancel");
     this.elements.back.disabled = true;
     this.elements.next.disabled = true;
-    this.elements.downloadStatus.textContent = "ダウンロード中です。中止すると進行中の通信も止まります。";
+    this.elements.downloadStatus.textContent = "音声データと必要なアプリ更新を準備しています。中止すると進行中の通信も止まります。";
     this.downloadProgressUnsubscribe?.();
     this.downloadProgressUnsubscribe = voiceRuntime.subscribeProgress((message) => this.#handleDownloadProgress(message));
 
     try {
       const profile = this.modelProfileUi?.profile ?? "fp16";
-      const task = this.app.prepareOfflineVoice(profile, {
-        onKanalizerStatus: () => {
-          this.elements.downloadStatus.textContent = "オフラインで使うための仕上げをしています。";
-        },
-        signal: this.downloadAbortController.signal,
-      });
+      const voiceTask = this.downloadModelCached
+        ? Promise.resolve(null)
+        : this.app.prepareOfflineVoice(profile, {
+            onKanalizerStatus: () => {
+              this.elements.downloadStatus.textContent = "オフラインで使うための仕上げをしています。";
+            },
+            signal: this.downloadAbortController.signal,
+          });
+      const sourceTask = this.sourceUpdateCompleted || !this.sourceUpdate?.prepare
+        ? Promise.resolve(null)
+        : this.sourceUpdate.prepare({ signal: this.downloadAbortController.signal });
+      const task = Promise.all([voiceTask, sourceTask]);
       this.downloadTask = task;
       await task;
+      this.sourceUpdateCompleted = true;
       this.downloadCompleted = true;
       this.elements.downloadProgress.value = 100;
       this.elements.downloadPercent.textContent = "100%";
@@ -1799,6 +1848,10 @@ export class TutorialController {
         primaryTarget = this.elements.downloadButton;
       }
     }
+    if (step === "source-update" && !this.sourceUpdateAcknowledged) {
+      this.elements.sourceUpdateAck.classList.add("tutorial-target");
+      primaryTarget = this.elements.sourceUpdateAck;
+    }
     this.targetArrowTarget = primaryTarget;
     requestAnimationFrame(() => this.#refreshTargetArrow());
   }
@@ -1865,6 +1918,7 @@ export class TutorialController {
       sampleButtons: [...this.document.querySelectorAll("[data-tutorial-sample]")],
       sampleStatus: byId("tutorial-sample-status"),
       downloadSize: byId("tutorial-download-size"),
+      sourceUpdateAck: byId("tutorial-source-update-ack"),
       downloadAck: byId("tutorial-download-ack"),
       downloadButton: byId("tutorial-download-button"),
       downloadProgress: byId("tutorial-download-progress"),

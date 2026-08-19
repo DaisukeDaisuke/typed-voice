@@ -1,6 +1,11 @@
 import "./style.css";
 import { UiOrchestrator } from "./app/ui-orchestrator.js";
-import { requireServiceWorker } from "./app/service-worker-required.js";
+import {
+  applySourceAssets,
+  planSourceAssets,
+  requireServiceWorker,
+  verifyStoredSourceAssets,
+} from "./app/service-worker-required.js";
 import { initializeModelProfileUi } from "./app/model-profile-ui.js";
 import { resolveStartupTutorialProfile, TutorialController } from "./app/tutorial.js";
 import { initializeBackupUi } from "./app/backup-ui.js";
@@ -34,14 +39,59 @@ const remoteModeUi = await blocking.registerBlockingAsync("接続モード", asy
   report({ detail: "クライアントモードの保存状態を確認しています。" });
   return initializeRemoteModeUi(document);
 });
+const sourceAssetGroups = remoteModeUi.isServerMode ? ["core", "client"] : ["core", "engine"];
 await blocking.registerBlockingAsync("Service Worker", async ({ report }) => {
   report({ detail: "オフライン実行の準備を確認しています。" });
   await requireServiceWorker({ reloadKey: "typed-voice-app-coi-reloaded" });
+});
+const sourceIntegrityState = await blocking.registerBlockingAsync("ソース検証", async ({ report }) => {
+  report({ detail: "保存済みのアプリファイルをXXH3-128で検証しています。" });
+  return verifyStoredSourceAssets(sourceAssetGroups, {
+    onProgress(progress) {
+      const checkedBytes = Math.max(0, Number(progress.checkedBytes || 0));
+      const totalBytes = Math.max(0, Number(progress.totalBytes || 0));
+      report({
+        detail: progress.path ? `保存済みファイルを検証しています: ${progress.path}` : "保存済みファイルを検証しています。",
+        ...(totalBytes > 0 ? {
+          primary: {
+            label: "ソース検証",
+            value: checkedBytes,
+            total: totalBytes,
+            text: `${(checkedBytes / 1024 / 1024).toFixed(1)} / ${(totalBytes / 1024 / 1024).toFixed(1)} MiB`,
+          },
+        } : {}),
+      });
+    },
+  });
 });
 const tutorialState = await blocking.registerBlockingAsync("保存状態", async ({ report }) => {
   report({ detail: "チュートリアルと会話データの状態を確認しています。" });
   return reconcileTutorialPersistence();
 });
+const sourceUpdateState = await blocking.registerBlockingAsync("更新確認", async ({ report }) => {
+  report({
+    detail: Number(sourceIntegrityState?.corruptCount || 0) > 0
+      ? "破損した保存済みファイルを削除しました。再取得が必要なファイルを判定しています。"
+      : "配布されたハッシュ一覧を確認し、再利用できるソースと取得が必要なソースを判定しています。",
+  });
+  return planSourceAssets(sourceAssetGroups);
+});
+const sourceUpdate = {
+  plan: { ...sourceUpdateState },
+  async prepare({ signal = null } = {}) {
+    const result = await applySourceAssets(sourceAssetGroups, { signal });
+    this.plan = {
+      ...this.plan,
+      generation: result.generation,
+      acceptedGeneration: result.generation,
+      updateAvailable: false,
+      fetchBytes: 0,
+      reusableBytes: Number(this.plan.totalBytes || 0),
+      fetchCount: 0,
+    };
+    return result;
+  },
+};
 const voiceStatus = document.querySelector("#voice-status");
 const manifestUrl = new URL(`${import.meta.env.BASE_URL}voice-manifest.json`, document.baseURI).href;
 const appBaseUrl = new URL(import.meta.env.BASE_URL, document.baseURI).href;
@@ -146,10 +196,28 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
     modelProfileUi,
     app,
     tutorialComplete: tutorialState.complete,
+    sourceUpdate,
   }).initialize();
 
   const endTutorialProfile = Object.freeze({
     terminal: true,
+  });
+
+  const sourceUpdateProfile = Object.freeze({
+    route: Object.freeze([
+      Object.freeze({ step: "source-update", id: "source-update", nextLabel: "次へ" }),
+    ]),
+    headerBrand: "typed-voice の更新",
+    completionLabel: "次へ",
+    completeTo: remoteModeUi.isServerMode
+      ? "end"
+      : selectedModelCached
+        ? "end"
+        : "model-picker-required",
+    closeOnBackAtStart: false,
+    async onComplete() {
+      await sourceUpdate.prepare();
+    },
   });
 
   const fullTutorialProfile = Object.freeze({
@@ -261,6 +329,7 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
 
   tutorial
     .registerProfile("end", endTutorialProfile)
+    .registerProfile("source-update", sourceUpdateProfile)
     .registerProfile("full", fullTutorialProfile)
     .registerProfile("model-picker", modelPickerProfile)
     .registerProfile("model-picker-required", requiredModelPickerProfile)
@@ -272,18 +341,28 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
   });
 
   if (remoteModeUi.isServerMode) {
-    await tutorial.openProfile(remoteModeUi.shouldRunServerTutorialAtStartup() ? "server-mode" : "end");
+    const serverStartupProfile = remoteModeUi.shouldRunServerTutorialAtStartup()
+      ? "server-mode"
+      : sourceUpdateState.updateAvailable
+        ? "source-update"
+        : "end";
+    await tutorial.openProfile(serverStartupProfile);
   } else {
     await tutorial.openProfile(resolveStartupTutorialProfile({
       tutorialComplete: tutorialState.complete,
       selectedModelCached,
+      sourceUpdateAvailable: sourceUpdateState.updateAvailable,
     }));
   }
 
   remoteModeUi.bindActions({
     openTutorial: () => tutorial.openProfile("server-mode"),
     openReconnectTutorial: () => tutorial.openProfile("server-reconnect"),
-    onHandshakeSuccess: () => tutorial.openProfile("end"),
+    onHandshakeSuccess: () => {
+      if (["server-mode", "server-reconnect"].includes(tutorial.activeProfile?.name)) {
+        void tutorial.openProfile("end");
+      }
+    },
   });
   await remoteModeUi.activateStoredConnection();
   if (remoteModeUi.isServerMode && remoteModeUi.startupAction === "handshake" && remoteModeUi.pairing) {
