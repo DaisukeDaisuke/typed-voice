@@ -85,20 +85,20 @@ function readWorkerAccessToken() {
   }
 }
 
-function readWorkerServerOrigin() {
+function readWorkerServerUrl() {
   const value = new URL(location.href).searchParams.get("server");
   if (!value) return null;
   try {
     const url = new URL(value);
-    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-    return url.origin;
+    if (url.protocol !== "wss:" && url.protocol !== "ws:") return null;
+    return url.href;
   } catch {
     return null;
   }
 }
 
 const workerAccessToken = readWorkerAccessToken();
-const workerServerOrigin = readWorkerServerOrigin();
+const workerServerUrl = readWorkerServerUrl();
 
 function openWorkerTutorialProfile(name) {
   const profileName = String(name ?? "");
@@ -308,7 +308,7 @@ async function prepareServiceWorker() {
 
 startButton.disabled = true;
 const serviceWorkerReadyPromise = prepareServiceWorker().then(() => {
-  if (!workerServerOrigin) {
+  if (!workerServerUrl) {
     setStatus("WorkerサーバーURLがありません。現在のWorker接続URLから開き直してください。");
     return;
   }
@@ -324,7 +324,7 @@ void serviceWorkerReadyPromise.catch(() => {});
 async function startParticipation() {
   startButton.disabled = true;
   setStatus("参加用の暗号化セッションを準備しています。");
-  if (!workerServerOrigin) throw new Error("WorkerサーバーURLがありません。現在のWorker接続URLから開き直してください。");
+  if (!workerServerUrl) throw new Error("WorkerサーバーURLがありません。現在のWorker接続URLから開き直してください。");
   if (!workerAccessToken) throw new Error("Worker接続トークンがありません。現在のWorker接続URLから認証し直してください。");
   await serviceWorkerReadyPromise;
   if (!navigator.gpu) throw new Error("このブラウザではWebGPUを利用できません。");
@@ -341,9 +341,7 @@ async function startParticipation() {
   receiveChain = Promise.resolve();
   sendChain = Promise.resolve();
 
-  const websocketUrl = new URL("/worker/ws", workerServerOrigin);
-  websocketUrl.protocol = websocketUrl.protocol === "https:" ? "wss:" : "ws:";
-  socket = new WebSocket(websocketUrl);
+  socket = new WebSocket(workerServerUrl);
   socket.binaryType = "arraybuffer";
   socket.addEventListener("open", () => {
     connectionElement.textContent = "鍵交換中";
@@ -605,7 +603,7 @@ async function stopParticipation() {
 startButton.addEventListener("click", () => {
   void startParticipation().catch((error) => {
     updateParticipationUi(false);
-    if (!workerServerOrigin || !workerAccessToken) startButton.disabled = true;
+    if (!workerServerUrl || !workerAccessToken) startButton.disabled = true;
     setStatus(error instanceof Error ? error.message : String(error));
   });
 });

@@ -4,6 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>typed-voice Trusted Worker</title>
+  <script>
+    if (!new URL(location.href).searchParams.get("server")) {
+      location.replace("https://github.com/DaisukeDaisuke/typed-voice-server");
+    }
+  </script>
   <style>
     .worker-tutorial-overlay {
       position: fixed;
