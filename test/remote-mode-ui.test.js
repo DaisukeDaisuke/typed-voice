@@ -12,7 +12,17 @@ function createClassList() {
   };
 }
 
+function createButton() {
+  const listeners = new Map();
+  return {
+    disabled: false,
+    addEventListener(type, listener) { listeners.set(type, listener); },
+    click() { return listeners.get("click")?.(); },
+  };
+}
+
 function createDocument({ pairing = false } = {}) {
+  const reconnectRetry = createButton();
   const elements = new Map([
     ["remote-mode-banner", { hidden: true }],
     ["remote-mode-status-title", { textContent: "" }],
@@ -22,6 +32,7 @@ function createDocument({ pairing = false } = {}) {
     ["remote-connection-state", { textContent: "" }],
     ["remote-connection-endpoint", { textContent: "" }],
     ["remote-connection-detail", { textContent: "" }],
+    ["remote-reconnect-retry", reconnectRetry],
     ["settings-panel", { inert: false }],
   ]);
   const topbar = { inert: false };
@@ -44,7 +55,7 @@ function createDocument({ pairing = false } = {}) {
     encryptionKey: "a".repeat(43),
     authenticationKey: "b".repeat(43),
   } : null;
-  return { documentRef, elements, topbar, main, body, pairingValue };
+  return { documentRef, elements, topbar, main, body, pairingValue, reconnectRetry };
 }
 
 test("クライアントモードはハンドシェイク成功まで通常UIを操作不能にする", () => {
@@ -81,4 +92,22 @@ test("ハンドシェイク失敗は通常UIをロックしたまま再接続チ
   assert.equal(topbar.inert, true);
   assert.equal(main.inert, true);
   assert.equal(reconnectOpened, 1);
+});
+
+test("再接続チュートリアルの再試行は同じ接続先へ再接続し10秒クールダウンする", async () => {
+  const { documentRef, pairingValue, reconnectRetry } = createDocument({ pairing: true });
+  const ui = new RemoteModeUi(documentRef, { pairing: pairingValue });
+  let reconnectCalls = 0;
+  ui.attachVoiceRuntime({
+    reconnect() { reconnectCalls += 1; },
+  });
+  ui.bindActions({ openTutorial() {}, openReconnectTutorial() {} });
+  await reconnectRetry.click();
+  assert.equal(reconnectCalls, 1);
+  assert.equal(reconnectRetry.disabled, true);
+  await reconnectRetry.click();
+  assert.equal(reconnectCalls, 1);
+  ui.stopConnectionTimer();
+  clearTimeout(ui.retryCooldownTimer);
+  ui.retryCooldownTimer = 0;
 });

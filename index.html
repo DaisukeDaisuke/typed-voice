@@ -404,6 +404,7 @@ https://tyc.rei-yumesaki.net
           <p class="tutorial-kicker">再接続</p>
           <h3>音声合成サーバーへ接続できませんでした</h3>
           <p class="tutorial-server-reconnect-copy">前回の接続設定では、音声合成サーバーへ<span class="tutorial-keep-phrase">接続できませんでした。</span></p>
+          <button id="remote-reconnect-retry" class="tutorial-server-help-button" type="button">同じサーバーへ再試行</button>
           <div class="tutorial-callout tutorial-server-pairing-note">
             <strong>サーバーを再起動すると、以前の接続情報は失効します。</strong>
             <p>クライアントモードでは、サーバーへの接続が必須です。</p>
@@ -418,6 +419,16 @@ https://tyc.rei-yumesaki.net
             <strong>サーバーを管理している人は、あなたが読み込んだQR接続情報で接続したあと、送信した会話内容をすべて見ることができます。</strong>
             <p>SNS、インターネット上の第三者、Google検索などからQRを受け取ったり、この画面へ誘導された場合は接続しないでください。</p>
             <p>たとえ信頼している友達でも、あなたがサーバーの作成を依頼していない相手からQRを受け取った場合は、<a class="server-mode-local-link" href="./index.html">「閉じる」</a>を押してください。</p>
+          </div>
+        </section>
+
+        <section class="tutorial-page tutorial-server-page" data-tutorial-step="server-mode-volunteer-privacy" hidden>
+          <p class="tutorial-kicker">公開サーバーを使う場合</p>
+          <h3>公開サーバーでは、会話内容を秘密にできません</h3>
+          <div class="tutorial-server-danger">
+            <strong>自分で運営していないサーバーへ接続すると、送信した文章はサーバー管理者と、実際に音声合成を担当するTrusted Workerの提供者から見える状態になります。</strong>
+            <p>SNS、インターネット上の第三者、Google検索などからQRや接続キーファイルを受け取ったり、この画面へ誘導された場合、その接続先はボランティアによって運営されている公開サーバーかもしれません。</p>
+            <p>typed-voiceは、そのような第三者運営サーバーに対して会話内容のプライバシー保護を提供しません。秘密、個人情報、公開したくない文章は送信しないでください。</p>
           </div>
         </section>
 

@@ -7,6 +7,7 @@ export const RemoteOpcode = Object.freeze({
   PONG: 0x02,
   SESSION: 0x03,
   SERVER_CONFIG: 0x04,
+  WORKER_STATUS: 0x05,
   TEXT: 0x10,
   CANCEL: 0x11,
   AUDIO: 0x20,
@@ -132,13 +133,18 @@ export function createRemoteClientHello(audioFormat) {
   return { frame, clientNonce };
 }
 
-export async function acceptRemoteServerHello({ frame, authKey, encryptionKey, clientNonce, audioFormat }) {
+export async function acceptRemoteServerHello({ frame, authKey, encryptionKey, clientNonce, audioFormat, createClientHash = null }) {
   const bytes = frame instanceof Uint8Array ? frame : new Uint8Array(frame);
-  if (bytes.byteLength !== 68 || bytes[0] !== RemoteOpcode.HELLO_SERVER) throw new Error("サーバーHELLOが正しくありません。");
-  if (bytes[1] !== REMOTE_PROTOCOL_VERSION || bytes[2] !== audioFormat || bytes[3] !== 0) throw new Error("サーバーHELLOのバージョンまたは音声形式が一致しません。");
+  if (![68, 100].includes(bytes.byteLength) || bytes[0] !== RemoteOpcode.HELLO_SERVER) throw new Error("サーバーHELLOが正しくありません。");
+  const helloFlags = bytes[3];
+  const hasClientBanSalt = (helloFlags & 1) !== 0;
+  if (bytes[1] !== REMOTE_PROTOCOL_VERSION || bytes[2] !== audioFormat || (helloFlags & ~1) !== 0) throw new Error("サーバーHELLOのバージョンまたは音声形式が一致しません。");
+  if (hasClientBanSalt !== (bytes.byteLength === 100)) throw new Error("サーバーHELLOの匿名識別情報が正しくありません。");
   const serverNonce = bytes.slice(4, 36);
   const serverProof = bytes.slice(36, 68);
-  const expectedProof = await hmacSha256(authKey, proofInput("server", audioFormat, clientNonce, serverNonce));
+  const serverBanSalt = hasClientBanSalt ? bytes.slice(68, 100) : null;
+  const serverProofBase = proofInput("server", audioFormat, clientNonce, serverNonce);
+  const expectedProof = await hmacSha256(authKey, serverBanSalt ? concatBytes(serverProofBase, serverBanSalt) : serverProofBase);
   if (!equalBytes(serverProof, expectedProof)) throw new Error("音声合成サーバーを認証できませんでした。");
 
   const salt = concatBytes(clientNonce, serverNonce);
@@ -152,15 +158,22 @@ export async function acceptRemoteServerHello({ frame, authKey, encryptionKey, c
     cryptoApi().subtle.importKey("raw", c2sKeyBytes, { name: "AES-GCM" }, false, ["encrypt"]),
     cryptoApi().subtle.importKey("raw", s2cKeyBytes, { name: "AES-GCM" }, false, ["decrypt"]),
   ]);
-  const clientProof = await hmacSha256(authKey, proofInput("client", audioFormat, clientNonce, serverNonce));
-  const authFrame = new Uint8Array(36);
+  const clientHash = hasClientBanSalt && typeof createClientHash === "function"
+    ? await createClientHash(serverBanSalt)
+    : null;
+  if (clientHash && clientHash.byteLength !== 32) throw new Error("クライアント匿名識別ハッシュが正しくありません。");
+  const clientProofBase = proofInput("client", audioFormat, clientNonce, serverNonce);
+  const clientProof = await hmacSha256(authKey, clientHash ? concatBytes(clientProofBase, clientHash) : clientProofBase);
+  const authFrame = new Uint8Array(clientHash ? 68 : 36);
   authFrame[0] = RemoteOpcode.AUTH;
   authFrame[1] = REMOTE_PROTOCOL_VERSION;
   authFrame[2] = audioFormat;
   authFrame[3] = 0;
   authFrame.set(clientProof, 4);
+  if (clientHash) authFrame.set(clientHash, 36);
   return {
     authFrame,
+    clientHash,
     session: {
       audioFormat,
       sendKey,

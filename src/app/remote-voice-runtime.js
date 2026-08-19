@@ -2,10 +2,13 @@ import { RemoteWssTransport } from "./remote-wss-transport.js";
 import { RemoteAudioFormat } from "./remote-protocol.js";
 
 export class RemoteVoiceRuntime {
-  constructor(pairing, { audioFormat = RemoteAudioFormat.FLOAT32LE, onOpen, onAuthenticated, onServerConfig, onFailure, onClose } = {}) {
+  constructor(pairing, { audioFormat = RemoteAudioFormat.FLOAT32LE, onOpen, onAuthenticated, onServerConfig, onWorkerStatus, onFailure, onClose } = {}) {
     this.pairing = pairing;
     this.audioFormat = audioFormat;
     this.ready = false;
+    this.transportAuthenticated = false;
+    this.workerStatus = Object.freeze({ connected: 0, ready: 0 });
+    this.workerReadyWaiters = new Set();
     this.prepared = true;
     this.activeProfile = "remote";
     this.speed = 1;
@@ -15,19 +18,36 @@ export class RemoteVoiceRuntime {
       audioFormat,
       onOpen,
       onAuthenticated: () => {
-        this.ready = true;
+        this.transportAuthenticated = true;
+        this.#syncReady();
         onAuthenticated?.();
       },
       onServerConfig: (config) => {
         this.activeProfile = config.modelProfile;
         onServerConfig?.(config);
       },
+      onWorkerStatus: (status) => {
+        this.workerStatus = Object.freeze({ connected: status.connected, ready: status.ready });
+        this.#syncReady();
+        for (const waiter of this.workerReadyWaiters) waiter.onStatus?.(this.workerStatus);
+        if (this.workerStatus.ready > 0) {
+          for (const waiter of [...this.workerReadyWaiters]) {
+            this.workerReadyWaiters.delete(waiter);
+            waiter.resolve(this.workerStatus);
+          }
+        }
+        onWorkerStatus?.(this.workerStatus);
+      },
       onFailure: (error) => {
+        this.transportAuthenticated = false;
         this.ready = false;
+        this.#rejectWorkerWaiters(error);
         onFailure?.(error);
       },
       onClose: (event) => {
+        this.transportAuthenticated = false;
         this.ready = false;
+        this.#rejectWorkerWaiters(new Error("音声合成サーバーとの接続が終了しました。"));
         onClose?.(event);
       },
     });
@@ -49,6 +69,14 @@ export class RemoteVoiceRuntime {
   async getProfilePlan() { return { profile: this.activeProfile, totalBytes: 0, manifest: null }; }
   async prepare() { return { cached: true, totalBytes: 0 }; }
   async initializePrepared() { return { ready: this.ready, profile: this.activeProfile }; }
+
+  waitForWorkerReady({ onStatus } = {}) {
+    onStatus?.(this.workerStatus);
+    if (this.ready && this.workerStatus.ready > 0) return Promise.resolve(this.workerStatus);
+    return new Promise((resolve, reject) => {
+      this.workerReadyWaiters.add({ resolve, reject, onStatus });
+    });
+  }
 
   connect() { return this.transport.connect(); }
 
@@ -98,13 +126,31 @@ export class RemoteVoiceRuntime {
     return { durationMs: Number(durationMs || samples.length / sampleRate * 1000) };
   }
 
-  close() { this.transport.close(); }
+  close() {
+    this.transportAuthenticated = false;
+    this.ready = false;
+    this.#rejectWorkerWaiters(new Error("音声合成サーバーとの接続を終了しました。"));
+    this.transport.close();
+  }
 
   async dispose() {
     this.close();
     await this.audioContext?.close().catch(() => {});
     this.audioContext = null;
+    this.transportAuthenticated = false;
     this.ready = false;
+  }
+
+  #syncReady() {
+    this.ready = this.transportAuthenticated && this.workerStatus.ready > 0;
+  }
+
+  #rejectWorkerWaiters(error) {
+    const failure = error instanceof Error ? error : new Error(String(error));
+    for (const waiter of [...this.workerReadyWaiters]) {
+      this.workerReadyWaiters.delete(waiter);
+      waiter.reject(failure);
+    }
   }
 
   #emit(message) {

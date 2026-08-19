@@ -46,6 +46,33 @@ const voiceStatus = document.querySelector("#voice-status");
 const manifestUrl = new URL(`${import.meta.env.BASE_URL}voice-manifest.json`, document.baseURI).href;
 const appBaseUrl = new URL(import.meta.env.BASE_URL, document.baseURI).href;
 let voiceRuntime;
+let remoteWorkerBlockingPromise = null;
+
+function ensureRemoteWorkerBlocking(status) {
+  if (!remoteModeUi.isServerMode || Number(status?.ready || 0) > 0 || remoteWorkerBlockingPromise || !voiceRuntime?.waitForWorkerReady) return;
+  remoteWorkerBlockingPromise = blocking.registerBlockingAsync("音声モデル", async ({ report }) => {
+    const reportStatus = (workerStatus) => {
+      const connected = Math.max(0, Number(workerStatus?.connected || 0));
+      const ready = Math.max(0, Number(workerStatus?.ready || 0));
+      report({
+        detail: connected > 0
+          ? "サーバー側の音声モデルを読み込んでいます。準備済みWorkerができるまで待機します。"
+          : "音声合成Workerの接続を待っています。クライアントから個別の再試行は行いません。",
+        primary: {
+          label: "Trusted Worker",
+          value: ready,
+          total: Math.max(1, connected),
+          text: `${ready} / ${connected} 準備済み`,
+        },
+      });
+    };
+    await voiceRuntime.waitForWorkerReady({ onStatus: reportStatus });
+  }).catch(() => {}).finally(() => {
+    remoteWorkerBlockingPromise = null;
+    blocking.finish();
+  });
+}
+
 if (remoteModeUi.isServerMode && remoteModeUi.pairing) {
   const { RemoteVoiceRuntime } = await import("./app/remote-voice-runtime.js");
   voiceRuntime = new RemoteVoiceRuntime(remoteModeUi.pairing, {
@@ -58,6 +85,9 @@ if (remoteModeUi.isServerMode && remoteModeUi.pairing) {
     },
     onServerConfig(config) {
       remoteModeUi.applyServerConfig(config);
+    },
+    onWorkerStatus(status) {
+      ensureRemoteWorkerBlocking(status);
     },
     onFailure(error) {
       remoteModeUi.showHandshakeFailure(error instanceof Error ? error.message : String(error));
@@ -189,6 +219,7 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
     route: Object.freeze([
       Object.freeze({ step: "server-mode-about", id: "server-mode-about", nextLabel: "次へ" }),
       Object.freeze({ step: "server-mode-trust", id: "server-mode-trust", nextLabel: "パソコン側の準備を見る" }),
+      Object.freeze({ step: "server-mode-volunteer-privacy", id: "server-mode-volunteer-privacy", nextLabel: "次へ" }),
       Object.freeze({ step: "server-mode-setup", id: "server-mode-setup", nextLabel: "QRの読み取りへ" }),
       Object.freeze({ step: "server-mode-pairing", id: "server-mode-pairing", nextLabel: "QRを読み取る" }),
     ]),
@@ -209,6 +240,7 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
     route: Object.freeze([
       Object.freeze({ step: "server-mode-reconnect", id: "server-mode-reconnect", nextLabel: "次へ" }),
       Object.freeze({ step: "server-mode-reconnect-trust", id: "server-mode-reconnect-trust", nextLabel: "次へ" }),
+      Object.freeze({ step: "server-mode-volunteer-privacy", id: "server-mode-volunteer-privacy", nextLabel: "次へ" }),
       Object.freeze({ step: "server-mode-reconnect-qr", id: "server-mode-reconnect-qr", nextLabel: "QRを読み取る" }),
     ]),
     headerBrand: "クライアントモード",
@@ -248,6 +280,7 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
   remoteModeUi.bindActions({
     openTutorial: () => tutorial.openProfile("server-mode"),
     openReconnectTutorial: () => tutorial.openProfile("server-reconnect"),
+    onHandshakeSuccess: () => tutorial.openProfile("end"),
   });
   await remoteModeUi.activateStoredConnection();
   if (remoteModeUi.isServerMode && remoteModeUi.startupAction === "handshake" && remoteModeUi.pairing) {
