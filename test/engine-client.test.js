@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { EngineClient } from "../src/engine/engine-client.js";
 
 class FakeWorker {
-  constructor() {
+  constructor(url, options = {}) {
+    this.url = url;
+    this.options = options;
     this.listeners = new Set();
     this.messages = [];
     this.terminated = false;
@@ -30,6 +32,28 @@ class FakeWorker {
 
   emit(data) {
     for (const listener of this.listeners) listener({ data });
+
+test("Trusted Worker用EngineClientはdedicated workerを直接取得runtimeとしてconfigureする", async () => {
+  const OriginalWorker = globalThis.Worker;
+  globalThis.Worker = FakeWorker;
+  try {
+    const normal = new EngineClient({ manifestUrl: "https://example.invalid/manifest.json" });
+    await normal.getManifest();
+    assert.equal(normal.worker.options.name, undefined);
+    normal.abort();
+
+    const trusted = new EngineClient({
+      manifestUrl: "https://example.invalid/manifest.json",
+      directWorkerRuntime: true,
+    });
+    await trusted.getManifest();
+    assert.equal(trusted.worker.options.name, "typed-voice-trusted-worker-runtime");
+    assert.equal(trusted.worker.messages[0].directWorkerRuntime, true);
+    trusted.abort();
+  } finally {
+    globalThis.Worker = OriginalWorker;
+  }
+});
   }
 }
 

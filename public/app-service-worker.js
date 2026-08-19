@@ -13,6 +13,7 @@ const SOURCE_ASSET_MAP_URL = new URL("source-asset-map.json", self.registration.
 const SOURCE_STATE_URL = new URL("__typed_voice_source/state-v1.json", self.registration.scope).href;
 const SOURCE_VERIFY_URL = new URL("__typed_voice_source/verify", self.registration.scope);
 const MODEL_PREFIX = new URL("__typed_voice_assets/", self.registration.scope).pathname;
+const DIRECT_WORKER_RUNTIME_REGISTER_URL = new URL("__typed_voice_worker_runtime/register", self.registration.scope);
 const MODEL_CHUNK_QUERY = "__typed_voice_part";
 const MODEL_DOWNLOAD_LOCK_LEASE_MS = 2 * 60 * 1000;
 const MODEL_DOWNLOAD_LOCK_RETRY_MS = 500;
@@ -20,6 +21,7 @@ const SOURCE_PROTOCOL_VERSION = 2;
 const modelDownloadLocks = new Map();
 const sourceApplyControllers = new Map();
 const sourceClientGenerations = new Map();
+const directWorkerRuntimeClients = new Set();
 const DEV_MODE = new URL(self.location.href).searchParams.get("dev") === "1";
 let candidateSourceAssetMapPromise = null;
 
@@ -755,6 +757,11 @@ function releaseModelDownloadLock(event, message) {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
+  if (url.origin === self.location.origin && url.pathname === DIRECT_WORKER_RUNTIME_REGISTER_URL.pathname) {
+    if (event.clientId) directWorkerRuntimeClients.add(event.clientId);
+    event.respondWith(Promise.resolve(isolatedResponse(new Response(null, { status: 204 }))));
+    return;
+  }
   if (url.origin === self.location.origin && url.pathname === SOURCE_VERIFY_URL.pathname) {
     event.respondWith(readSourceVerificationAsset(event.request).then(isolatedResponse));
     return;
@@ -777,6 +784,9 @@ self.addEventListener("fetch", (event) => {
 });
 
 async function readPageAsset(event) {
+  if (event.clientId && directWorkerRuntimeClients.has(event.clientId)) {
+    return isolatedResponse(await fetch(event.request));
+  }
   const client = event.clientId ? await self.clients.get(event.clientId) : null;
   if (client?.url) {
     const clientUrl = new URL(client.url);

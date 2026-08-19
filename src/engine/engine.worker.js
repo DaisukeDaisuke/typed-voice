@@ -16,6 +16,15 @@ let manifest = null;
 let manifestUrl = null;
 let appBaseUrl = null;
 let verifiedManifestId = null;
+let directWorkerRuntime = false;
+
+async function registerDirectWorkerRuntime() {
+  if (!directWorkerRuntime || !appBaseUrl) return;
+  const response = await fetch(new URL("__typed_voice_worker_runtime/register", appBaseUrl), {
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error(`Trusted Worker runtime registration failed: ${response.status}`);
+}
 
 self.addEventListener("message", (event) => {
   const message = event.data;
@@ -48,6 +57,8 @@ async function dispatch(message) {
     case "configure": {
       manifestUrl = message.manifestUrl;
       appBaseUrl = message.appBaseUrl || new URL("./", manifestUrl).href;
+      directWorkerRuntime = message.directWorkerRuntime === true;
+      await registerDirectWorkerRuntime();
       manifest = await fetchManifest(manifestUrl);
       verifiedManifestId = null;
       await engine?.dispose();
@@ -70,6 +81,7 @@ async function dispatch(message) {
     }
     case "initialize": {
       ensureManifest();
+      await registerDirectWorkerRuntime();
       if (verifiedManifestId !== manifest.id) {
         await assertPreparedVoiceAssets(manifest, {
           baseUrl: appBaseUrl,

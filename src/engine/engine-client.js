@@ -1,13 +1,16 @@
 import { acquireModelDownloadLock } from "../app/model-download-lock.js";
 
 export class EngineClient {
-  constructor({ manifestUrl, appBaseUrl = null, onProgress = () => {} }) {
+  constructor({ manifestUrl, appBaseUrl = null, onProgress = () => {}, directWorkerRuntime = false }) {
     this.manifestUrl = manifestUrl;
-    this.worker = new Worker(new URL("./engine.worker.js", import.meta.url), { type: "module" });
+    this.worker = new Worker(new URL("./engine.worker.js", import.meta.url), {
+      type: "module",
+      ...(directWorkerRuntime ? { name: "typed-voice-trusted-worker-runtime" } : {}),
+    });
     this.pending = new Map();
     this.onProgress = onProgress;
     this.worker.addEventListener("message", (event) => this.handleMessage(event.data));
-    this.configured = this.request("configure", { manifestUrl, appBaseUrl });
+    this.configured = this.request("configure", { manifestUrl, appBaseUrl, directWorkerRuntime });
   }
 
   request(type, payload = {}) {

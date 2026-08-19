@@ -459,6 +459,7 @@ async function configureEngine(profile, reload) {
     const client = new runtime.EngineClient({
       manifestUrl,
       appBaseUrl,
+      directWorkerRuntime: true,
       onProgress(message) {
         if (generation !== configurationGeneration) return;
         if (message.stage === "download") {
