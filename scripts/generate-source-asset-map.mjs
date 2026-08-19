@@ -43,7 +43,7 @@ function findManifestKey(viteManifest, suffix) {
 }
 
 function classifyAsset(path, sets) {
-  if (sets.core.has(path) || path === "index.html" || path === "voice-manifest.json") return "core";
+  if (sets.core.has(path) || path === "index.html" || path === "worker.html" || path === "voice-manifest.json") return "core";
   if (sets.client.has(path)) return "client";
   if (sets.engine.has(path)
     || /(?:^|\/)(?:engine(?:\.worker|-client)|kanalizer-normalizer)-/i.test(path)
@@ -74,6 +74,7 @@ function portablePath(path) {
 
 const viteManifest = JSON.parse(await readFile(viteManifestPath, "utf8"));
 const indexKey = findManifestKey(viteManifest, "index.html");
+const workerKey = findManifestKey(viteManifest, "worker.html");
 const engineKey = findManifestKey(viteManifest, "src/app/voice-runtime-adapter.js");
 const clientKey = findManifestKey(viteManifest, "src/app/remote-voice-runtime.js");
 const groups = {
@@ -81,6 +82,7 @@ const groups = {
   engine: collectManifestFiles(viteManifest, engineKey, { includeDynamic: true }),
   client: collectManifestFiles(viteManifest, clientKey, { includeDynamic: true }),
 };
+for (const file of collectManifestFiles(viteManifest, workerKey)) groups.core.add(file);
 
 // main.js dynamically imports one thin runtime adapter before the tutorial can
 // be shown. Those adapters and their *static* dependency graphs are therefore

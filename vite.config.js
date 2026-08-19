@@ -27,6 +27,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         app: resolve(rootDirectory, "index.html"),
+        worker: resolve(rootDirectory, "worker.html"),
         pairing: resolve(rootDirectory, "pairing.html"),
         serverEngine: resolve(rootDirectory, "server-engine.html"),
         poc: resolve(rootDirectory, "poc.html"),
