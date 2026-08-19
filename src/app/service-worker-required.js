@@ -1,7 +1,7 @@
 import { createXXHash128 } from "hash-wasm";
 
 export const SOURCE_UPDATE_STORAGE_KEY = "typed-voice-source-cache-key-v1";
-const SOURCE_PROTOCOL_VERSION = 1;
+const SOURCE_PROTOCOL_VERSION = 2;
 
 export function readStoredSourceGeneration(storage = globalThis.localStorage) {
   try {

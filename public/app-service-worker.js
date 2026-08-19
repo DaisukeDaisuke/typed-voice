@@ -16,7 +16,7 @@ const MODEL_PREFIX = new URL("__typed_voice_assets/", self.registration.scope).p
 const MODEL_CHUNK_QUERY = "__typed_voice_part";
 const MODEL_DOWNLOAD_LOCK_LEASE_MS = 2 * 60 * 1000;
 const MODEL_DOWNLOAD_LOCK_RETRY_MS = 500;
-const SOURCE_PROTOCOL_VERSION = 1;
+const SOURCE_PROTOCOL_VERSION = 2;
 const modelDownloadLocks = new Map();
 const sourceApplyControllers = new Map();
 const sourceClientGenerations = new Map();
@@ -78,7 +78,12 @@ function normalizeSourcePath(path) {
 }
 
 function defaultSourceState() {
-  return { version: 1, acceptedGeneration: null, locations: Object.create(null) };
+  return {
+    version: 1,
+    acceptedGeneration: null,
+    locations: Object.create(null),
+    invalidated: Object.create(null),
+  };
 }
 
 function normalizeSourceState(raw) {
@@ -91,6 +96,14 @@ function normalizeSourceState(raw) {
       const path = normalizeSourcePath(value?.path);
       if (!key || !isSourceGenerationCacheName(cacheName) || !path) continue;
       state.locations[key] = { cacheName, path };
+    }
+  }
+  if (raw?.invalidated && typeof raw.invalidated === "object") {
+    for (const [key, value] of Object.entries(raw.invalidated)) {
+      const generation = String(value?.generation || "").toLowerCase();
+      const path = normalizeSourcePath(value?.path);
+      if (!key || !/^[0-9a-f]{32}$/.test(generation) || !path) continue;
+      state.invalidated[key] = { generation, path };
     }
   }
   return state;
@@ -210,6 +223,15 @@ async function sourceLocationResponse(state, reuseKey) {
   return null;
 }
 
+function sourceRepairMarker(state, generation, path, entry) {
+  const marker = state.invalidated?.[sourceReuseKey(path, entry)];
+  return marker?.generation === generation && marker?.path === path ? marker : null;
+}
+
+function markSourceRepairRequired(state, generation, path, entry) {
+  state.invalidated[sourceReuseKey(path, entry)] = { generation, path };
+}
+
 async function repairCandidateLocationsFromCache(candidate, state, groups) {
   const cacheName = sourceCacheName(candidate.generation);
   const cache = await caches.open(cacheName);
@@ -247,8 +269,18 @@ async function getSourceVerificationPlan({ groups } = {}) {
   let missingCount = 0;
   for (const [path, entry] of sourceEntriesForGroups(accepted, groups)) {
     const reuseKey = sourceReuseKey(path, entry);
+    if (sourceRepairMarker(state, accepted.generation, path, entry)) {
+      missingBytes += entry.byteSize;
+      missingCount += 1;
+      continue;
+    }
+    // An accepted manifest entry is not necessarily a persisted source asset.
+    // Initial installs intentionally have no source payload cache yet. Only
+    // verify files for which we have previously recorded a concrete location.
+    if (!state.locations[reuseKey]) continue;
     const cached = await sourceLocationResponse(state, reuseKey);
     if (!cached) {
+      markSourceRepairRequired(state, accepted.generation, path, entry);
       missingBytes += entry.byteSize;
       missingCount += 1;
       continue;
@@ -291,6 +323,7 @@ async function invalidateAcceptedSourceAsset({ generation, path } = {}) {
     for (const url of urlsToDelete) await cache.delete(url);
   }
   delete state.locations[reuseKey];
+  markSourceRepairRequired(state, normalizedGeneration, normalizedPath, entry);
   await saveSourceState(state);
   return true;
 }
@@ -334,7 +367,17 @@ async function planSourceAssets({ groups, knownAcceptedKey = null } = {}) {
   let missingAcceptedBytes = 0;
   let missingAcceptedCount = 0;
   for (const [path, entry] of sourceEntriesForGroups(accepted, groups)) {
-    if (await sourceLocationResponse(state, sourceReuseKey(path, entry))) continue;
+    const reuseKey = sourceReuseKey(path, entry);
+    if (sourceRepairMarker(state, accepted.generation, path, entry)) {
+      missingAcceptedBytes += entry.byteSize;
+      missingAcceptedCount += 1;
+      continue;
+    }
+    // No location means this accepted asset has simply never been persisted.
+    // That is normal on the first load and must not become a repair/update.
+    if (!state.locations[reuseKey]) continue;
+    if (await sourceLocationResponse(state, reuseKey)) continue;
+    markSourceRepairRequired(state, accepted.generation, path, entry);
     missingAcceptedBytes += entry.byteSize;
     missingAcceptedCount += 1;
   }
@@ -394,6 +437,7 @@ async function applySourceAssets({ groups, signal = null } = {}) {
     const reuseKey = sourceReuseKey(path, entry);
     const reused = await sourceLocationResponse(state, reuseKey);
     if (reused) {
+      delete state.invalidated[reuseKey];
       reusedBytes += entry.byteSize;
       continue;
     }
@@ -401,6 +445,7 @@ async function applySourceAssets({ groups, signal = null } = {}) {
     if (!response.ok) throw new Error(`Source asset fetch failed: ${response.status} ${path}`);
     await targetCache.put(sourceAssetUrl(path), response.clone());
     state.locations[reuseKey] = { cacheName: targetCacheName, path };
+    delete state.invalidated[reuseKey];
     await saveSourceState(state);
     networkBytes += entry.byteSize;
     fetchedCount += 1;
@@ -461,18 +506,27 @@ async function pruneSourceCaches(candidate, state) {
 
 async function acceptedSourceResponse(path) {
   const state = await loadSourceState();
-  if (!state.acceptedGeneration) return { managed: false, response: null };
+  if (!state.acceptedGeneration) return { managed: false, response: null, repairRequired: false };
   const accepted = await loadSourceAssetMap(state.acceptedGeneration);
   const entry = accepted?.assets?.[path];
-  if (!entry) return { managed: false, response: null };
+  if (!entry) return { managed: false, response: null, repairRequired: false };
   const reuseKey = sourceReuseKey(path, entry);
+  if (sourceRepairMarker(state, accepted.generation, path, entry)) {
+    return { managed: true, response: null, repairRequired: true };
+  }
+  const hadLocation = Boolean(state.locations[reuseKey]);
   const cached = await sourceLocationResponse(state, reuseKey);
   if (cached) {
     await saveSourceState(state);
-    return { managed: true, response: cached };
+    return { managed: true, response: cached, repairRequired: false };
+  }
+  if (hadLocation) {
+    markSourceRepairRequired(state, accepted.generation, path, entry);
+    await saveSourceState(state);
+    return { managed: true, response: null, repairRequired: true };
   }
   await saveSourceState(state);
-  return { managed: true, response: null };
+  return { managed: true, response: null, repairRequired: false };
 }
 
 async function isUnapprovedCandidateSource(path) {
@@ -824,9 +878,9 @@ function createModelChunkStream(cache, virtualUrl, chunkCount) {
 async function readShellAsset(request) {
   const sourcePath = sourcePathForRequest(request);
   if (sourcePath) {
-    const accepted = await acceptedSourceResponse(sourcePath).catch(() => ({ managed: false, response: null }));
+    const accepted = await acceptedSourceResponse(sourcePath).catch(() => ({ managed: false, response: null, repairRequired: false }));
     if (accepted.response) return isolatedResponse(accepted.response);
-    if (accepted.managed) {
+    if (accepted.repairRequired) {
       // The minimal bootstrap must remain loadable so it can present the
       // update/repair consent UI. It is returned from the network without being
       // written into the accepted cache; deferred engine assets remain blocked.
