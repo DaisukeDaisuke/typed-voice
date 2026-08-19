@@ -11,6 +11,7 @@ import {
 import { RemoteAudioFormat } from "./remote-protocol.js";
 
 const REMOTE_AUDIO_FORMAT_KEY = "typed-voice-remote-audio-format";
+const REMOTE_RETRY_COOLDOWN_MS = 10_000;
 
 export class RemoteModeUi {
   constructor(documentRef, { pairing }) {
@@ -39,11 +40,13 @@ export class RemoteModeUi {
     this.connectionDetail = this.document.getElementById("remote-connection-detail");
     this.connectionRescanButton = this.document.getElementById("remote-connection-rescan");
     this.connectionLocalButton = this.document.getElementById("remote-connection-local");
+    this.reconnectRetryButton = this.document.getElementById("remote-reconnect-retry");
     this.tutorialCloseLinks = [...(this.document.querySelectorAll?.(".server-mode-local-link") ?? [])];
     this.topbar = this.document.querySelector(".topbar");
     this.settingsPanel = this.document.getElementById("settings-panel");
     this.main = this.document.querySelector("main");
     this.openReconnectTutorial = null;
+    this.onHandshakeSuccess = null;
     this.modelProfileUi = null;
     this.voiceRuntime = null;
     this.serverConfig = null;
@@ -51,6 +54,7 @@ export class RemoteModeUi {
     this.transportConnected = false;
     this.connectionStartedAt = 0;
     this.connectionTimer = 0;
+    this.retryCooldownTimer = 0;
     const storedAudioFormat = globalThis.localStorage?.getItem?.(REMOTE_AUDIO_FORMAT_KEY);
     if (this.audioFormatSelect) this.audioFormatSelect.value = storedAudioFormat === "pcm16" ? "pcm16" : "float32";
     if (this.isServerMode) this.lockLocalControls();
@@ -64,8 +68,9 @@ export class RemoteModeUi {
     return this.startupAction === "tutorial";
   }
 
-  bindActions({ openTutorial, openReconnectTutorial }) {
+  bindActions({ openTutorial, openReconnectTutorial, onHandshakeSuccess }) {
     this.openReconnectTutorial = openReconnectTutorial ?? null;
+    this.onHandshakeSuccess = onHandshakeSuccess ?? null;
     const localModeUrl = buildLocalModeUrl(this.document.location.href).href;
     for (const link of this.tutorialCloseLinks) link.href = localModeUrl;
     if (this.headerLaunchButton) {
@@ -83,6 +88,7 @@ export class RemoteModeUi {
     this.localButton?.addEventListener("click", () => this.restartInLocalMode());
     this.connectionRescanButton?.addEventListener("click", () => this.openPairingPage());
     this.connectionLocalButton?.addEventListener("click", () => this.restartInLocalMode());
+    this.reconnectRetryButton?.addEventListener("click", () => void this.retryServerConnection());
     this.forgetServerButton?.addEventListener("click", () => void this.unregisterServer());
     this.audioFormatSelect?.addEventListener("change", () => {
       globalThis.localStorage?.setItem?.(REMOTE_AUDIO_FORMAT_KEY, this.audioFormatSelect.value === "pcm16" ? "pcm16" : "float32");
@@ -136,6 +142,22 @@ export class RemoteModeUi {
     this.startConnectionDisplay();
     this.voiceRuntime.reconnect?.();
     return true;
+  }
+
+  async retryServerConnection() {
+    if (!this.reconnectRetryButton || this.reconnectRetryButton.disabled) return false;
+    this.reconnectRetryButton.disabled = true;
+    globalThis.clearTimeout(this.retryCooldownTimer);
+    this.retryCooldownTimer = globalThis.setTimeout(() => {
+      this.retryCooldownTimer = 0;
+      if (this.reconnectRetryButton) this.reconnectRetryButton.disabled = false;
+    }, REMOTE_RETRY_COOLDOWN_MS);
+    try {
+      return await this.reconnectServer();
+    } catch (error) {
+      this.showHandshakeFailure(error instanceof Error ? error.message : String(error));
+      return false;
+    }
   }
 
   async unregisterServer() {
@@ -248,6 +270,7 @@ export class RemoteModeUi {
     this.statusTitle.textContent = `${endpoint.hostname} へ接続しました`;
     this.statusDetail.textContent = "音声合成サーバーを利用できます。";
     this.unlockLocalControls();
+    void this.onHandshakeSuccess?.();
   }
 
   showHandshakeFailure(message = "接続できませんでした。新しいQRを読み取って、もう一度接続してください。") {

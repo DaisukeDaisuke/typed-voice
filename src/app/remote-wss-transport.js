@@ -11,6 +11,7 @@ import {
   encryptRemoteFrame,
   randomRemoteId,
 } from "./remote-protocol.js";
+import { createRemoteClientBanHash } from "./remote-client-identity.js";
 
 export const REMOTE_WSS_CONNECT_TIMEOUT_MS = 4000;
 
@@ -59,6 +60,7 @@ export class RemoteWssTransport {
     onOpen = () => {},
     onAuthenticated = () => {},
     onServerConfig = () => {},
+    onWorkerStatus = () => {},
     onClose = () => {},
     onFailure = () => {},
   } = {}) {
@@ -71,6 +73,7 @@ export class RemoteWssTransport {
     this.onOpen = onOpen;
     this.onAuthenticated = onAuthenticated;
     this.onServerConfig = onServerConfig;
+    this.onWorkerStatus = onWorkerStatus;
     this.onClose = onClose;
     this.onFailure = onFailure;
     this.socket = null;
@@ -87,6 +90,7 @@ export class RemoteWssTransport {
     this.clientTokens = new Map();
     this.lastSessionId = null;
     this.serverConfig = null;
+    this.workerStatus = null;
   }
 
   connect() {
@@ -231,6 +235,7 @@ export class RemoteWssTransport {
     this.handshakeState = "idle";
     this.lastSessionId = null;
     this.serverConfig = null;
+    this.workerStatus = null;
     this.#rejectPending(new DOMException("Remote transport closed", "AbortError"));
     if (socket && socket.readyState < this.WebSocketImpl.CLOSING) {
       try { socket.close(); } catch {}
@@ -250,6 +255,7 @@ export class RemoteWssTransport {
         encryptionKey,
         clientNonce: this.clientNonce,
         audioFormat: this.audioFormat,
+        createClientHash: createRemoteClientBanHash,
       });
       this.session = accepted.session;
       this.handshakeState = "auth-sent";
@@ -262,6 +268,10 @@ export class RemoteWssTransport {
       if (this.handshakeState !== "auth-sent") throw new Error("AUTH後の暗号化フレーム順序が正しくありません。");
       if (frame.op === RemoteOpcode.SERVER_CONFIG) {
         this.#acceptServerConfig(frame);
+        return;
+      }
+      if (frame.op === RemoteOpcode.WORKER_STATUS) {
+        this.#acceptWorkerStatus(frame);
         return;
       }
       if (frame.op !== RemoteOpcode.PING) {
@@ -277,6 +287,10 @@ export class RemoteWssTransport {
   async #handleEncryptedFrame(frame) {
     if (frame.op === RemoteOpcode.SERVER_CONFIG) {
       this.#acceptServerConfig(frame);
+      return;
+    }
+    if (frame.op === RemoteOpcode.WORKER_STATUS) {
+      this.#acceptWorkerStatus(frame);
       return;
     }
     if (frame.op === RemoteOpcode.PING) {
@@ -308,6 +322,18 @@ export class RemoteWssTransport {
     }
     this.serverConfig = Object.freeze({ modelProfile });
     this.onServerConfig(this.serverConfig);
+  }
+
+  #acceptWorkerStatus(frame) {
+    if (frame.id !== 0n || frame.payload.byteLength !== 4) {
+      throw new Error("Worker状態フレームが正しくありません。");
+    }
+    const view = new DataView(frame.payload.buffer, frame.payload.byteOffset, frame.payload.byteLength);
+    const connected = view.getUint16(0, false);
+    const ready = view.getUint16(2, false);
+    if (ready > connected) throw new Error("Worker状態の件数が正しくありません。");
+    this.workerStatus = Object.freeze({ connected, ready });
+    this.onWorkerStatus(this.workerStatus);
   }
 
   #acceptAudio(frame) {

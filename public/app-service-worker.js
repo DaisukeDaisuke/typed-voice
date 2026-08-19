@@ -153,16 +153,16 @@ function releaseModelDownloadLock(event, message) {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
+  if (url.origin === self.location.origin && url.pathname.startsWith(MODEL_PREFIX)) {
+    event.respondWith(readPreparedModelAsset(event.request));
+    return;
+  }
   if (url.protocol === "https:" && url.hostname.endsWith(".trycloudflare.com")) return;
   if (isHuggingFaceResolveUrl(url) && event.request.cache !== "no-store") {
     event.respondWith(readHuggingFaceResolveAsset(event.request));
     return;
   }
   if (url.origin !== self.location.origin) return;
-  if (url.pathname.startsWith(MODEL_PREFIX)) {
-    event.respondWith(readPreparedModelAsset(event.request));
-    return;
-  }
   if (DEV_MODE) {
     event.respondWith(fetch(event.request).then(isolatedResponse));
     return;
