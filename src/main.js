@@ -218,8 +218,9 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
   const serverModeProfile = Object.freeze({
     route: Object.freeze([
       Object.freeze({ step: "server-mode-about", id: "server-mode-about", nextLabel: "次へ" }),
-      Object.freeze({ step: "server-mode-trust", id: "server-mode-trust", nextLabel: "パソコン側の準備を見る" }),
-      Object.freeze({ step: "server-mode-volunteer-privacy", id: "server-mode-volunteer-privacy", nextLabel: "次へ" }),
+      Object.freeze({ step: "tsukuyomichan", id: "tsukuyomichan", nextLabel: "次へ" }),
+      Object.freeze({ step: "server-mode-trust", id: "server-mode-trust", nextLabel: "次へ" }),
+      Object.freeze({ step: "server-mode-volunteer-privacy", id: "server-mode-volunteer-privacy", nextLabel: "パソコン側の準備を見る" }),
       Object.freeze({ step: "server-mode-volunteer-audio", id: "server-mode-volunteer-audio", nextLabel: "次へ" }),
       Object.freeze({ step: "server-mode-setup", id: "server-mode-setup", nextLabel: "QRの読み取りへ" }),
       Object.freeze({ step: "server-mode-pairing", id: "server-mode-pairing", nextLabel: "QRを読み取る" }),
