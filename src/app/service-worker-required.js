@@ -240,6 +240,23 @@ export async function requireServiceWorker({ reloadKey = "typed-voice-coi-reload
   // including a fully offline navigation from the application shell cache.
   const existing = await navigator.serviceWorker.getRegistration(scopeUrl.href).catch(() => null);
   if (existing?.active) {
+    let registration = existing;
+    if (navigator.onLine) {
+      try {
+        registration = await navigator.serviceWorker.register(serviceWorkerUrl, { scope: scopeUrl.pathname });
+        await registration.update().catch(() => {});
+      } catch (error) {
+        console.warn("Service Worker refresh before control failed; retrying with the installed worker", error);
+      }
+    }
+    requestClientClaim(registration);
+    const controller = await waitForServiceWorkerController(5000);
+    if (controller) {
+      // This document itself was loaded before the worker controlled navigation,
+      // so reload once to obtain the worker-provided isolation headers too.
+      location.reload();
+      return new Promise(() => {});
+    }
     reloadUnderExistingServiceWorker(reloadKey);
     return new Promise(() => {});
   }
@@ -267,14 +284,9 @@ export async function requireServiceWorker({ reloadKey = "typed-voice-coi-reload
   }
 
   sessionStorage.setItem(reloadKey, "1");
-  try {
-    await new Promise((resolve) => navigator.serviceWorker.addEventListener("controllerchange", resolve, { once: true }));
-    location.reload();
-  } catch (error) {
-    console.error("Service Worker activation failed", error);
-    showServiceWorkerRequired();
-    throw error;
-  }
+  await waitForServiceWorkerController(5000);
+  location.reload();
+  return new Promise(() => {});
 }
 
 export async function queryPreparedModelCache(manifestUrl, { appBaseUrl = null } = {}) {
@@ -325,12 +337,39 @@ async function refreshServiceWorker(serviceWorkerUrl, scopeUrl) {
 }
 
 function reloadUnderExistingServiceWorker(reloadKey) {
-  if (sessionStorage.getItem(reloadKey) === "1") {
+  const attempts = Number(sessionStorage.getItem(reloadKey) || 0);
+  if (attempts >= 2) {
     showServiceWorkerRequired();
     throw new Error("An active Service Worker exists, but this page is still not controlled by it.");
   }
-  sessionStorage.setItem(reloadKey, "1");
+  sessionStorage.setItem(reloadKey, String(attempts + 1));
   location.reload();
+}
+
+function requestClientClaim(registration) {
+  try {
+    registration?.active?.postMessage({ type: "typed-voice:claim-clients" });
+  } catch {
+    // Older workers do not know this message. The bounded reload fallback below
+    // remains compatible with them while the new worker is being installed.
+  }
+}
+
+function waitForServiceWorkerController(timeoutMs = 5000) {
+  if (navigator.serviceWorker.controller) return Promise.resolve(navigator.serviceWorker.controller);
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      globalThis.clearTimeout(timeout);
+      navigator.serviceWorker.removeEventListener("controllerchange", changed);
+      resolve(navigator.serviceWorker.controller ?? null);
+    };
+    const changed = () => finish();
+    const timeout = globalThis.setTimeout(finish, timeoutMs);
+    navigator.serviceWorker.addEventListener("controllerchange", changed);
+  });
 }
 
 export function showServiceWorkerRequired() {

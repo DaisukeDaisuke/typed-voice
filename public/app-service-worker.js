@@ -496,6 +496,10 @@ async function isBootstrapSource(path) {
 
 self.addEventListener("message", (event) => {
   const message = event.data;
+  if (message?.type === "typed-voice:claim-clients") {
+    event.waitUntil(self.clients.claim());
+    return;
+  }
   if (message?.type === "typed-voice:source-protocol") {
     event.ports?.[0]?.postMessage({ ok: true, version: SOURCE_PROTOCOL_VERSION });
     return;
