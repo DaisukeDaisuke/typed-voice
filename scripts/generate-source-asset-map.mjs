@@ -88,7 +88,8 @@ for (const file of collectManifestFiles(viteManifest, workerKey)) groups.core.ad
 // be shown. Those adapters and their *static* dependency graphs are therefore
 // bootstrap code, not deferred engine/client payloads. Their own dynamic
 // imports (EngineClient, Kanalizer, ORT, etc.) stay in engine/client and remain
-// behind the user's download/update consent.
+// behind the main app's download/update consent. worker.html fetches its own
+// Vite-resolved same-origin runtime directly through the Service Worker path.
 for (const bootstrapKey of [engineKey, clientKey]) {
   for (const file of collectManifestFiles(viteManifest, bootstrapKey)) groups.core.add(file);
 }

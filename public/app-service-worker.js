@@ -773,8 +773,20 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(fetch(event.request).then(isolatedResponse));
     return;
   }
-  event.respondWith(readShellAsset(event.request));
+  event.respondWith(readPageAsset(event));
 });
+
+async function readPageAsset(event) {
+  const client = event.clientId ? await self.clients.get(event.clientId) : null;
+  if (client?.url) {
+    const clientUrl = new URL(client.url);
+    const workerUrl = new URL("worker.html", self.registration.scope);
+    if (clientUrl.origin === self.location.origin && clientUrl.pathname === workerUrl.pathname) {
+      return isolatedResponse(await fetch(event.request));
+    }
+  }
+  return readShellAsset(event.request);
+}
 
 function isHuggingFaceResolveUrl(url) {
   if (url.origin !== "https://huggingface.co") return false;
