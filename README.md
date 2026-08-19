@@ -15,9 +15,9 @@
 - 一度準備した音声モデルを再利用して、通信できない場面でも使いたい。
 ## 音声を先に聞いてみる
 現在のブラウザ向け標準候補で生成したサンプルです。
-- [日本語サンプル — 「東京都税関関税許可局、関税許可を急遽却下」](https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/mobile-int8/samples/01_customs_tariff_rejection.wav)
-- [English sample — “Hey, you finally made it!”](https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/mobile-int8/samples/04_found_me_waiting_English.wav)
-現在も開発中です。画面や内部実装は更新されますが、READMEの先頭では「使う人が何をできるか」を優先し、細かな実装仕様は以下へまとめています。
+- [日本語サンプル — 「東京都税関関税許可局、関税許可を急遽却下」](https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/mobile-int8/samples/01_customs_tariff_rejection.wav) <br>
+- [English sample — “Hey, you finally made it!”](https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/mobile-int8/samples/04_found_me_waiting_English.wav) <br>
+現在も開発中です。画面や内部実装は更新されますが、READMEの先頭では「使う人が何をできるか」を優先し、細かな実装仕様は以下へまとめています。 <br>
 <details>
 <summary><strong>技術仕様・モデル構成を見る</strong></summary>
 <p>現在のPoCは <code>kizuna-intelligence/tsukuyomichan-omnivoice-full-finetune</code> から変換した実モデルをブラウザ上で動かします。別のOmniVoiceモデル、compressed/GPTQ版、Piper Plusを代替音声には使用しません。</p>
