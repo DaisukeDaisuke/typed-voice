@@ -149,6 +149,18 @@ export class VoiceRuntimeAdapter {
       return await initializePromise;
     } catch (error) {
       this.#releaseDeferredSynthesis(false);
+      // onnxruntime-web keeps a failed initWasm() state inside the worker. A
+      // retry on that same worker only reports "previous call to initWasm()
+      // failed" even after the source/cache problem has been repaired. Throw
+      // this worker away so the next retry starts from a clean runtime.
+      const failedClient = this.client;
+      await failedClient?.dispose().catch(() => {});
+      if (this.client === failedClient) {
+        this.client = null;
+        this.activeManifest = null;
+        this.ready = false;
+        this.prepared = false;
+      }
       throw error;
     } finally {
       if (this.initializePromise === initializePromise) {

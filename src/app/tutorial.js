@@ -736,6 +736,14 @@ export class TutorialController {
     this.conversationOpenStartSessionId = this.app?.currentSession?.id ?? null;
     this.elements.next.disabled = true;
     this.elements.conversationOpenStatus.textContent = "まずは上の「会話一覧」を押してください。別の会話があれば、1つ選んで開きます。";
+    const storedSessions = await this.app?.repository?.listSessions?.(1);
+    if (Array.isArray(storedSessions) && storedSessions.length === 0) {
+      // A tutorial can reach this step without ever submitting text. In that
+      // case create a real IndexedDB session now, rather than rendering an
+      // empty selector that has nothing the user can click.
+      this.app.currentSession = null;
+      await this.app?.ensureCurrentConversation?.({ replaceUrl: true });
+    }
     await this.app?.refreshAll?.();
     const availableOtherConversation = [...this.elements.conversationList.querySelectorAll(".conversation-row")]
       .some((row) => row.dataset.sessionId && row.dataset.sessionId !== this.conversationOpenStartSessionId);

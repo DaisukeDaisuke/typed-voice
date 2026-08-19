@@ -129,9 +129,17 @@ async function saveSourceState(state) {
 
 async function storeSourceAssetMap(manifest) {
   const cache = await caches.open(SOURCE_METADATA_CACHE);
-  await cache.put(sourceMapMetadataUrl(manifest.generation), new Response(JSON.stringify(manifest), {
+  const response = new Response(JSON.stringify(manifest), {
     headers: { "content-type": "application/json" },
-  }));
+  });
+  await Promise.all([
+    cache.put(sourceMapMetadataUrl(manifest.generation), response.clone()),
+    // source-asset-map.json cannot be part of the hashed asset list because it
+    // contains the generation derived from that list. Keep the manifest itself
+    // as bootstrap metadata at its public URL so an accepted source cache does
+    // not become unusable merely because the network copy is unavailable.
+    cache.put(SOURCE_ASSET_MAP_URL, response),
+  ]);
 }
 
 async function loadSourceAssetMap(generation) {
@@ -146,14 +154,32 @@ async function loadSourceAssetMap(generation) {
   }
 }
 
+async function loadCachedCandidateSourceAssetMap() {
+  const cache = await caches.open(SOURCE_METADATA_CACHE);
+  const response = await cache.match(SOURCE_ASSET_MAP_URL);
+  if (!response) return null;
+  try {
+    return normalizeSourceAssetMap(await response.json());
+  } catch {
+    await cache.delete(SOURCE_ASSET_MAP_URL);
+    return null;
+  }
+}
+
 async function getCandidateSourceAssetMap() {
   if (!candidateSourceAssetMapPromise) {
     candidateSourceAssetMapPromise = (async () => {
-      const response = await fetch(SOURCE_ASSET_MAP_URL, { cache: "no-store" });
-      if (!response.ok) throw new Error(`Source asset map fetch failed: ${response.status}`);
-      const manifest = normalizeSourceAssetMap(await response.json());
-      await storeSourceAssetMap(manifest);
-      return manifest;
+      try {
+        const response = await fetch(SOURCE_ASSET_MAP_URL, { cache: "no-store" });
+        if (!response.ok) throw new Error(`Source asset map fetch failed: ${response.status}`);
+        const manifest = normalizeSourceAssetMap(await response.json());
+        await storeSourceAssetMap(manifest);
+        return manifest;
+      } catch (error) {
+        const cached = await loadCachedCandidateSourceAssetMap();
+        if (cached) return cached;
+        throw error;
+      }
     })().catch((error) => {
       candidateSourceAssetMapPromise = null;
       throw error;
