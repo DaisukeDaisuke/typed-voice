@@ -58,6 +58,9 @@ export class UiOrchestrator {
     this.pendingTicker = null;
     this.refreshAllPromise = null;
     this.refreshAllQueued = false;
+    
+    this.refreshAllResumePendingQueued = false;
+    
     this.messageRenderKey = null;
     this.pendingRenderKey = null;
     this.conversationRenderKey = null;
@@ -99,7 +102,9 @@ export class UiOrchestrator {
     const requestedId = normalizeConversationId(new URL(location.href).searchParams.get(CONVERSATION_PARAM));
     const session = requestedId ? await this.repository.getSession(requestedId) : null;
     if (session) {
-      await this.openConversation(session.id, { replaceUrl: true });
+      
+      await this.openConversation(session.id, { replaceUrl: true, resumePending: true });
+      
     } else {
       const navigationType = performance.getEntriesByType("navigation")[0]?.type ?? "navigate";
       const storedBootstrap = this.#readBootstrapSession();
@@ -111,13 +116,19 @@ export class UiOrchestrator {
       this.#writeBootstrapSession(bootstrapId);
       this.#writeUrl(bootstrapId, true);
       await this.ensureCurrentConversation({ replaceUrl: true, preferredId: bootstrapId });
-      await this.refreshAll();
+      
+      await this.refreshAll({ resumePending: true });
+      
       this.#showSecondaryView("timeline");
       this.focusComposer();
     }
     this.#restoreUiStateAfterImport();
 
-    this.channel?.addEventListener("message", () => void this.refreshAll());
+    
+    // 他タブのpendingは、そのタブ自身がすでに合成している。BroadcastChannel通知では表示だけ同期し、
+    // 同じ共有IndexedDB pendingを別タブのEngineClientへ二重投入しない。
+    this.channel?.addEventListener("message", () => void this.refreshAll({ resumePending: false }));
+    
     window.addEventListener("popstate", () => void this.#openFromUrl());
     this.elements.status.textContent = "入力できます。音声の受入試験は「音声テスト」からいつでも開けます。";
     this.focusComposer();
@@ -213,19 +224,21 @@ export class UiOrchestrator {
     }
   }
 
-  async openConversation(id, { replaceUrl = false } = {}) {
+  
+  async openConversation(id, { replaceUrl = false, resumePending = true } = {}) {
     const session = await this.repository.getSession(id);
     if (!session) return this.createConversation({ replaceUrl: true });
     this.currentSession = session;
     this.#writeUrl(session.id, replaceUrl);
     await Promise.all([
-      this.refreshCurrentConversation(),
+      this.refreshCurrentConversation({ resumePending }),
       this.refreshConversationList(),
       this.refreshStatistics(),
     ]);
     this.#showSecondaryView("timeline");
     this.focusComposer();
   }
+  
 
   focusComposer() {
     this.elements.composer.focus({ preventScroll: true });
@@ -451,17 +464,23 @@ export class UiOrchestrator {
     this.focusComposer();
   }
 
-  async refreshAll() {
+  
+  async refreshAll({ resumePending = false } = {}) {
     if (this.refreshAllPromise) {
       this.refreshAllQueued = true;
+      this.refreshAllResumePendingQueued ||= resumePending;
       return this.refreshAllPromise;
     }
+    let resumePendingThisPass = resumePending;
     this.refreshAllPromise = (async () => {
       do {
         this.refreshAllQueued = false;
+        const shouldResumePending = resumePendingThisPass || this.refreshAllResumePendingQueued;
+        resumePendingThisPass = false;
+        this.refreshAllResumePendingQueued = false;
         await this.ensureCurrentConversation();
         await Promise.all([
-          this.refreshCurrentConversation(),
+          this.refreshCurrentConversation({ resumePending: shouldResumePending }),
           this.refreshConversationList(),
           this.refreshStatistics(),
         ]);
@@ -473,22 +492,27 @@ export class UiOrchestrator {
       this.refreshAllPromise = null;
     }
   }
+  
 
-  async refreshCurrentConversation() {
+  
+  async refreshCurrentConversation({ resumePending = false } = {}) {
     const session = await this.ensureCurrentConversation();
     this.currentSession = session;
     const [messages, pending] = await Promise.all([
       this.repository.listMessages(session.id),
       this.repository.listPending(session.id),
     ]);
-    for (const item of pending) {
-      await this.utterances.resume(item);
+    if (resumePending) {
+      for (const item of pending) {
+        await this.utterances.resume(item);
+      }
     }
     this.#renderMessages(messages);
     this.#renderPending(pending);
     this.elements.conversationTitle.textContent = this.currentSession.firstMessagePreview || "新しい会話";
 
   }
+  
 
   async refreshConversationList() {
     const sessions = await this.repository.listSessions(100);

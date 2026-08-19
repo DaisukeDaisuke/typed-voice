@@ -11,6 +11,9 @@ const REMOTE_MANIFEST_URLS = Object.freeze({
   fp16: "https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/fp16/typed-voice-manifest.json",
 });
 
+const OMNIVOICE_REFERENCE_SEED = 2026081601;
+
+
 export class VoiceRuntimeAdapter {
   constructor({ manifestUrl, appBaseUrl = null, onStatus = () => {} }) {
     this.manifestUrl = manifestUrl;
@@ -26,6 +29,10 @@ export class VoiceRuntimeAdapter {
     this.client = null;
     this.progressListeners = new Set();
     this.loading = false;
+    
+    this.initializePromise = null;
+    this.initializeProfile = null;
+    
     this.replayAfterLoad = true;
     this.deferredSynthesis = [];
     this.replayingDeferred = false;
@@ -103,8 +110,21 @@ export class VoiceRuntimeAdapter {
   }
 
   async initializePrepared(profile = this.activeProfile ?? "fp32", { enableAudio = true } = {}) {
+    
+    if (this.initializePromise) {
+      const initializedProfile = this.initializeProfile;
+      const initialized = await this.initializePromise;
+      if (initializedProfile !== profile) {
+        return this.initializePrepared(profile, { enableAudio });
+      }
+      if (enableAudio) await this.#enableAudioContext();
+      if (this.audioEnabled) this.#releaseDeferredSynthesis(true);
+      else this.#markDeferredAwaitingAudio();
+      return initialized;
+    }
     this.loading = true;
-    try {
+    this.initializeProfile = profile;
+    const initializePromise = (async () => {
       await this.#ensureProfileClient(profile);
       if (this.ready) {
         if (enableAudio) await this.#enableAudioContext();
@@ -121,12 +141,21 @@ export class VoiceRuntimeAdapter {
       if (this.audioEnabled) this.#releaseDeferredSynthesis(true);
       else this.#markDeferredAwaitingAudio();
       return initialized;
+    })();
+    this.initializePromise = initializePromise;
+    try {
+      return await initializePromise;
     } catch (error) {
       this.#releaseDeferredSynthesis(false);
       throw error;
     } finally {
-      this.loading = false;
+      if (this.initializePromise === initializePromise) {
+        this.initializePromise = null;
+        this.initializeProfile = null;
+        this.loading = false;
+      }
     }
+    
   }
 
   async enable(profile = this.activeProfile ?? "fp32") {
@@ -179,6 +208,10 @@ export class VoiceRuntimeAdapter {
         options: {
           language: "ja",
           speed: this.speed,
+          
+          // 検証済みPoCと同じCPython random.Random互換seedを本番でも使う。
+          seed: OMNIVOICE_REFERENCE_SEED,
+          
         },
       });
       this.#emitProgress({ stage: "synthesis-complete", utteranceId, generation });
