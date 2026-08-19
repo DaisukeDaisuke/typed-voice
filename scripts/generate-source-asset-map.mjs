@@ -43,12 +43,11 @@ function findManifestKey(viteManifest, suffix) {
 }
 
 function classifyAsset(path, sets) {
-  if (sets.core.has(path) || path === "index.html") return "core";
+  if (sets.core.has(path) || path === "index.html" || path === "voice-manifest.json") return "core";
   if (sets.client.has(path)) return "client";
   if (sets.engine.has(path)
-    || /(?:^|\/)(?:engine(?:\.worker|-client)|voice-runtime-adapter|kanalizer-normalizer)-/i.test(path)
+    || /(?:^|\/)(?:engine(?:\.worker|-client)|kanalizer-normalizer)-/i.test(path)
     || /(?:^|\/)(?:ort-wasm|kanalizer_browser_bg|dictionary-)/i.test(path)
-    || path === "voice-manifest.json"
     || /^ort-wasm.*\.(?:mjs|wasm)$/i.test(path)) return "engine";
   return "optional";
 }
@@ -82,10 +81,19 @@ const groups = {
   engine: collectManifestFiles(viteManifest, engineKey, { includeDynamic: true }),
   client: collectManifestFiles(viteManifest, clientKey, { includeDynamic: true }),
 };
-groups.engine.delete(viteManifest[engineKey]?.file);
-groups.client.delete(viteManifest[clientKey]?.file);
-if (viteManifest[engineKey]?.file) groups.engine.add(viteManifest[engineKey].file);
-if (viteManifest[clientKey]?.file) groups.client.add(viteManifest[clientKey].file);
+
+// main.js dynamically imports one thin runtime adapter before the tutorial can
+// be shown. Those adapters and their *static* dependency graphs are therefore
+// bootstrap code, not deferred engine/client payloads. Their own dynamic
+// imports (EngineClient, Kanalizer, ORT, etc.) stay in engine/client and remain
+// behind the user's download/update consent.
+for (const bootstrapKey of [engineKey, clientKey]) {
+  for (const file of collectManifestFiles(viteManifest, bootstrapKey)) groups.core.add(file);
+}
+for (const file of groups.core) {
+  groups.engine.delete(file);
+  groups.client.delete(file);
+}
 
 const assets = {};
 const files = (await listFiles(outputDirectory))

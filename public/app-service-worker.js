@@ -480,7 +480,18 @@ async function isUnapprovedCandidateSource(path) {
   if (!state.acceptedGeneration) return false;
   const candidate = await getCandidateSourceAssetMap().catch(() => null);
   if (!candidate || candidate.generation === state.acceptedGeneration) return false;
-  return Boolean(candidate.assets?.[path]);
+  const entry = candidate.assets?.[path];
+  return Boolean(entry && entry.group !== "core");
+}
+
+async function isBootstrapSource(path) {
+  const state = await loadSourceState();
+  if (state.acceptedGeneration) {
+    const accepted = await loadSourceAssetMap(state.acceptedGeneration);
+    if (accepted?.assets?.[path]?.group === "core") return true;
+  }
+  const candidate = await getCandidateSourceAssetMap().catch(() => null);
+  return candidate?.assets?.[path]?.group === "core";
 }
 
 self.addEventListener("message", (event) => {
@@ -812,10 +823,15 @@ async function readShellAsset(request) {
     const accepted = await acceptedSourceResponse(sourcePath).catch(() => ({ managed: false, response: null }));
     if (accepted.response) return isolatedResponse(accepted.response);
     if (accepted.managed) {
-      return isolatedResponse(new Response("Accepted source asset is unavailable until the update is approved", {
-        status: 503,
-        headers: { "content-type": "text/plain; charset=utf-8" },
-      }));
+      // The minimal bootstrap must remain loadable so it can present the
+      // update/repair consent UI. It is returned from the network without being
+      // written into the accepted cache; deferred engine assets remain blocked.
+      if (!await isBootstrapSource(sourcePath)) {
+        return isolatedResponse(new Response("Accepted source asset is unavailable until the update is approved", {
+          status: 503,
+          headers: { "content-type": "text/plain; charset=utf-8" },
+        }));
+      }
     }
     if (await isUnapprovedCandidateSource(sourcePath)) {
       return isolatedResponse(new Response("New source asset is unavailable until the update is approved", {

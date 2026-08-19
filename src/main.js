@@ -379,7 +379,10 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
   });
 });
 blocking.finish();
-if (!remoteModeUi.isServerMode && tutorialState.complete && selectedModelCached) {
+if (!remoteModeUi.isServerMode
+  && tutorialState.complete
+  && selectedModelCached
+  && !sourceUpdateState.updateAvailable) {
   void app.initializePreparedVoice(modelProfileUi.profile, { enableAudio: false }).catch(() => {});
 }
 
