@@ -303,6 +303,16 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
     },
   });
 
+  const serverOfflineProfile = Object.freeze({
+    route: Object.freeze([
+      Object.freeze({ step: "server-mode-offline", id: "server-mode-offline", nextLabel: "とにかく進みたい" }),
+    ]),
+    headerBrand: "クライアントモード",
+    completionLabel: "とにかく進みたい",
+    completeTo: "server-mode",
+    closeOnBackAtStart: false,
+  });
+
   const serverReconnectProfile = Object.freeze({
     route: Object.freeze([
       Object.freeze({ step: "server-mode-reconnect", id: "server-mode-reconnect", nextLabel: "次へ" }),
@@ -330,18 +340,32 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
     .registerProfile("full", fullTutorialProfile)
     .registerProfile("model-picker", modelPickerProfile)
     .registerProfile("model-picker-required", requiredModelPickerProfile)
+    .registerProfile("server-offline", serverOfflineProfile)
     .registerProfile("server-mode", serverModeProfile)
     .registerProfile("server-reconnect", serverReconnectProfile);
 
+  const shouldShowServerOfflineTutorial = () => (
+    remoteModeUi.isServerMode && globalThis.navigator?.onLine === false
+  );
+  const openServerModeTutorial = () => tutorial.openProfile(
+    shouldShowServerOfflineTutorial() ? "server-offline" : "server-mode"
+  );
+
+  document.getElementById("tutorial-server-offline-reload")?.addEventListener("click", () => {
+    document.location.reload();
+  });
+
   document.getElementById("remote-reconnect-help")?.addEventListener("click", () => {
-    void tutorial.openProfile("server-mode");
+    void openServerModeTutorial();
   });
 
   if (remoteModeUi.isServerMode) {
     const serverStartupProfile = sourceUpdateState.updateAvailable
       ? "source-update"
       : remoteModeUi.shouldRunServerTutorialAtStartup()
-        ? "server-mode"
+        ? shouldShowServerOfflineTutorial()
+          ? "server-offline"
+          : "server-mode"
         : "end";
     await tutorial.openProfile(serverStartupProfile);
   } else {
@@ -353,7 +377,7 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
   }
 
   remoteModeUi.bindActions({
-    openTutorial: () => tutorial.openProfile("server-mode"),
+    openTutorial: openServerModeTutorial,
     openReconnectTutorial: () => tutorial.openProfile("server-reconnect"),
     onHandshakeSuccess: () => {
       if (["server-mode", "server-reconnect"].includes(tutorial.activeProfile?.name)) {
