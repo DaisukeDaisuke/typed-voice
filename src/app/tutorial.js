@@ -503,7 +503,7 @@ export class TutorialController {
       && page.dataset.tutorialStep === "model-load"
       && (visitState.modelLoadStarted || visitState.modelLoadComplete);
     this.elements.back.disabled = (!this.activeProfile?.closeOnBackAtStart && this.stepIndex === 0) || scopedModelLoadLocked;
-    this.elements.next.hidden = page.dataset.tutorialStep === "source-update";
+    this.elements.next.hidden = false;
     this.elements.back.textContent = this.summaryReturnIndex != null && this.stepIndex !== this.summaryReturnIndex
       ? `${this.summaryReturnIndex + 1} / ${this.activePages.length}へ戻る`
       : visit?.backLabel

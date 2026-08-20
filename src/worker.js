@@ -14,6 +14,7 @@ const MESSAGE = Object.freeze({
   AUDIO_META: 16,
   AUDIO_CHUNK: 17,
   ERROR: 18,
+  RECONNECT_TOKEN: 19,
 });
 const PROTOCOL_LABEL = new TextEncoder().encode("typed-voice-volunteer-worker/v2");
 const AUDIO_CHUNK_BYTES = 64 * 1024;
@@ -438,7 +439,7 @@ async function startParticipation({ reconnecting = false } = {}) {
       updateParticipationUi(false);
       startButton.disabled = true;
       setStatus("Worker接続認証が失効しました。現在のWorker接続URLから認証し直してください。");
-    } else if (event.code === 1000 || event.code === 1001) {
+    } else if (event.code === 1000) {
       participationRequested = false;
       connectionElement.textContent = "サーバー終了";
       updateParticipationUi(false);
@@ -453,7 +454,7 @@ async function startParticipation({ reconnecting = false } = {}) {
       setStatus("Worker接続が切断されました。再参加できます。");
     }
     void disposeEngine().finally(() => {
-      if (event.code !== 1000 && event.code !== 1001 && event.code !== 1008) scheduleReconnect();
+      if (event.code !== 1000 && event.code !== 1008) scheduleReconnect();
     });
   });
   activeSocket.addEventListener("error", () => {
@@ -498,12 +499,15 @@ async function acceptServerMessage(frame) {
     const config = JSON.parse(decodeUtf8(message.payload));
     const profile = String(config.profile ?? "");
     if (!["fp32", "fp16", "mobile-int8", "mobile-int4"].includes(profile)) throw new Error("unsupported model profile");
-    if (!storeWorkerSessionToken(config.sessionToken)) throw new Error("worker session token is invalid");
     reconnectAttempt = 0;
     currentProfile = profile;
     modelElement.textContent = profile;
     connectionElement.textContent = "参加中";
     void configureEngine(profile, Boolean(config.reload));
+    return;
+  }
+  if (message.type === MESSAGE.RECONNECT_TOKEN) {
+    if (!storeWorkerSessionToken(decodeUtf8(message.payload))) throw new Error("worker reconnect token is invalid");
     return;
   }
   if (message.type === MESSAGE.SYNTH) {
