@@ -53,7 +53,11 @@ export async function planSourceAssets(groups, { storage = globalThis.localStora
   return plan;
 }
 
-export async function applySourceAssets(groups, { storage = globalThis.localStorage, signal = null } = {}) {
+export async function applySourceAssets(groups, {
+  storage = globalThis.localStorage,
+  signal = null,
+  onProgress = () => {},
+} = {}) {
   if (!await supportsSourceProtocol(navigator.serviceWorker?.controller)) {
     throw new Error("Service Workerの更新機能がまだ有効になっていません。再読み込みしてください。");
   }
@@ -63,7 +67,13 @@ export async function applySourceAssets(groups, { storage = globalThis.localStor
     { groups, requestId },
     "result",
     120_000,
-    { signal, cancelType: "typed-voice:cancel-source-assets", requestId },
+    {
+      signal,
+      cancelType: "typed-voice:cancel-source-assets",
+      requestId,
+      progressKey: "progress",
+      onProgress,
+    },
   );
   if (!markSourceUpdateAcknowledged(result.generation, storage)) {
     throw new Error("更新済みソースの世代を保存できませんでした。");
@@ -162,6 +172,8 @@ async function requestServiceWorker(type, payload, resultKey, timeoutMs = 10_000
   signal = null,
   cancelType = null,
   requestId = null,
+  progressKey = null,
+  onProgress = null,
 } = {}) {
   const controller = navigator.serviceWorker?.controller;
   if (!controller) throw new Error("Service Worker is not controlling this page.");
@@ -190,6 +202,10 @@ async function requestServiceWorker(type, payload, resultKey, timeoutMs = 10_000
     }, timeoutMs);
     signal?.addEventListener("abort", abort, { once: true });
     channel.port1.onmessage = (event) => {
+      if (progressKey && event.data?.[progressKey]) {
+        if (typeof onProgress === "function") onProgress(event.data[progressKey]);
+        return;
+      }
       if (event.data?.ok) finish(resolve, event.data[resultKey]);
       else finish(reject, new Error(event.data?.message || "Service Worker source update request failed."));
     };

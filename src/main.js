@@ -78,8 +78,8 @@ const sourceUpdateState = await blocking.registerBlockingAsync("更新確認", a
 });
 const sourceUpdate = {
   plan: { ...sourceUpdateState },
-  async prepare({ signal = null } = {}) {
-    const result = await applySourceAssets(sourceAssetGroups, { signal });
+  async prepare({ signal = null, onProgress = () => {} } = {}) {
+    const result = await applySourceAssets(sourceAssetGroups, { signal, onProgress });
     this.plan = {
       ...this.plan,
       generation: result.generation,
@@ -215,9 +215,6 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
         ? "end"
         : "model-picker-required",
     closeOnBackAtStart: false,
-    async onComplete() {
-      await sourceUpdate.prepare();
-    },
   });
 
   const fullTutorialProfile = Object.freeze({

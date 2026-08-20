@@ -161,6 +161,8 @@ export class TutorialController {
     this.cancelExamplePreparing = false;
     this.downloadAcknowledged = false;
     this.sourceUpdateAcknowledged = false;
+    this.sourceUpdateRunning = false;
+    this.sourceUpdateProgressLast = null;
     this.sourceUpdateCompleted = !Boolean(sourceUpdate?.plan?.updateAvailable)
       && Number(sourceUpdate?.plan?.fetchBytes || 0) === 0;
     const voiceState = this.app?.voiceRuntimeState;
@@ -213,7 +215,7 @@ export class TutorialController {
       button.addEventListener("click", () => void this.#runSamplePreview(button.dataset.tutorialSample));
     }
     this.elements.downloadAck.addEventListener("click", () => this.#acknowledgeDownload());
-    this.elements.sourceUpdateAck.addEventListener("click", () => this.#acknowledgeSourceUpdate());
+    this.elements.sourceUpdateAck.addEventListener("click", () => void this.#runSourceUpdate());
     this.elements.downloadButton.addEventListener("click", () => void this.#runVoiceDownload());
     this.elements.waitSeconds.addEventListener("change", () => void this.#applyWaitSetting());
     this.elements.waitDemo.addEventListener("click", () => void this.#runWaitDemo());
@@ -501,6 +503,7 @@ export class TutorialController {
       && page.dataset.tutorialStep === "model-load"
       && (visitState.modelLoadStarted || visitState.modelLoadComplete);
     this.elements.back.disabled = (!this.activeProfile?.closeOnBackAtStart && this.stepIndex === 0) || scopedModelLoadLocked;
+    this.elements.next.hidden = page.dataset.tutorialStep === "source-update";
     this.elements.back.textContent = this.summaryReturnIndex != null && this.stepIndex !== this.summaryReturnIndex
       ? `${this.summaryReturnIndex + 1} / ${this.activePages.length}へ戻る`
       : visit?.backLabel
@@ -515,7 +518,7 @@ export class TutorialController {
         : visit?.nextLabel
           ?? (this.stepIndex === this.activePages.length - 1 ? this.activeProfile?.completionLabel ?? "使い始める" : "次へ");
     this.elements.next.disabled = (page.dataset.tutorialStep === "download" && !this.downloadCompleted)
-      || (page.dataset.tutorialStep === "source-update" && !this.sourceUpdateAcknowledged)
+      || page.dataset.tutorialStep === "source-update"
       || (page.dataset.tutorialStep === "conversations" && !this.conversationTutorialCompleted && this.conversationPracticeCount === 0)
       || (page.dataset.tutorialStep === "conversation-open" && !this.conversationOpenCompleted)
       || (page.dataset.tutorialStep === "model-load" && !visitState.modelLoadComplete);
@@ -525,9 +528,10 @@ export class TutorialController {
     if (page.dataset.tutorialStep === "conversations") void this.#prepareConversationTutorial();
     if (page.dataset.tutorialStep === "conversation-open") void this.#prepareConversationOpenTutorial();
     if (page.dataset.tutorialStep === "download" && !this.downloadCompleted) void this.#loadActualDownloadPlan();
+    if (page.dataset.tutorialStep === "source-update") this.#renderSourceUpdateDisclosure();
     this.#beginEnterStep(page);
     this.elements.pagesContainer.scrollTop = 0;
-    if (page.dataset.tutorialStep === "source-update" && !this.sourceUpdateAcknowledged) {
+    if (page.dataset.tutorialStep === "source-update" && !this.sourceUpdateRunning) {
       this.elements.sourceUpdateAck.focus({ preventScroll: true });
     } else if (page.dataset.tutorialStep === "download" && !this.downloadCompleted && !this.downloadAcknowledged) {
       this.elements.downloadAck.focus({ preventScroll: true });
@@ -547,15 +551,95 @@ export class TutorialController {
     this.elements.overlay.classList.remove("tutorial-needs-attention");
   }
 
-  #acknowledgeSourceUpdate() {
-    if (this.sourceUpdateAcknowledged) return;
+  #renderSourceUpdateDisclosure() {
+    if (this.sourceUpdateRunning || this.sourceUpdateCompleted) return;
+    const plan = this.sourceUpdate?.plan;
+    if (!plan) {
+      this.elements.sourceUpdateSize.textContent = "取得できませんでした";
+      this.elements.sourceUpdateAck.disabled = true;
+      this.elements.sourceUpdateAck.textContent = "容量を確認できません";
+      this.elements.sourceUpdateStatus.textContent = "更新容量を確認できませんでした。再読み込みしてからもう一度お試しください。";
+      return;
+    }
+    const totalBytes = Math.max(0, Number(plan.fetchBytes || 0));
+    const formatted = this.#formatBytes(totalBytes);
+    this.elements.sourceUpdateSize.textContent = totalBytes > 0 ? formatted : "追加ダウンロードなし";
+    this.elements.sourceUpdateProgress.value = 0;
+    this.elements.sourceUpdatePercent.textContent = "0%";
+    this.elements.sourceUpdateBytes.textContent = totalBytes > 0 ? `0 B / ${formatted}` : "保存済みデータを再利用";
+    this.elements.sourceUpdateSpeed.textContent = "-- MB/s";
+    this.elements.sourceUpdateStatus.textContent = totalBytes > 0
+      ? `取得予定量は ${formatted} です。ボタンを押すまでダウンロードは始まりません。`
+      : "再ダウンロードせず、保存済みデータを更新版へ切り替えます。";
+    this.elements.sourceUpdateAck.disabled = false;
+    this.elements.sourceUpdateAck.textContent = totalBytes > 0
+      ? `${formatted} をダウンロードして更新することに同意して開始`
+      : "保存済みデータで更新を開始";
+  }
+
+  async #runSourceUpdate() {
+    if (this.sourceUpdateRunning || this.sourceUpdateCompleted || !this.sourceUpdate?.prepare) return;
+    const expectedFetchBytes = Math.max(0, Number(this.sourceUpdate?.plan?.fetchBytes || 0));
     this.sourceUpdateAcknowledged = true;
+    this.sourceUpdateRunning = true;
+    this.sourceUpdateProgressLast = null;
     this.elements.sourceUpdateAck.disabled = true;
-    this.elements.sourceUpdateAck.textContent = "更新することに同意しました";
-    this.elements.next.disabled = false;
+    this.elements.sourceUpdateAck.textContent = "更新中…";
+    this.elements.sourceUpdateStatus.textContent = "typed-voiceのソースコードを更新しています。";
+    this.elements.back.disabled = true;
+    this.elements.next.disabled = true;
     this.elements.overlay.classList.remove("tutorial-needs-attention");
     this.#updateHighlights("source-update");
-    this.elements.next.focus({ preventScroll: true });
+    try {
+      await this.sourceUpdate.prepare({
+        onProgress: (progress) => this.#handleSourceUpdateProgress(progress),
+      });
+      this.sourceUpdateCompleted = true;
+      this.elements.sourceUpdateProgress.value = 100;
+      this.elements.sourceUpdatePercent.textContent = "100%";
+      this.elements.sourceUpdateBytes.textContent = expectedFetchBytes > 0
+        ? `${this.#formatBytes(expectedFetchBytes)} / ${this.#formatBytes(expectedFetchBytes)}`
+        : "追加ダウンロードなし";
+      this.elements.sourceUpdateSpeed.textContent = "完了";
+      this.elements.sourceUpdateAck.textContent = "更新完了";
+      this.elements.sourceUpdateStatus.textContent = "更新が完了しました。自動で再読み込みします。";
+      globalThis.location.reload();
+    } catch (error) {
+      this.sourceUpdateAcknowledged = false;
+      this.elements.sourceUpdateAck.disabled = false;
+      this.elements.sourceUpdateAck.textContent = "もう一度更新する";
+      this.elements.sourceUpdateSpeed.textContent = "失敗";
+      this.elements.sourceUpdateStatus.textContent = `更新に失敗しました: ${error instanceof Error ? error.message : String(error)}`;
+      this.#updateHighlights("source-update");
+    } finally {
+      this.sourceUpdateRunning = false;
+      if (!this.sourceUpdateCompleted) {
+        this.elements.back.disabled = !this.activeProfile?.closeOnBackAtStart && this.stepIndex === 0;
+      }
+    }
+  }
+
+  #handleSourceUpdateProgress(progress) {
+    const loaded = Math.max(0, Number(progress?.loadedBytes || 0));
+    const plannedTotal = Math.max(0, Number(this.sourceUpdate?.plan?.fetchBytes || 0));
+    const total = Math.max(0, Number(progress?.totalBytes || plannedTotal));
+    if (total > 0) {
+      const percent = Math.max(0, Math.min(100, loaded / total * 100));
+      this.elements.sourceUpdateProgress.value = percent;
+      this.elements.sourceUpdatePercent.textContent = `${percent.toFixed(1)}%`;
+      this.elements.sourceUpdateBytes.textContent = `${this.#formatBytes(loaded)} / ${this.#formatBytes(total)}`;
+    }
+    const now = performance.now();
+    if (this.sourceUpdateProgressLast && loaded >= this.sourceUpdateProgressLast.loaded) {
+      const elapsedSeconds = (now - this.sourceUpdateProgressLast.at) / 1000;
+      const deltaBytes = loaded - this.sourceUpdateProgressLast.loaded;
+      if (elapsedSeconds >= 0.08 && deltaBytes > 0) {
+        this.elements.sourceUpdateSpeed.textContent = `${(deltaBytes / elapsedSeconds / 1_000_000).toFixed(1)} MB/s`;
+      }
+    } else if (loaded > 0) {
+      this.elements.sourceUpdateSpeed.textContent = "計測中…";
+    }
+    this.sourceUpdateProgressLast = { loaded, at: now };
   }
 
   async #updateDeviceSynthesisCopy() {
@@ -1926,7 +2010,13 @@ export class TutorialController {
       sampleButtons: [...this.document.querySelectorAll("[data-tutorial-sample]")],
       sampleStatus: byId("tutorial-sample-status"),
       downloadSize: byId("tutorial-download-size"),
+      sourceUpdateSize: byId("tutorial-source-update-size"),
       sourceUpdateAck: byId("tutorial-source-update-ack"),
+      sourceUpdateProgress: byId("tutorial-source-update-progress"),
+      sourceUpdatePercent: byId("tutorial-source-update-percent"),
+      sourceUpdateBytes: byId("tutorial-source-update-bytes"),
+      sourceUpdateSpeed: byId("tutorial-source-update-speed"),
+      sourceUpdateStatus: byId("tutorial-source-update-status"),
       downloadAck: byId("tutorial-download-ack"),
       downloadButton: byId("tutorial-download-button"),
       downloadProgress: byId("tutorial-download-progress"),

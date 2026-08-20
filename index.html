@@ -354,10 +354,19 @@ https://tyc.rei-yumesaki.net
           <p>配布中の版と保存状態に差があります。新しい版への更新、または破損した保存済みファイルの再取得が必要です。</p>
           <div class="tutorial-download-disclosure">
             <span>必要なtyped-voiceのソースコードだけを取得します。会話・設定・保存済みの音声モデルは削除しません。</span>
-            <strong>ソースコード更新・修復</strong>
-            <button id="tutorial-source-update-ack" class="tutorial-download-ack" type="button">更新することに同意します</button>
+            <strong id="tutorial-source-update-size">確認中…</strong>
+            <button id="tutorial-source-update-ack" class="tutorial-download-ack" type="button" disabled>容量を確認しています…</button>
           </div>
-          <p class="tutorial-callout">同意するまで「次へ」は押せません。</p>
+          <div class="tutorial-download-progress" aria-live="polite">
+            <progress id="tutorial-source-update-progress" max="100" value="0">0%</progress>
+            <div class="tutorial-download-progress-meta">
+              <strong id="tutorial-source-update-percent">0%</strong>
+              <span id="tutorial-source-update-bytes">開始前</span>
+              <span id="tutorial-source-update-speed">-- MB/s</span>
+            </div>
+            <p id="tutorial-source-update-status">容量を確認してから更新を開始できます。</p>
+          </div>
+          <p class="tutorial-callout">更新が完了すると、自動で再読み込みします。</p>
         </section>
 
         <section class="tutorial-page tutorial-server-page" data-tutorial-step="server-mode-about" hidden>

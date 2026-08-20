@@ -23,6 +23,10 @@ const REMOTE_MANIFEST_URLS = Object.freeze({
   fp16: "https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/fp16/typed-voice-manifest.json",
 });
 const WORKER_ACCESS_TOKEN_KEY = "typed-voice-worker-access-token-v1";
+const WORKER_SESSION_TOKEN_KEY = "typed-voice-worker-session-token-v1";
+const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_BASE_DELAY_MS = 2_000;
+const RECONNECT_MAX_DELAY_MS = 30_000;
 
 const startButton = document.getElementById("volunteer-start");
 const stopButton = document.getElementById("volunteer-stop");
@@ -53,6 +57,10 @@ let engineInfo = null;
 let currentProfile = null;
 let configurationGeneration = 0;
 let workerRuntimePromise = null;
+let workerSessionToken = readWorkerSessionToken();
+let participationRequested = false;
+let reconnectTimer = null;
+let reconnectAttempt = 0;
 const synthesisGenerations = new Map();
 
 function loadWorkerRuntime() {
@@ -83,6 +91,28 @@ function readWorkerAccessToken() {
   } catch {
     return null;
   }
+}
+
+function readWorkerSessionToken() {
+  try {
+    const stored = sessionStorage.getItem(WORKER_SESSION_TOKEN_KEY) ?? "";
+    return /^[0-9a-f]{64}$/.test(stored) ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeWorkerSessionToken(value) {
+  const token = String(value ?? "");
+  if (!/^[0-9a-f]{64}$/.test(token)) return false;
+  workerSessionToken = token;
+  try { sessionStorage.setItem(WORKER_SESSION_TOKEN_KEY, token); } catch {}
+  return true;
+}
+
+function clearWorkerSessionToken() {
+  workerSessionToken = null;
+  try { sessionStorage.removeItem(WORKER_SESSION_TOKEN_KEY); } catch {}
 }
 
 function readWorkerServerUrl() {
@@ -297,6 +327,34 @@ function setStatus(message) {
   statusElement.textContent = message;
 }
 
+function cancelReconnect() {
+  if (reconnectTimer !== null) globalThis.clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+}
+
+function scheduleReconnect() {
+  if (!participationRequested || reconnectTimer !== null || socket) return;
+  if (reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
+    participationRequested = false;
+    updateParticipationUi(false);
+    connectionElement.textContent = "切断";
+    setStatus("接続を再開できませんでした。参加を続ける場合は、参加ボタンを押してください。");
+    return;
+  }
+  const delay = Math.min(RECONNECT_BASE_DELAY_MS * 2 ** reconnectAttempt, RECONNECT_MAX_DELAY_MS);
+  reconnectAttempt += 1;
+  connectionElement.textContent = "再接続待機中";
+  setStatus(`${Math.ceil(delay / 1000)}秒後にWorker接続を自動で再開します。`);
+  reconnectTimer = globalThis.setTimeout(() => {
+    reconnectTimer = null;
+    void startParticipation({ reconnecting: true }).catch((error) => {
+      if (!participationRequested) return;
+      setStatus(`Worker再接続に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
+      scheduleReconnect();
+    });
+  }, delay);
+}
+
 async function prepareServiceWorker() {
   try {
     await requireServiceWorker({ reloadKey: "typed-voice-volunteer-worker-coi-reloaded" });
@@ -312,7 +370,7 @@ const serviceWorkerReadyPromise = prepareServiceWorker().then(() => {
     setStatus("WorkerサーバーURLがありません。現在のWorker接続URLから開き直してください。");
     return;
   }
-  if (!workerAccessToken) {
+  if (!workerAccessToken && !workerSessionToken) {
     setStatus("Worker接続トークンがありません。現在のWorker接続URLから認証し直してください。");
     return;
   }
@@ -321,11 +379,14 @@ const serviceWorkerReadyPromise = prepareServiceWorker().then(() => {
 });
 void serviceWorkerReadyPromise.catch(() => {});
 
-async function startParticipation() {
+async function startParticipation({ reconnecting = false } = {}) {
+  if (socket && socket.readyState <= WebSocket.OPEN) return;
+  cancelReconnect();
+  if (!reconnecting) reconnectAttempt = 0;
   startButton.disabled = true;
-  setStatus("参加用の暗号化セッションを準備しています。");
+  setStatus(reconnecting ? "Worker接続を再開しています。" : "参加用の暗号化セッションを準備しています。");
   if (!workerServerUrl) throw new Error("WorkerサーバーURLがありません。現在のWorker接続URLから開き直してください。");
-  if (!workerAccessToken) throw new Error("Worker接続トークンがありません。現在のWorker接続URLから認証し直してください。");
+  if (!workerAccessToken && !workerSessionToken) throw new Error("Worker接続トークンがありません。現在のWorker接続URLから認証し直してください。");
   await serviceWorkerReadyPromise;
   if (!navigator.gpu) throw new Error("このブラウザではWebGPUを利用できません。");
 
@@ -341,18 +402,20 @@ async function startParticipation() {
   receiveChain = Promise.resolve();
   sendChain = Promise.resolve();
 
-  socket = new WebSocket(workerServerUrl);
-  socket.binaryType = "arraybuffer";
-  socket.addEventListener("open", () => {
+  const activeSocket = new WebSocket(workerServerUrl);
+  socket = activeSocket;
+  activeSocket.binaryType = "arraybuffer";
+  activeSocket.addEventListener("open", () => {
     connectionElement.textContent = "鍵交換中";
     sendPlain(encodeJson(MESSAGE.HELLO, {
       version: 2,
       accessToken: workerAccessToken,
+      ...(workerSessionToken ? { sessionToken: workerSessionToken } : {}),
       publicKey: encodeBase64Url(clientPublicKey),
       nonce: encodeBase64Url(clientNonce),
     }));
   });
-  socket.addEventListener("message", (event) => {
+  activeSocket.addEventListener("message", (event) => {
     const frame = event.data instanceof ArrayBuffer
       ? new Uint8Array(event.data)
       : ArrayBuffer.isView(event.data)
@@ -363,21 +426,37 @@ async function startParticipation() {
       socket?.close(1008);
     });
   });
-  socket.addEventListener("close", (event) => {
-    connectionElement.textContent = "切断";
-    updateParticipationUi(false);
-    if (event.code === 1008) {
-      startButton.disabled = true;
-      setStatus("Worker接続認証が失効しました。現在のWorker接続URLから認証し直してください。");
-    } else {
-      setStatus("Worker接続が切断されました。再参加できます。");
-    }
+  activeSocket.addEventListener("close", (event) => {
+    if (socket !== activeSocket) return;
     socket = null;
     session = null;
     handshake = null;
-    void disposeEngine();
+    if (event.code === 1008) {
+      participationRequested = false;
+      clearWorkerSessionToken();
+      connectionElement.textContent = "認証失効";
+      updateParticipationUi(false);
+      startButton.disabled = true;
+      setStatus("Worker接続認証が失効しました。現在のWorker接続URLから認証し直してください。");
+    } else if (event.code === 1000 || event.code === 1001) {
+      participationRequested = false;
+      connectionElement.textContent = "サーバー終了";
+      updateParticipationUi(false);
+      setStatus("このURLまたはセッションは、もう利用できなくなりました");
+    } else if (participationRequested) {
+      connectionElement.textContent = "切断";
+      updateParticipationUi(true);
+      setStatus("Worker接続が切断されました。自動で再接続します。");
+    } else {
+      connectionElement.textContent = "切断";
+      updateParticipationUi(false);
+      setStatus("Worker接続が切断されました。再参加できます。");
+    }
+    void disposeEngine().finally(() => {
+      if (event.code !== 1000 && event.code !== 1001 && event.code !== 1008) scheduleReconnect();
+    });
   });
-  socket.addEventListener("error", () => {
+  activeSocket.addEventListener("error", () => {
     setStatus("Worker WebSocketへ接続できませんでした。");
   });
   updateParticipationUi(true);
@@ -419,6 +498,8 @@ async function acceptServerMessage(frame) {
     const config = JSON.parse(decodeUtf8(message.payload));
     const profile = String(config.profile ?? "");
     if (!["fp32", "fp16", "mobile-int8", "mobile-int4"].includes(profile)) throw new Error("unsupported model profile");
+    if (!storeWorkerSessionToken(config.sessionToken)) throw new Error("worker session token is invalid");
+    reconnectAttempt = 0;
     currentProfile = profile;
     modelElement.textContent = profile;
     connectionElement.textContent = "参加中";
@@ -589,6 +670,8 @@ async function disposeEngine() {
 }
 
 async function stopParticipation() {
+  participationRequested = false;
+  cancelReconnect();
   updateParticipationUi(false);
   connectionElement.textContent = "終了中";
   const currentSocket = socket;
@@ -602,9 +685,11 @@ async function stopParticipation() {
 }
 
 startButton.addEventListener("click", () => {
+  participationRequested = true;
   void startParticipation().catch((error) => {
+    participationRequested = false;
     updateParticipationUi(false);
-    if (!workerServerUrl || !workerAccessToken) startButton.disabled = true;
+    if (!workerServerUrl || (!workerAccessToken && !workerSessionToken)) startButton.disabled = true;
     setStatus(error instanceof Error ? error.message : String(error));
   });
 });

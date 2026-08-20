@@ -449,7 +449,7 @@ async function planSourceAssets({ groups, knownAcceptedKey = null } = {}) {
   };
 }
 
-async function applySourceAssets({ groups, signal = null } = {}) {
+async function applySourceAssets({ groups, signal = null, onProgress = () => {} } = {}) {
   if (signal?.aborted) throw signal.reason ?? new DOMException("Source update cancelled", "AbortError");
   const candidate = await getCandidateSourceAssetMap();
   const state = await loadSourceState();
@@ -459,11 +459,20 @@ async function applySourceAssets({ groups, signal = null } = {}) {
   let networkBytes = 0;
   let reusedBytes = 0;
   let fetchedCount = 0;
+  let fetchBytes = 0;
+  const work = [];
 
   for (const [path, entry] of sourceEntriesForGroups(candidate, groups)) {
     if (signal?.aborted) throw signal.reason ?? new DOMException("Source update cancelled", "AbortError");
     const reuseKey = sourceReuseKey(path, entry);
     const reused = await sourceLocationResponse(state, reuseKey);
+    work.push({ path, entry, reuseKey, reused });
+    if (!reused) fetchBytes += entry.byteSize;
+  }
+
+  onProgress({ loadedBytes: 0, totalBytes: fetchBytes });
+  for (const { path, entry, reuseKey, reused } of work) {
+    if (signal?.aborted) throw signal.reason ?? new DOMException("Source update cancelled", "AbortError");
     if (reused) {
       delete state.invalidated[reuseKey];
       reusedBytes += entry.byteSize;
@@ -471,12 +480,31 @@ async function applySourceAssets({ groups, signal = null } = {}) {
     }
     const response = await fetch(sourceAssetUrl(path), { cache: "no-cache", signal });
     if (!response.ok) throw new Error(`Source asset fetch failed: ${response.status} ${path}`);
-    await targetCache.put(sourceAssetUrl(path), response.clone());
+    let loadedForEntry = 0;
+    const cacheResponse = response.body
+      ? new Response(response.body.pipeThrough(new TransformStream({
+          transform(chunk, controller) {
+            loadedForEntry += chunk.byteLength;
+            onProgress({
+              path,
+              loadedBytes: networkBytes + loadedForEntry,
+              totalBytes: fetchBytes,
+            });
+            controller.enqueue(chunk);
+          },
+        })), {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        })
+      : response.clone();
+    await targetCache.put(sourceAssetUrl(path), cacheResponse);
     state.locations[reuseKey] = { cacheName: targetCacheName, path };
     delete state.invalidated[reuseKey];
     await saveSourceState(state);
     networkBytes += entry.byteSize;
     fetchedCount += 1;
+    onProgress({ path, loadedBytes: networkBytes, totalBytes: fetchBytes });
   }
 
   if (signal?.aborted) throw signal.reason ?? new DOMException("Source update cancelled", "AbortError");
@@ -648,7 +676,13 @@ self.addEventListener("message", (event) => {
     sourceApplyControllers.set(key, controller);
     event.waitUntil((async () => {
       try {
-        const result = await applySourceAssets({ groups: message.groups, signal: controller.signal });
+        const result = await applySourceAssets({
+          groups: message.groups,
+          signal: controller.signal,
+          onProgress(progress) {
+            port.postMessage({ progress });
+          },
+        });
         port.postMessage({ ok: true, result });
       } catch (error) {
         port.postMessage({ ok: false, message: error instanceof Error ? error.message : String(error) });
