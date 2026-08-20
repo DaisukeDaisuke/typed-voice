@@ -32,6 +32,8 @@ class FakeWorker {
 
   emit(data) {
     for (const listener of this.listeners) listener({ data });
+  }
+}
 
 test("Trusted Worker用EngineClientはdedicated workerを直接取得runtimeとしてconfigureする", async () => {
   const OriginalWorker = globalThis.Worker;
@@ -54,8 +56,6 @@ test("Trusted Worker用EngineClientはdedicated workerを直接取得runtimeと�
     globalThis.Worker = OriginalWorker;
   }
 });
-  }
-}
 
 test("abortは進行中prepareをAbortErrorで終了しWorkerを停止する", async () => {
   const OriginalWorker = globalThis.Worker;
