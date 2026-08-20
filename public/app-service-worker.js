@@ -385,6 +385,10 @@ async function readSourceVerificationAsset(request) {
 
 async function planSourceAssets({ groups, knownAcceptedKey = null } = {}) {
   const state = await loadSourceState();
+  // A successful candidate lookup is shared while one page is starting, but it
+  // must not hide a newer deployed manifest on a later online startup while the
+  // same Service Worker instance is still alive.
+  candidateSourceAssetMapPromise = null;
   let candidate;
   let sourceAssetMapNetworkAvailable = true;
   try {

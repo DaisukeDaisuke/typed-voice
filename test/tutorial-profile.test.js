@@ -57,9 +57,9 @@ test("terminal profileには処理を登録できない", () => {
   }, ["model-load"]), /Terminal tutorial profile must not define onClose/);
 });
 
-test("起動時はソース更新を最優先し、その後に通常チュートリアルとモデル準備を判定する", () => {
-  assert.equal(resolveStartupTutorialProfile({ tutorialComplete: false, selectedModelCached: false, sourceUpdateAvailable: true }), "source-update");
-  assert.equal(resolveStartupTutorialProfile({ tutorialComplete: false, selectedModelCached: true, sourceUpdateAvailable: true }), "source-update");
+test("初回チュートリアル中のソース更新はチュートリアル内のダウンロードにまとめる", () => {
+  assert.equal(resolveStartupTutorialProfile({ tutorialComplete: false, selectedModelCached: false, sourceUpdateAvailable: true }), "full");
+  assert.equal(resolveStartupTutorialProfile({ tutorialComplete: false, selectedModelCached: true, sourceUpdateAvailable: true }), "full");
   assert.equal(resolveStartupTutorialProfile({ tutorialComplete: true, selectedModelCached: false, sourceUpdateAvailable: true }), "source-update");
   assert.equal(resolveStartupTutorialProfile({ tutorialComplete: true, selectedModelCached: true, sourceUpdateAvailable: true }), "source-update");
   assert.equal(resolveStartupTutorialProfile({ tutorialComplete: true, selectedModelCached: false }), "model-picker-required");
