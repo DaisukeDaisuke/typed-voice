@@ -2,7 +2,7 @@
 入力した文章を、ブラウザからそのまま音声にするためのツールです。<br>
 文章を書いて読み上げたいときに、内部のモデル構成やWebGPUの知識を先に覚える必要はありません。まずはLive Previewを開いて、画面の案内どおりに試せます。
 ## Live Preview
-**[▶ ライティングページを開く](https://rabbitdaisuke.github.io/blog/typed-voice/#overview)**  <br>
+**[▶ ランディングページを開く](https://rabbitdaisuke.github.io/blog/typed-voice/#overview)**  <br>
 **[▶ typed-voice を開く](https://daisukedaisuke.github.io/typed-voice)** <br>
 初回だけ、利用する端末に音声モデルを準備します。準備が終われば、対応環境では同じ大容量データを毎回取り直さず、オフラインでも使えるように設計しています。
 ## 使い方
