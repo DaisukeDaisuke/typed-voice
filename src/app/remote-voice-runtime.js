@@ -118,7 +118,7 @@ export class RemoteVoiceRuntime {
     this.#emit({ stage: "generate", utteranceId, generation, phase: "remote-send" });
     const sessionId = new URL(globalThis.location.href).searchParams.get("conversation");
     const clientToken = `${utteranceId}:${generation}`;
-    const cacheKey = JSON.stringify([this.activeProfile, sessionId ?? "", String(text)]);
+    const cacheKey = JSON.stringify([this.activeProfile, sessionId ?? "", String(text), this.speed]);
     let entry = this.synthesisCache.get(cacheKey);
     if (entry?.state === "ready") {
       this.#emit({ stage: "synthesis-complete", utteranceId, generation });
@@ -136,7 +136,9 @@ export class RemoteVoiceRuntime {
       void this.transport.synthesize(text, {
         clientToken: entry.transportToken,
         sessionId,
+        speed: this.speed,
       }).then((result) => {
+        if (this.synthesisCache.get(cacheKey) !== entry) return;
         const shared = {
           ...result,
           durationMs: result.samples.length / result.sampleRate * 1000,

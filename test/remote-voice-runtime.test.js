@@ -54,9 +54,42 @@ test("同一profile・会話UUID・textはclient側で1回だけ送信し同じ�
     });
     assert.equal(calls.length, 1);
     assert.equal(calls[0].options.sessionId, "conversation-a");
+    assert.equal(calls[0].options.speed, 1);
 
     const samples = new Float32Array([0.1, -0.1, 0.2]);
     result.resolve({ samples, sampleRate: 24_000, audioFormat: 2 });
+
+test("同じprofile・会話UUID・textでもspeedが違えば別queryとして送る", () => {
+  const restoreLocation = installLocation("https://example.test/?conversation=conversation-a");
+  const runtime = new RemoteVoiceRuntime(PAIRING);
+  const calls = [];
+  runtime.activeProfile = "fp16";
+  runtime.transport = {
+    synthesize(text, options) {
+      calls.push({ text, options });
+      return new Promise(() => {});
+    },
+    async cancelByClientToken() { return false; },
+  };
+  try {
+    runtime.setSpeed(1);
+    void runtime.synthesize({
+      utteranceId: "88888888-8888-4888-8888-888888888888",
+      generation: 1,
+      text: "速度違い",
+    });
+    runtime.setSpeed(1.5);
+    void runtime.synthesize({
+      utteranceId: "99999999-9999-4999-8999-999999999999",
+      generation: 1,
+      text: "速度違い",
+    });
+    assert.equal(calls.length, 2);
+    assert.deepEqual(calls.map((call) => call.options.speed), [1, 1.5]);
+  } finally {
+    restoreLocation();
+  }
+});
     const [first, second] = await Promise.all([firstPromise, secondPromise]);
     assert.strictEqual(first.samples, samples);
     assert.strictEqual(second.samples, samples);

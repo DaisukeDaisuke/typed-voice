@@ -513,7 +513,7 @@ async function acceptServerMessage(frame) {
   }
   if (message.type === MESSAGE.SYNTH) {
     const request = JSON.parse(decodeUtf8(message.payload));
-    void synthesizeForServer(String(request.id ?? ""), String(request.text ?? ""));
+    void synthesizeForServer(String(request.id ?? ""), String(request.text ?? ""), Number(request.speed ?? 1));
     return;
   }
   if (message.type === MESSAGE.CANCEL) {
@@ -606,8 +606,9 @@ async function configureEngine(profile, reload) {
   }
 }
 
-async function synthesizeForServer(id, text) {
+async function synthesizeForServer(id, text, speed = 1) {
   if (!id || !text.trim()) return sendSecureJson(MESSAGE.ERROR, { id, error: "id and text are required" });
+  if (!Number.isFinite(speed) || speed < 0.5 || speed > 2) return sendSecureJson(MESSAGE.ERROR, { id, error: "invalid synthesis speed" });
   const client = engineClient;
   if (!client || !engineInfo) return sendSecureJson(MESSAGE.ERROR, { id, error: "worker engine is not ready" });
   const generation = (synthesisGenerations.get(id) ?? 0) + 1;
@@ -629,7 +630,7 @@ async function synthesizeForServer(id, text) {
       utteranceId: id,
       generation,
       text: synthesisText,
-      options: { language: "ja", speed: 1, seed: OMNIVOICE_REFERENCE_SEED },
+      options: { language: "ja", speed, seed: OMNIVOICE_REFERENCE_SEED },
     });
     if (synthesisGenerations.get(id) !== generation) return;
     const audio = new Uint8Array(result.samples.buffer, result.samples.byteOffset, result.samples.byteLength);

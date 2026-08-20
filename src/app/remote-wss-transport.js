@@ -163,11 +163,13 @@ export class RemoteWssTransport {
     return socket;
   }
 
-  async synthesize(text, { clientToken = null, sessionId = null } = {}) {
+  async synthesize(text, { clientToken = null, sessionId = null, speed = 1 } = {}) {
     const source = String(text ?? "");
     if (!source.trim()) throw new Error("読み上げる文章が空です。");
     const normalizedSessionId = typeof sessionId === "string" ? sessionId.trim() : "";
     if (normalizedSessionId.length > 128) throw new Error("会話IDが長すぎます。");
+    const normalizedSpeed = Number(speed);
+    if (!Number.isFinite(normalizedSpeed) || normalizedSpeed < 0.5 || normalizedSpeed > 2) throw new Error("速度は0.5〜2.0倍で指定してください。");
     const id = randomRemoteId();
     const key = id.toString();
     const promise = new Promise((resolve, reject) => {
@@ -175,6 +177,7 @@ export class RemoteWssTransport {
         id,
         text: source,
         sessionId: normalizedSessionId,
+        speed: normalizedSpeed,
         resolve,
         reject,
         chunks: [],
@@ -454,6 +457,7 @@ export class RemoteWssTransport {
               payload: new TextEncoder().encode(JSON.stringify({
                 clientToken: pending.clientToken,
                 text: pending.text,
+                speed: pending.speed,
               })),
             });
           } else {

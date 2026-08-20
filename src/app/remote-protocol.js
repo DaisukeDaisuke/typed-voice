@@ -163,13 +163,13 @@ export async function acceptRemoteServerHello({ frame, authKey, encryptionKey, c
     ? await createClientHash(serverBanSalt)
     : null;
   if (clientHash && clientHash.byteLength !== 32) throw new Error("クライアント匿名識別ハッシュが正しくありません。");
-  const instanceId = clientInstanceId == null
+  const instanceCandidate = clientInstanceId == null
     ? null
     : clientInstanceId instanceof Uint8Array
       ? clientInstanceId
       : new Uint8Array(clientInstanceId);
+  const instanceId = clientHash ? instanceCandidate : null;
   if (instanceId && instanceId.byteLength !== 16) throw new Error("クライアント接続IDが正しくありません。");
-  if (instanceId && !clientHash) throw new Error("クライアント接続IDには匿名識別ハッシュが必要です。");
   const clientProofBase = proofInput("client", audioFormat, clientNonce, serverNonce);
   const clientProofMaterial = clientHash
     ? concatBytes(clientProofBase, clientHash, instanceId ?? new Uint8Array())
