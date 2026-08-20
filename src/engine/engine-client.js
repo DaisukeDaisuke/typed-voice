@@ -4,8 +4,8 @@ export class EngineClient {
   constructor({ manifestUrl, appBaseUrl = null, onProgress = () => {}, directWorkerRuntime = false }) {
     this.manifestUrl = manifestUrl;
     this.worker = new Worker(new URL("./engine.worker.js", import.meta.url), {
-      type: "module",
       ...(directWorkerRuntime ? { name: "typed-voice-trusted-worker-runtime" } : {}),
+      type: "module",
     });
     this.pending = new Map();
     this.onProgress = onProgress;
