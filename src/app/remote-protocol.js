@@ -10,6 +10,7 @@ export const RemoteOpcode = Object.freeze({
   WORKER_STATUS: 0x05,
   TEXT: 0x10,
   CANCEL: 0x11,
+  TEXT_SYNC: 0x12,
   AUDIO: 0x20,
   ERROR: 0x7f,
   HELLO_CLIENT: 0xf0,
@@ -133,7 +134,7 @@ export function createRemoteClientHello(audioFormat) {
   return { frame, clientNonce };
 }
 
-export async function acceptRemoteServerHello({ frame, authKey, encryptionKey, clientNonce, audioFormat, createClientHash = null }) {
+export async function acceptRemoteServerHello({ frame, authKey, encryptionKey, clientNonce, audioFormat, createClientHash = null, clientInstanceId = null }) {
   const bytes = frame instanceof Uint8Array ? frame : new Uint8Array(frame);
   if (![68, 100].includes(bytes.byteLength) || bytes[0] !== RemoteOpcode.HELLO_SERVER) throw new Error("サーバーHELLOが正しくありません。");
   const helloFlags = bytes[3];
@@ -162,18 +163,30 @@ export async function acceptRemoteServerHello({ frame, authKey, encryptionKey, c
     ? await createClientHash(serverBanSalt)
     : null;
   if (clientHash && clientHash.byteLength !== 32) throw new Error("クライアント匿名識別ハッシュが正しくありません。");
+  const instanceId = clientInstanceId == null
+    ? null
+    : clientInstanceId instanceof Uint8Array
+      ? clientInstanceId
+      : new Uint8Array(clientInstanceId);
+  if (instanceId && instanceId.byteLength !== 16) throw new Error("クライアント接続IDが正しくありません。");
+  if (instanceId && !clientHash) throw new Error("クライアント接続IDには匿名識別ハッシュが必要です。");
   const clientProofBase = proofInput("client", audioFormat, clientNonce, serverNonce);
-  const clientProof = await hmacSha256(authKey, clientHash ? concatBytes(clientProofBase, clientHash) : clientProofBase);
-  const authFrame = new Uint8Array(clientHash ? 68 : 36);
+  const clientProofMaterial = clientHash
+    ? concatBytes(clientProofBase, clientHash, instanceId ?? new Uint8Array())
+    : clientProofBase;
+  const clientProof = await hmacSha256(authKey, clientProofMaterial);
+  const authFrame = new Uint8Array(clientHash ? (instanceId ? 84 : 68) : 36);
   authFrame[0] = RemoteOpcode.AUTH;
   authFrame[1] = REMOTE_PROTOCOL_VERSION;
   authFrame[2] = audioFormat;
   authFrame[3] = 0;
   authFrame.set(clientProof, 4);
   if (clientHash) authFrame.set(clientHash, 36);
+  if (instanceId) authFrame.set(instanceId, 68);
   return {
     authFrame,
     clientHash,
+    clientInstanceId: instanceId,
     session: {
       audioFormat,
       sendKey,

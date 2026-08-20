@@ -11,9 +11,10 @@ import {
   encryptRemoteFrame,
   randomRemoteId,
 } from "./remote-protocol.js";
-import { createRemoteClientBanHash } from "./remote-client-identity.js";
+import { createRemoteClientBanHash, getRemoteClientInstanceId } from "./remote-client-identity.js";
 
 export const REMOTE_WSS_CONNECT_TIMEOUT_MS = 4000;
+const MAX_REMOTE_IN_FLIGHT = 3;
 
 function toUint8Array(value) {
   if (value instanceof Uint8Array) return Promise.resolve(value);
@@ -89,6 +90,8 @@ export class RemoteWssTransport {
     this.pending = new Map();
     this.clientTokens = new Map();
     this.lastSessionId = null;
+    this.connectionGeneration = 0;
+    this.pumpPromise = null;
     this.serverConfig = null;
     this.workerStatus = null;
   }
@@ -98,9 +101,12 @@ export class RemoteWssTransport {
     if (endpoint.protocol !== "wss:") throw new Error("音声合成サーバーの接続先はWSSである必要があります。");
     if (typeof this.WebSocketImpl !== "function") throw new Error("このブラウザではWebSocketを利用できません。");
     if (!this.pairing?.authenticationKey || !this.pairing?.encryptionKey) throw new Error("QRの認証鍵がありません。");
-    this.close();
+    this.#resetConnection({ rejectPending: false });
     this.settledFailure = false;
     this.handshakeState = "connecting";
+    this.connectionGeneration += 1;
+    this.sendTail = Promise.resolve();
+    this.receiveTail = Promise.resolve();
     const socket = new this.WebSocketImpl(endpoint.href);
     socket.binaryType = "arraybuffer";
     this.socket = socket;
@@ -149,7 +155,8 @@ export class RemoteWssTransport {
       this.handshakeState = "closed";
       const wasAuthenticated = this.authenticated;
       this.authenticated = false;
-      this.#rejectPending(new Error("音声合成サーバーとの接続が終了しました。"));
+      this.lastSessionId = null;
+      this.#resetPendingForReconnect();
       if (wasAuthenticated) this.onClose(event);
       else this.fail(new Error("音声合成サーバーとの接続が終了しました。"));
     });
@@ -157,41 +164,43 @@ export class RemoteWssTransport {
   }
 
   async synthesize(text, { clientToken = null, sessionId = null } = {}) {
-    if (!this.authenticated || !this.session) throw new Error("音声合成サーバーの認証が完了していません。");
     const source = String(text ?? "");
     if (!source.trim()) throw new Error("読み上げる文章が空です。");
     const normalizedSessionId = typeof sessionId === "string" ? sessionId.trim() : "";
-    if (normalizedSessionId && normalizedSessionId !== this.lastSessionId) {
-      if (normalizedSessionId.length > 128) throw new Error("会話IDが長すぎます。");
-      await this.#sendEncrypted({ op: RemoteOpcode.SESSION, payload: new TextEncoder().encode(normalizedSessionId) });
-      this.lastSessionId = normalizedSessionId;
-    }
+    if (normalizedSessionId.length > 128) throw new Error("会話IDが長すぎます。");
     const id = randomRemoteId();
     const key = id.toString();
     const promise = new Promise((resolve, reject) => {
       this.pending.set(key, {
         id,
+        text: source,
+        sessionId: normalizedSessionId,
         resolve,
         reject,
         chunks: [],
         totalBytes: 0,
         metadata: null,
         clientToken,
+        sent: false,
+        cancelRequested: false,
       });
       if (clientToken) this.clientTokens.set(clientToken, id);
     });
-    try {
-      await this.#sendEncrypted({ op: RemoteOpcode.TEXT, id, payload: new TextEncoder().encode(source) });
-    } catch (error) {
-      this.#finishPending(key, error);
-      throw error;
-    }
+    void this.#pumpPending();
     return promise;
   }
 
   async cancelByClientToken(clientToken) {
     const id = this.clientTokens.get(clientToken);
-    if (id == null || !this.authenticated) return false;
+    if (id == null) return false;
+    const key = id.toString();
+    const pending = this.pending.get(key);
+    if (!pending) return false;
+    pending.cancelRequested = true;
+    if (!pending.sent || !this.authenticated) {
+      this.#finishPending(key, new DOMException("Remote synthesis cancelled", "AbortError"));
+      return true;
+    }
     await this.#sendEncrypted({ op: RemoteOpcode.CANCEL, id });
     return true;
   }
@@ -200,6 +209,7 @@ export class RemoteWssTransport {
     if (!this.socket || this.socket.readyState !== this.WebSocketImpl.OPEN) throw new Error("WSS接続が確立していません。");
     this.authenticated = true;
     this.clearAuthTimer();
+    void this.#pumpPending();
   }
 
   fail(error) {
@@ -227,6 +237,14 @@ export class RemoteWssTransport {
   }
 
   close() {
+    this.#resetConnection({ rejectPending: true });
+  }
+
+  reconnect() {
+    return this.connect();
+  }
+
+  #resetConnection({ rejectPending }) {
     this.clearTimers();
     const socket = this.socket;
     this.socket = null;
@@ -236,7 +254,11 @@ export class RemoteWssTransport {
     this.lastSessionId = null;
     this.serverConfig = null;
     this.workerStatus = null;
-    this.#rejectPending(new DOMException("Remote transport closed", "AbortError"));
+    this.connectionGeneration += 1;
+    this.sendTail = Promise.resolve();
+    this.receiveTail = Promise.resolve();
+    if (rejectPending) this.#rejectPending(new DOMException("Remote transport closed", "AbortError"));
+    else this.#resetPendingForReconnect();
     if (socket && socket.readyState < this.WebSocketImpl.CLOSING) {
       try { socket.close(); } catch {}
     }
@@ -256,6 +278,7 @@ export class RemoteWssTransport {
         clientNonce: this.clientNonce,
         audioFormat: this.audioFormat,
         createClientHash: createRemoteClientBanHash,
+        clientInstanceId: getRemoteClientInstanceId(),
       });
       this.session = accepted.session;
       this.handshakeState = "auth-sent";
@@ -307,6 +330,7 @@ export class RemoteWssTransport {
       const code = frame.payload.byteLength >= 2 ? view.getUint16(0, false) : 0;
       const message = frame.payload.byteLength > 2 ? new TextDecoder("utf-8", { fatal: false }).decode(frame.payload.slice(2)) : "サーバーでエラーが発生しました。";
       this.#finishPending(frame.id.toString(), new Error(`[${code}] ${message}`));
+      void this.#pumpPending();
       return;
     }
     throw new Error(`未対応の暗号化opcodeです: ${frame.op}`);
@@ -365,12 +389,17 @@ export class RemoteWssTransport {
       this.pending.delete(key);
       if (pending.clientToken) this.clientTokens.delete(pending.clientToken);
       pending.resolve({ samples, sampleRate: metadata.sampleRate, audioFormat: metadata.format });
+      void this.#pumpPending();
     }
   }
 
   #sendEncrypted(message) {
+    const generation = this.connectionGeneration;
     const task = this.sendTail.then(async () => {
-      if (!this.socket || this.socket.readyState !== this.WebSocketImpl.OPEN || !this.session) throw new Error("WSS接続がありません。");
+      if (generation !== this.connectionGeneration
+        || !this.socket
+        || this.socket.readyState !== this.WebSocketImpl.OPEN
+        || !this.session) throw new Error("WSS接続がありません。");
       const frame = await encryptRemoteFrame(this.session, message);
       this.socket.send(frame);
     });
@@ -384,6 +413,65 @@ export class RemoteWssTransport {
     this.pending.delete(key);
     if (pending.clientToken) this.clientTokens.delete(pending.clientToken);
     pending.reject(error);
+  }
+
+  #resetPendingForReconnect() {
+    for (const [key, pending] of [...this.pending]) {
+      if (pending.cancelRequested) {
+        this.#finishPending(key, new DOMException("Remote synthesis cancelled", "AbortError"));
+        continue;
+      }
+      pending.sent = false;
+      pending.chunks = [];
+      pending.totalBytes = 0;
+      pending.metadata = null;
+    }
+  }
+
+  #pumpPending() {
+    if (this.pumpPromise || !this.authenticated || !this.session) return this.pumpPromise ?? Promise.resolve();
+    const generation = this.connectionGeneration;
+    this.pumpPromise = (async () => {
+      let inFlight = [...this.pending.values()].filter((pending) => pending.sent && !pending.cancelRequested).length;
+      for (const pending of this.pending.values()) {
+        if (generation !== this.connectionGeneration || !this.authenticated || !this.session) return;
+        if (inFlight >= MAX_REMOTE_IN_FLIGHT) return;
+        if (pending.sent || pending.cancelRequested) continue;
+        pending.sent = true;
+        inFlight += 1;
+        try {
+          if (pending.sessionId && pending.sessionId !== this.lastSessionId) {
+            await this.#sendEncrypted({
+              op: RemoteOpcode.SESSION,
+              payload: new TextEncoder().encode(pending.sessionId),
+            });
+            this.lastSessionId = pending.sessionId;
+          }
+          if (pending.clientToken) {
+            await this.#sendEncrypted({
+              op: RemoteOpcode.TEXT_SYNC,
+              id: pending.id,
+              payload: new TextEncoder().encode(JSON.stringify({
+                clientToken: pending.clientToken,
+                text: pending.text,
+              })),
+            });
+          } else {
+            await this.#sendEncrypted({
+              op: RemoteOpcode.TEXT,
+              id: pending.id,
+              payload: new TextEncoder().encode(pending.text),
+            });
+          }
+        } catch (error) {
+          pending.sent = false;
+          throw error;
+        }
+      }
+    })().catch(() => {}).finally(() => {
+      this.pumpPromise = null;
+    });
+    return this.pumpPromise;
   }
 
   #rejectPending(error) {

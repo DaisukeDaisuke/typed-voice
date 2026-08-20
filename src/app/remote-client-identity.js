@@ -1,4 +1,5 @@
 const CLIENT_ID_KEY = "typed-voice-remote-client-id-v1";
+const CLIENT_INSTANCE_ID_KEY = "typed-voice-remote-client-instance-id-v1";
 const encoder = new TextEncoder();
 
 function cryptoApi() {
@@ -20,6 +21,21 @@ function stableClientId() {
   if (/^[A-Za-z0-9_-]{22}$/.test(String(stored ?? ""))) return stored;
   const created = bytesToBase64Url(cryptoApi().getRandomValues(new Uint8Array(16)));
   try { globalThis.localStorage?.setItem?.(CLIENT_ID_KEY, created); } catch {}
+  return created;
+}
+
+export function getRemoteClientInstanceId() {
+  let stored = null;
+  try { stored = globalThis.sessionStorage?.getItem?.(CLIENT_INSTANCE_ID_KEY) ?? null; } catch {}
+  if (/^[A-Za-z0-9_-]{22}$/.test(String(stored ?? ""))) {
+    const normalized = stored.replace(/-/g, "+").replace(/_/g, "/");
+    const padding = "=".repeat((4 - normalized.length % 4) % 4);
+    const binary = atob(normalized + padding);
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    if (bytes.byteLength === 16) return bytes;
+  }
+  const created = cryptoApi().getRandomValues(new Uint8Array(16));
+  try { globalThis.sessionStorage?.setItem?.(CLIENT_INSTANCE_ID_KEY, bytesToBase64Url(created)); } catch {}
   return created;
 }
 

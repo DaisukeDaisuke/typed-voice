@@ -18,6 +18,7 @@ const MESSAGE = Object.freeze({
 });
 const PROTOCOL_LABEL = new TextEncoder().encode("typed-voice-volunteer-worker/v2");
 const AUDIO_CHUNK_BYTES = 64 * 1024;
+const OMNIVOICE_REFERENCE_SEED = 2026081601;
 const REMOTE_MANIFEST_URLS = Object.freeze({
   "mobile-int4": "https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/mobile-int4/typed-voice-manifest.json",
   "mobile-int8": "https://huggingface.co/RabbitDaisuke/tsukuyomichan-omnivoice-full-finetune-onnx/resolve/mobile-int8/typed-voice-manifest.json",
@@ -628,7 +629,7 @@ async function synthesizeForServer(id, text) {
       utteranceId: id,
       generation,
       text: synthesisText,
-      options: { language: "ja", speed: 1 },
+      options: { language: "ja", speed: 1, seed: OMNIVOICE_REFERENCE_SEED },
     });
     if (synthesisGenerations.get(id) !== generation) return;
     const audio = new Uint8Array(result.samples.buffer, result.samples.byteOffset, result.samples.byteLength);

@@ -1,6 +1,11 @@
 import { RemoteWssTransport } from "./remote-wss-transport.js";
 import { RemoteAudioFormat } from "./remote-protocol.js";
 
+const RECONNECT_BASE_DELAY_MS = 1_000;
+const RECONNECT_MAX_DELAY_MS = 30_000;
+const MAX_CLIENT_AUDIO_CACHE_ENTRIES = 64;
+const MAX_CLIENT_AUDIO_CACHE_BYTES = 64 * 1024 * 1024;
+
 export class RemoteVoiceRuntime {
   constructor(pairing, { audioFormat = RemoteAudioFormat.FLOAT32LE, onOpen, onAuthenticated, onServerConfig, onWorkerStatus, onFailure, onClose } = {}) {
     this.pairing = pairing;
@@ -13,11 +18,20 @@ export class RemoteVoiceRuntime {
     this.activeProfile = "remote";
     this.speed = 1;
     this.audioContext = null;
+    this.playbackTail = Promise.resolve();
+    this.synthesisCache = new Map();
+    this.synthesisCacheBytes = 0;
+    this.synthesisConsumers = new Map();
     this.progressListeners = new Set();
+    this.reconnectWanted = false;
+    this.reconnectAttempt = 0;
+    this.reconnectTimer = 0;
     this.transport = new RemoteWssTransport(pairing, {
       audioFormat,
       onOpen,
       onAuthenticated: () => {
+        this.#clearReconnectTimer();
+        this.reconnectAttempt = 0;
         this.transportAuthenticated = true;
         this.#syncReady();
         onAuthenticated?.();
@@ -43,12 +57,14 @@ export class RemoteVoiceRuntime {
         this.ready = false;
         this.#rejectWorkerWaiters(error);
         onFailure?.(error);
+        this.#scheduleReconnect();
       },
       onClose: (event) => {
         this.transportAuthenticated = false;
         this.ready = false;
         this.#rejectWorkerWaiters(new Error("音声合成サーバーとの接続が終了しました。"));
         onClose?.(event);
+        this.#scheduleReconnect();
       },
     });
   }
@@ -78,11 +94,16 @@ export class RemoteVoiceRuntime {
     });
   }
 
-  connect() { return this.transport.connect(); }
+  connect() {
+    this.reconnectWanted = true;
+    this.#clearReconnectTimer();
+    return this.transport.connect();
+  }
 
   reconnect() {
-    this.close();
-    return this.connect();
+    this.reconnectWanted = true;
+    this.#clearReconnectTimer();
+    return this.transport.reconnect();
   }
 
   async unlockAudio() {
@@ -94,39 +115,96 @@ export class RemoteVoiceRuntime {
   get audioEnabled() { return this.audioContext?.state === "running"; }
 
   async synthesize({ utteranceId, generation, text }) {
-    if (!this.ready) throw new Error("音声合成サーバーへ接続していません。");
     this.#emit({ stage: "generate", utteranceId, generation, phase: "remote-send" });
     const sessionId = new URL(globalThis.location.href).searchParams.get("conversation");
-    const result = await this.transport.synthesize(text, {
-      clientToken: `${utteranceId}:${generation}`,
-      sessionId,
+    const clientToken = `${utteranceId}:${generation}`;
+    const cacheKey = JSON.stringify([this.activeProfile, sessionId ?? "", String(text)]);
+    let entry = this.synthesisCache.get(cacheKey);
+    if (entry?.state === "ready") {
+      this.#emit({ stage: "synthesis-complete", utteranceId, generation });
+      return entry.result;
+    }
+    if (!entry) {
+      entry = {
+        state: "pending",
+        cacheKey,
+        transportToken: clientToken,
+        consumers: new Map(),
+        result: null,
+      };
+      this.synthesisCache.set(cacheKey, entry);
+      void this.transport.synthesize(text, {
+        clientToken: entry.transportToken,
+        sessionId,
+      }).then((result) => {
+        const shared = {
+          ...result,
+          durationMs: result.samples.length / result.sampleRate * 1000,
+        };
+        entry.state = "ready";
+        entry.result = shared;
+        this.synthesisCacheBytes += result.samples.byteLength;
+        for (const consumer of entry.consumers.values()) {
+          this.synthesisConsumers.delete(consumer.clientToken);
+          this.#emit({
+            stage: "synthesis-complete",
+            utteranceId: consumer.utteranceId,
+            generation: consumer.generation,
+          });
+          consumer.resolve(shared);
+        }
+        entry.consumers.clear();
+        this.#pruneSynthesisCache();
+      }).catch((error) => {
+        if (this.synthesisCache.get(cacheKey) === entry) this.synthesisCache.delete(cacheKey);
+        for (const consumer of entry.consumers.values()) {
+          this.synthesisConsumers.delete(consumer.clientToken);
+          consumer.reject(error);
+        }
+        entry.consumers.clear();
+      });
+    }
+    return new Promise((resolve, reject) => {
+      const consumer = { clientToken, utteranceId, generation, resolve, reject };
+      entry.consumers.set(clientToken, consumer);
+      this.synthesisConsumers.set(clientToken, entry);
     });
-    this.#emit({ stage: "synthesis-complete", utteranceId, generation });
-    return {
-      ...result,
-      durationMs: result.samples.length / result.sampleRate * 1000,
-    };
   }
 
   async cancel(utteranceId, generation) {
-    await this.transport.cancelByClientToken(`${utteranceId}:${generation}`);
+    const clientToken = `${utteranceId}:${generation}`;
+    const entry = this.synthesisConsumers.get(clientToken);
+    if (!entry) return;
+    const consumer = entry.consumers.get(clientToken);
+    entry.consumers.delete(clientToken);
+    this.synthesisConsumers.delete(clientToken);
+    consumer?.reject(new DOMException("Remote synthesis cancelled", "AbortError"));
+    if (entry.consumers.size !== 0) return;
+    if (entry.state === "pending" && this.synthesisCache.get(entry.cacheKey) === entry) this.synthesisCache.delete(entry.cacheKey);
+    await this.transport.cancelByClientToken(entry.transportToken);
   }
 
   async play({ samples, sampleRate, durationMs }) {
-    await this.unlockAudio();
-    const buffer = this.audioContext.createBuffer(1, samples.length, sampleRate);
-    buffer.copyToChannel(samples, 0);
-    const source = this.audioContext.createBufferSource();
-    source.buffer = buffer;
-    source.connect(this.audioContext.destination);
-    await new Promise((resolve) => {
-      source.addEventListener("ended", resolve, { once: true });
-      source.start();
+    const playback = this.playbackTail.then(async () => {
+      await this.unlockAudio();
+      const buffer = this.audioContext.createBuffer(1, samples.length, sampleRate);
+      buffer.copyToChannel(samples, 0);
+      const source = this.audioContext.createBufferSource();
+      source.buffer = buffer;
+      source.connect(this.audioContext.destination);
+      await new Promise((resolve) => {
+        source.addEventListener("ended", resolve, { once: true });
+        source.start();
+      });
+      return { durationMs: Number(durationMs || samples.length / sampleRate * 1000) };
     });
-    return { durationMs: Number(durationMs || samples.length / sampleRate * 1000) };
+    this.playbackTail = playback.catch(() => {});
+    return playback;
   }
 
   close() {
+    this.reconnectWanted = false;
+    this.#clearReconnectTimer();
     this.transportAuthenticated = false;
     this.ready = false;
     this.#rejectWorkerWaiters(new Error("音声合成サーバーとの接続を終了しました。"));
@@ -150,6 +228,38 @@ export class RemoteVoiceRuntime {
     for (const waiter of [...this.workerReadyWaiters]) {
       this.workerReadyWaiters.delete(waiter);
       waiter.reject(failure);
+    }
+  }
+
+  #clearReconnectTimer() {
+    if (!this.reconnectTimer) return;
+    globalThis.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = 0;
+  }
+
+  #scheduleReconnect() {
+    if (!this.reconnectWanted || this.reconnectTimer) return;
+    const delay = Math.min(RECONNECT_BASE_DELAY_MS * 2 ** this.reconnectAttempt, RECONNECT_MAX_DELAY_MS);
+    this.reconnectAttempt += 1;
+    this.reconnectTimer = globalThis.setTimeout(() => {
+      this.reconnectTimer = 0;
+      if (!this.reconnectWanted) return;
+      try {
+        this.transport.reconnect();
+      } catch (error) {
+        this.#scheduleReconnect();
+      }
+    }, delay);
+  }
+
+  #pruneSynthesisCache() {
+    while (this.synthesisCache.size > MAX_CLIENT_AUDIO_CACHE_ENTRIES
+      || this.synthesisCacheBytes > MAX_CLIENT_AUDIO_CACHE_BYTES) {
+      const oldest = [...this.synthesisCache.entries()].find(([, entry]) => entry.state === "ready");
+      if (!oldest) return;
+      const [key, entry] = oldest;
+      this.synthesisCache.delete(key);
+      this.synthesisCacheBytes -= entry.result?.samples?.byteLength ?? 0;
     }
   }
 
