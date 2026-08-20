@@ -198,6 +198,7 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
     tutorialComplete: tutorialState.complete,
     sourceUpdate,
   }).initialize();
+  const restartTutorialButton = document.getElementById("restart-tutorial");
 
   const endTutorialProfile = Object.freeze({
     terminal: true,
@@ -224,6 +225,7 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
     completeTo: "end",
     lockBackDuringModelLoad: true,
     onOpen({ controller, modelProfileUi: profileUi }) {
+      restartTutorialButton.disabled = true;
       if (!controller.tutorialComplete) profileUi.select("fp16", { persist: false });
     },
     async onStageChange({ discardPending }) {
@@ -236,6 +238,7 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
       profileUi.commitSelection();
       await tutorialApp.markTutorialComplete();
       controller.tutorialComplete = true;
+      restartTutorialButton.disabled = false;
     },
   });
 
