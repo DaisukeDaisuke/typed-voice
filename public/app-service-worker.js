@@ -8,6 +8,7 @@ const MODEL_CACHE = "typed-voice-model-assets-v2";
 const KANALIZER_MODEL_CACHE = "typed-voice-kanalizer-model-v1";
 const SOURCE_CACHE_PREFIX = "typed-voice-source-";
 const SOURCE_METADATA_CACHE = "typed-voice-source-metadata-v1";
+const PAIRING_ON_DEMAND_CACHE_PREFIX = "typed-voice-pairing-on-demand-";
 const HUGGINGFACE_RESOLVE_CACHE = "typed-voice-huggingface-resolve-v1";
 const SOURCE_ASSET_MAP_URL = new URL("source-asset-map.json", self.registration.scope).href;
 const SOURCE_STATE_URL = new URL("__typed_voice_source/state-v1.json", self.registration.scope).href;
@@ -24,6 +25,10 @@ const sourceClientGenerations = new Map();
 const directWorkerRuntimeClients = new Set();
 const DEV_MODE = new URL(self.location.href).searchParams.get("dev") === "1";
 let candidateSourceAssetMapPromise = null;
+
+function isExplicitlyOffline() {
+  return self.navigator?.onLine === false;
+}
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
@@ -168,26 +173,33 @@ async function loadCachedCandidateSourceAssetMap() {
   }
 }
 
-async function getCandidateSourceAssetMap() {
+async function fetchCandidateSourceAssetMap() {
+  if (isExplicitlyOffline()) throw new Error("Offline");
   if (!candidateSourceAssetMapPromise) {
     candidateSourceAssetMapPromise = (async () => {
-      try {
-        const response = await fetch(SOURCE_ASSET_MAP_URL, { cache: "no-store" });
-        if (!response.ok) throw new Error(`Source asset map fetch failed: ${response.status}`);
-        const manifest = normalizeSourceAssetMap(await response.json());
-        await storeSourceAssetMap(manifest);
-        return manifest;
-      } catch (error) {
-        const cached = await loadCachedCandidateSourceAssetMap();
-        if (cached) return cached;
-        throw error;
-      }
+      const response = await fetch(SOURCE_ASSET_MAP_URL, { cache: "no-store" });
+      if (!response.ok) throw new Error(`Source asset map fetch failed: ${response.status}`);
+      const manifest = normalizeSourceAssetMap(await response.json());
+      await storeSourceAssetMap(manifest);
+      return manifest;
     })().catch((error) => {
       candidateSourceAssetMapPromise = null;
       throw error;
     });
   }
   return candidateSourceAssetMapPromise;
+}
+
+async function getCandidateSourceAssetMap({ allowCachedFallback = true } = {}) {
+  try {
+    return await fetchCandidateSourceAssetMap();
+  } catch (error) {
+    if (allowCachedFallback) {
+      const cached = await loadCachedCandidateSourceAssetMap();
+      if (cached) return cached;
+    }
+    throw error;
+  }
 }
 
 function sourceReuseKey(path, entry) {
@@ -375,7 +387,7 @@ async function planSourceAssets({ groups, knownAcceptedKey = null } = {}) {
   const state = await loadSourceState();
   let candidate;
   try {
-    candidate = await getCandidateSourceAssetMap();
+    candidate = await getCandidateSourceAssetMap({ allowCachedFallback: false });
   } catch (error) {
     if (!state.acceptedGeneration) throw error;
     candidate = await loadSourceAssetMap(state.acceptedGeneration);
@@ -585,13 +597,60 @@ async function acceptedSourceResponse(path) {
   return { managed: true, response: null, repairRequired: false };
 }
 
+async function readNewerBootstrapSource(request, path) {
+  const state = await loadSourceState();
+  if (!state.acceptedGeneration) return null;
+  const [accepted, candidate] = await Promise.all([
+    loadSourceAssetMap(state.acceptedGeneration),
+    getCandidateSourceAssetMap({ allowCachedFallback: false }).catch(() => null),
+  ]);
+  if (!candidate || candidate.generation === state.acceptedGeneration) return null;
+  const candidateEntry = candidate.assets?.[path];
+  if (!candidateEntry || candidateEntry.group !== "core") return null;
+  const acceptedEntry = accepted?.assets?.[path] ?? null;
+  if (acceptedEntry && sourceReuseKey(path, acceptedEntry) === sourceReuseKey(path, candidateEntry)) return null;
+  try {
+    const response = await fetch(request, { cache: "no-store" });
+    return response.ok ? response : null;
+  } catch {
+    return null;
+  }
+}
+
 async function isUnapprovedCandidateSource(path) {
   const state = await loadSourceState();
   if (!state.acceptedGeneration) return false;
-  const candidate = await getCandidateSourceAssetMap().catch(() => null);
+  const candidate = await getCandidateSourceAssetMap({ allowCachedFallback: false }).catch(() => null);
   if (!candidate || candidate.generation === state.acceptedGeneration) return false;
   const entry = candidate.assets?.[path];
   return Boolean(entry && entry.group !== "core");
+}
+
+function isOnDemandPairingSource(path) {
+  return path === "pairing.html"
+    || /^assets\/pairing-[^/]+\.(?:js|css)$/i.test(String(path || ""));
+}
+
+async function readOnDemandPairingSource(path) {
+  if (!isOnDemandPairingSource(path)) return null;
+  const candidate = await getCandidateSourceAssetMap().catch(() => null);
+  const entry = candidate?.assets?.[path];
+  if (!candidate || !entry) return null;
+
+  const cacheName = `${PAIRING_ON_DEMAND_CACHE_PREFIX}${candidate.generation}`;
+  for (const name of await caches.keys()) {
+    if (name.startsWith(PAIRING_ON_DEMAND_CACHE_PREFIX) && name !== cacheName) await caches.delete(name);
+  }
+  const cache = await caches.open(cacheName);
+  const cached = await cache.match(sourceAssetUrl(path));
+  if (cached) return cached;
+
+  if (isExplicitlyOffline()) return null;
+
+  const response = await fetch(sourceAssetUrl(path), { cache: "no-cache" });
+  if (!response.ok) return response;
+  await cache.put(sourceAssetUrl(path), response.clone());
+  return response;
 }
 
 async function isBootstrapSource(path) {
@@ -819,6 +878,11 @@ self.addEventListener("fetch", (event) => {
 
 async function readPageAsset(event) {
   if (event.clientId && directWorkerRuntimeClients.has(event.clientId)) {
+    if (isExplicitlyOffline()) {
+      const cached = await caches.match(event.request);
+      if (cached) return isolatedResponse(cached);
+      return isolatedResponse(new Response("Asset is unavailable offline", { status: 503 }));
+    }
     return isolatedResponse(await fetch(event.request));
   }
   const client = event.clientId ? await self.clients.get(event.clientId) : null;
@@ -826,6 +890,11 @@ async function readPageAsset(event) {
     const clientUrl = new URL(client.url);
     const workerUrl = new URL("worker.html", self.registration.scope);
     if (clientUrl.origin === self.location.origin && clientUrl.pathname === workerUrl.pathname) {
+      if (isExplicitlyOffline()) {
+        const cached = await caches.match(event.request);
+        if (cached) return isolatedResponse(cached);
+        return isolatedResponse(new Response("Asset is unavailable offline", { status: 503 }));
+      }
       return isolatedResponse(await fetch(event.request));
     }
   }
@@ -960,6 +1029,12 @@ function createModelChunkStream(cache, virtualUrl, chunkCount) {
 async function readShellAsset(request) {
   const sourcePath = sourcePathForRequest(request);
   if (sourcePath) {
+    const newerBootstrap = await readNewerBootstrapSource(request, sourcePath);
+    if (newerBootstrap) return isolatedResponse(newerBootstrap);
+    if (isOnDemandPairingSource(sourcePath)) {
+      const onDemand = await readOnDemandPairingSource(sourcePath).catch(() => null);
+      if (onDemand) return isolatedResponse(onDemand);
+    }
     const accepted = await acceptedSourceResponse(sourcePath).catch(() => ({ managed: false, response: null, repairRequired: false }));
     if (accepted.response) return isolatedResponse(accepted.response);
     if (accepted.repairRequired) {
@@ -979,6 +1054,22 @@ async function readShellAsset(request) {
         headers: { "content-type": "text/plain; charset=utf-8" },
       }));
     }
+  }
+
+  if (isExplicitlyOffline()) {
+    let response = await caches.match(request);
+    if (!response && request.mode === "navigate") {
+      const canonicalUrl = new URL(request.url);
+      canonicalUrl.search = "";
+      canonicalUrl.hash = "";
+      response = await caches.match(canonicalUrl.href);
+      if (!response) response = await caches.match(new URL("./index.html", self.registration.scope).href);
+    }
+    if (response) return isolatedResponse(response);
+    return isolatedResponse(new Response("Asset is unavailable offline", {
+      status: 503,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    }));
   }
 
   try {

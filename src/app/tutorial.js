@@ -124,8 +124,8 @@ export function createTutorialProfileDefinition(name, definition, availableStepI
 }
 
 export function resolveStartupTutorialProfile({ tutorialComplete, selectedModelCached, sourceUpdateAvailable = false }) {
-  if (!tutorialComplete) return "full";
   if (sourceUpdateAvailable) return "source-update";
+  if (!tutorialComplete) return "full";
   return selectedModelCached ? "end" : "model-picker-required";
 }
 

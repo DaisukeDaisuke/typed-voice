@@ -338,10 +338,10 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
   });
 
   if (remoteModeUi.isServerMode) {
-    const serverStartupProfile = remoteModeUi.shouldRunServerTutorialAtStartup()
-      ? "server-mode"
-      : sourceUpdateState.updateAvailable
-        ? "source-update"
+    const serverStartupProfile = sourceUpdateState.updateAvailable
+      ? "source-update"
+      : remoteModeUi.shouldRunServerTutorialAtStartup()
+        ? "server-mode"
         : "end";
     await tutorial.openProfile(serverStartupProfile);
   } else {
