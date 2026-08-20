@@ -910,6 +910,12 @@ async function readHuggingFaceResolveAsset(request) {
   const cache = await caches.open(HUGGINGFACE_RESOLVE_CACHE);
   const cached = await cache.match(request);
   if (cached) return cached;
+  if (isExplicitlyOffline()) {
+    return new Response("Hugging Face asset is unavailable offline", {
+      status: 503,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
+  }
   const response = await fetch(request);
   if (response.ok) {
     try {
