@@ -386,9 +386,11 @@ async function readSourceVerificationAsset(request) {
 async function planSourceAssets({ groups, knownAcceptedKey = null } = {}) {
   const state = await loadSourceState();
   let candidate;
+  let sourceAssetMapNetworkAvailable = true;
   try {
     candidate = await getCandidateSourceAssetMap({ allowCachedFallback: false });
   } catch (error) {
+    sourceAssetMapNetworkAvailable = false;
     if (!state.acceptedGeneration) throw error;
     candidate = await loadSourceAssetMap(state.acceptedGeneration);
     if (!candidate) throw error;
@@ -458,6 +460,7 @@ async function planSourceAssets({ groups, knownAcceptedKey = null } = {}) {
     repairRequired,
     missingAcceptedBytes,
     missingAcceptedCount,
+    sourceAssetMapNetworkAvailable,
   };
 }
 

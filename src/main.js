@@ -345,7 +345,7 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
     .registerProfile("server-reconnect", serverReconnectProfile);
 
   const shouldShowServerOfflineTutorial = () => (
-    remoteModeUi.isServerMode && globalThis.navigator?.onLine === false
+    remoteModeUi.isServerMode && sourceUpdateState.sourceAssetMapNetworkAvailable === false
   );
   const openServerModeTutorial = () => tutorial.openProfile(
     shouldShowServerOfflineTutorial() ? "server-offline" : "server-mode"
