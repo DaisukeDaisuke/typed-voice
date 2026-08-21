@@ -136,6 +136,7 @@ for (const file of files) {
     extension: extname(file.relativePath).toLowerCase(),
     group: classifyAsset(file.relativePath, groups),
     xxh3_128: await xxh3_128File(file.path),
+    buildNumber,
     originalFiles: originalFiles.length > 0 ? originalFiles : await fallbackOriginalFiles(file.relativePath),
   };
 }

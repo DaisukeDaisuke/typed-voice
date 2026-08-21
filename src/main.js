@@ -53,7 +53,7 @@ async function renderRuntimeDebug(output) {
     "typed-voice cache debug",
     `Latest review cache key: ${new URL("__typed_voice_source/latest-review.json", scopeUrl).href}`,
     `Latest review generation: ${generation || "不明"}`,
-    `GitHub Actions build: ${/^\d+$/.test(String(manifest?.buildNumber || "")) ? `#${manifest.buildNumber}` : "不明"}`,
+    `Review document build: ${/^\d+$/.test(String(manifest?.buildNumber || "")) ? `#${manifest.buildNumber}` : "不明"}`,
     "",
     "[Latest review source assets]",
   ];
@@ -61,7 +61,8 @@ async function renderRuntimeDebug(output) {
     const originals = Array.isArray(entry?.originalFiles) && entry.originalFiles.length > 0
       ? entry.originalFiles.join(", ")
       : "不明";
-    lines.push(`${path} <- ${originals} | group=${entry?.group || "不明"} | xxh3=${entry?.xxh3_128 || "不明"}`);
+    const build = /^\d+$/.test(String(entry?.buildNumber || "")) ? `#${entry.buildNumber}` : "不明";
+    lines.push(`${path} <- ${originals} | build=${build} | group=${entry?.group || "不明"} | xxh3=${entry?.xxh3_128 || "不明"}`);
   }
   lines.push("", "[Cache Storage full keys]");
   for (const name of cacheNames) {

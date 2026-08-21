@@ -95,12 +95,13 @@ function normalizeSourceAssetMap(raw) {
     const byteSize = Number(entry?.byteSize);
     const extension = String(entry?.extension || "").toLowerCase();
     const group = ["core", "client", "engine", "optional"].includes(entry?.group) ? entry.group : "optional";
+    const assetBuildNumber = /^\d+$/.test(String(entry?.buildNumber || "")) ? String(entry.buildNumber) : null;
     const originalFiles = Array.isArray(entry?.originalFiles)
       ? entry.originalFiles.map((item) => String(item || "")).filter(Boolean)
       : [];
     if (!normalizedPath || !/^[0-9a-f]{32}$/.test(xxh3_128)) continue;
     if (!Number.isSafeInteger(byteSize) || byteSize < 0) continue;
-    assets[normalizedPath] = Object.freeze({ xxh3_128, byteSize, extension, group, originalFiles: Object.freeze(originalFiles) });
+    assets[normalizedPath] = Object.freeze({ xxh3_128, byteSize, extension, group, buildNumber: assetBuildNumber, originalFiles: Object.freeze(originalFiles) });
   }
   return Object.freeze({ version: 2, algorithm: "xxh3-128", buildNumber, generation, assets: Object.freeze(assets) });
 }
@@ -166,9 +167,29 @@ async function storeSourceAssetMap(manifest) {
   const response = new Response(JSON.stringify(manifest), {
     headers: { "content-type": "application/json" },
   });
+  let latestReview = manifest;
+  const previousLatestReview = await cache.match(SOURCE_LATEST_REVIEW_URL);
+  if (previousLatestReview) {
+    try {
+      const previous = normalizeSourceAssetMap(await previousLatestReview.json());
+      latestReview = {
+        ...manifest,
+        assets: Object.fromEntries(Object.entries(manifest.assets).map(([path, entry]) => {
+          const previousEntry = previous.assets[path];
+          const unchanged = previousEntry && sourceReuseKey(path, previousEntry) === sourceReuseKey(path, entry);
+          return [path, { ...entry, buildNumber: unchanged ? previousEntry.buildNumber : entry.buildNumber }];
+        })),
+      };
+    } catch {
+      latestReview = manifest;
+    }
+  }
+  const latestReviewResponse = new Response(JSON.stringify(latestReview), {
+    headers: { "content-type": "application/json" },
+  });
   await Promise.all([
     cache.put(sourceMapMetadataUrl(manifest.generation), response.clone()),
-    cache.put(SOURCE_LATEST_REVIEW_URL, response.clone()),
+    cache.put(SOURCE_LATEST_REVIEW_URL, latestReviewResponse),
     // source-asset-map.json cannot be part of the hashed asset list because it
     // contains the generation derived from that list. Keep the manifest itself
     // as bootstrap metadata at its public URL so an accepted source cache does
