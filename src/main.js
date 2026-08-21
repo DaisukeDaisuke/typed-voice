@@ -3,6 +3,7 @@ import { UiOrchestrator } from "./app/ui-orchestrator.js";
 import {
   applySourceAssets,
   planSourceAssets,
+  refreshTypedVoiceServiceWorker,
   requireServiceWorker,
   verifyStoredSourceAssets,
 } from "./app/service-worker-required.js";
@@ -81,6 +82,7 @@ const sourceAssetsPending = Boolean(sourceUpdateState.updateAvailable)
 const sourceUpdate = {
   plan: { ...sourceUpdateState },
   async prepare({ signal = null, onProgress = () => {} } = {}) {
+    await refreshTypedVoiceServiceWorker();
     const result = await applySourceAssets(sourceAssetGroups, { signal, onProgress });
     this.plan = {
       ...this.plan,

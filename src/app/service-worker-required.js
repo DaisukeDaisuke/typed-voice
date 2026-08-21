@@ -1,14 +1,20 @@
 import { createXXHash128 } from "hash-wasm";
 
-export const SOURCE_UPDATE_STORAGE_KEY = "typed-voice-source-cache-key-v1";
+export const SOURCE_UPDATE_STORAGE_KEY = "typed-voice-source-cache-key-v2";
+const PREVIOUS_SOURCE_UPDATE_STORAGE_KEY = "typed-voice-source-cache-key-v1";
+const SERVICE_WORKER_REREGISTRATION_MIGRATION_KEY = "typed-voice-sw-reregister-20260821-v1";
 const SOURCE_PROTOCOL_VERSION = 2;
 
-export function readStoredSourceGeneration(storage = globalThis.localStorage) {
+function readStorageValue(key, storage = globalThis.localStorage) {
   try {
-    return storage?.getItem(SOURCE_UPDATE_STORAGE_KEY) ?? null;
+    return storage?.getItem(key) ?? null;
   } catch {
     return null;
   }
+}
+
+export function readStoredSourceGeneration(storage = globalThis.localStorage) {
+  return readStorageValue(SOURCE_UPDATE_STORAGE_KEY, storage);
 }
 
 export function markSourceUpdateAcknowledged(generation, storage = globalThis.localStorage) {
@@ -16,7 +22,9 @@ export function markSourceUpdateAcknowledged(generation, storage = globalThis.lo
   if (!/^[0-9a-f]{32}$/i.test(value)) return false;
   try {
     storage?.setItem(SOURCE_UPDATE_STORAGE_KEY, value.toLowerCase());
-    return storage?.getItem(SOURCE_UPDATE_STORAGE_KEY) === value.toLowerCase();
+    if (storage?.getItem(SOURCE_UPDATE_STORAGE_KEY) !== value.toLowerCase()) return false;
+    storage?.removeItem(PREVIOUS_SOURCE_UPDATE_STORAGE_KEY);
+    return true;
   } catch {
     return false;
   }
@@ -24,6 +32,9 @@ export function markSourceUpdateAcknowledged(generation, storage = globalThis.lo
 
 export async function planSourceAssets(groups, { storage = globalThis.localStorage } = {}) {
   const storedGeneration = readStoredSourceGeneration(storage);
+  const previousStoredGeneration = readStorageValue(PREVIOUS_SOURCE_UPDATE_STORAGE_KEY, storage);
+  const migrationPending = !storedGeneration && Boolean(previousStoredGeneration);
+  const forceMigrationUpdate = navigator.onLine && migrationPending;
   const controller = navigator.serviceWorker?.controller;
   if (!await supportsSourceProtocol(controller)) {
     if (!navigator.onLine) {
@@ -43,9 +54,13 @@ export async function planSourceAssets(groups, { storage = globalThis.localStora
   }
   const plan = await requestServiceWorker("typed-voice:plan-source-assets", {
     groups,
-    knownAcceptedKey: storedGeneration,
+    knownAcceptedKey: storedGeneration ?? previousStoredGeneration,
   }, "plan");
-  if (!plan.updateAvailable
+  if (forceMigrationUpdate) {
+    return Object.freeze({ ...plan, updateAvailable: true, forcedMigration: true });
+  }
+  if (!migrationPending
+    && !plan.updateAvailable
     && plan.acceptedGeneration === plan.generation
     && storedGeneration !== plan.generation) {
     markSourceUpdateAcknowledged(plan.generation, storage);
@@ -243,6 +258,18 @@ export async function requireServiceWorker({ reloadKey = "typed-voice-coi-reload
   const serviceWorkerUrl = new URL("app-service-worker.js", scopeUrl);
   if (import.meta.env.DEV) serviceWorkerUrl.searchParams.set("dev", "1");
 
+  if (navigator.onLine && readStorageValue(SERVICE_WORKER_REREGISTRATION_MIGRATION_KEY) !== "done") {
+    const registration = await navigator.serviceWorker.getRegistration(scopeUrl.href).catch(() => null);
+    if (registration) {
+      const unregistered = await registration.unregister().catch(() => false);
+      if (!unregistered) throw new Error("Service Workerの移行再登録に失敗しました。");
+      globalThis.localStorage?.setItem?.(SERVICE_WORKER_REREGISTRATION_MIGRATION_KEY, "done");
+      location.reload();
+      return new Promise(() => {});
+    }
+    globalThis.localStorage?.setItem?.(SERVICE_WORKER_REREGISTRATION_MIGRATION_KEY, "done");
+  }
+
   // An already-controlled page must remain usable with no network at all.
   // Refreshing the worker is an online maintenance operation, not an offline startup dependency.
   if (navigator.serviceWorker.controller) {
@@ -333,28 +360,55 @@ export async function queryPreparedModelCache(manifestUrl, { appBaseUrl = null }
   });
 }
 
+export async function refreshTypedVoiceServiceWorker() {
+  if (!("serviceWorker" in navigator) || !navigator.onLine) return false;
+  const scopeUrl = new URL(import.meta.env.BASE_URL, document.baseURI);
+  const serviceWorkerUrl = new URL("app-service-worker.js", scopeUrl);
+  if (import.meta.env.DEV) serviceWorkerUrl.searchParams.set("dev", "1");
+  return refreshServiceWorker(serviceWorkerUrl, scopeUrl);
+}
+
 async function refreshServiceWorker(serviceWorkerUrl, scopeUrl) {
   try {
     const registration = await navigator.serviceWorker.register(serviceWorkerUrl, { scope: scopeUrl.pathname });
-    await registration.update().catch(() => {});
-    if (await supportsSourceProtocol(navigator.serviceWorker.controller)) return true;
-    await new Promise((resolve) => {
-      let settled = false;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        globalThis.clearTimeout(timeout);
-        navigator.serviceWorker.removeEventListener("controllerchange", finish);
-        resolve();
-      };
-      const timeout = globalThis.setTimeout(finish, 5000);
-      navigator.serviceWorker.addEventListener("controllerchange", finish);
-    });
+    const previousController = navigator.serviceWorker.controller;
+    let updateFound = false;
+    const onUpdateFound = () => { updateFound = true; };
+    registration.addEventListener("updatefound", onUpdateFound);
+    try {
+      await registration.update().catch(() => {});
+    } finally {
+      registration.removeEventListener("updatefound", onUpdateFound);
+    }
+    if (updateFound || registration.installing || registration.waiting) {
+      await waitForServiceWorkerControllerChange(previousController, 5000);
+    }
     return supportsSourceProtocol(navigator.serviceWorker.controller);
   } catch (error) {
     console.warn("Service Worker update check failed; continuing with the installed offline worker", error);
     return false;
   }
+}
+
+function waitForServiceWorkerControllerChange(previousController, timeoutMs = 5000) {
+  if (navigator.serviceWorker.controller && navigator.serviceWorker.controller !== previousController) {
+    return Promise.resolve(navigator.serviceWorker.controller);
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      globalThis.clearTimeout(timeout);
+      navigator.serviceWorker.removeEventListener("controllerchange", changed);
+      resolve(navigator.serviceWorker.controller ?? null);
+    };
+    const changed = () => {
+      if (navigator.serviceWorker.controller !== previousController) finish();
+    };
+    const timeout = globalThis.setTimeout(finish, timeoutMs);
+    navigator.serviceWorker.addEventListener("controllerchange", changed);
+  });
 }
 
 function reloadUnderExistingServiceWorker(reloadKey) {
