@@ -1053,14 +1053,14 @@ async function readShellAsset(request) {
   const sourcePath = sourcePathForRequest(request);
   if (sourcePath) {
     const approvalFreeSource = sourcePath === "poc.html" || sourcePath === "worker.html";
-    const newerBootstrap = await readNewerBootstrapSource(request, sourcePath);
-    if (newerBootstrap) return isolatedResponse(newerBootstrap);
     if (isOnDemandPairingSource(sourcePath)) {
       const onDemand = await readOnDemandPairingSource(sourcePath).catch(() => null);
       if (onDemand) return isolatedResponse(onDemand);
     }
     const accepted = await acceptedSourceResponse(sourcePath).catch(() => ({ managed: false, response: null, repairRequired: false }));
     if (accepted.response) return isolatedResponse(accepted.response);
+    const newerBootstrap = await readNewerBootstrapSource(request, sourcePath);
+    if (newerBootstrap) return isolatedResponse(newerBootstrap);
     if (accepted.repairRequired) {
       // The minimal bootstrap must remain loadable so it can present the
       // update/repair consent UI. It is returned from the network without being
