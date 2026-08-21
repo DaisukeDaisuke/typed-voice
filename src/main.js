@@ -140,9 +140,11 @@ if (remoteModeUi.isServerMode && remoteModeUi.pairing) {
       ensureRemoteWorkerBlocking(status);
     },
     onFailure(error) {
+      if (sourceUpdateState.updateAvailable) return;
       remoteModeUi.showHandshakeFailure(error instanceof Error ? error.message : String(error));
     },
     onClose() {
+      if (sourceUpdateState.updateAvailable) return;
       remoteModeUi.showHandshakeFailure("以前の接続が切断されました。パソコン側に表示された新しいQRを読み取ってください。");
     },
   });
@@ -389,7 +391,10 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
     },
   });
   await remoteModeUi.activateStoredConnection();
-  if (remoteModeUi.isServerMode && remoteModeUi.startupAction === "handshake" && remoteModeUi.pairing) {
+  if (remoteModeUi.isServerMode
+    && !sourceUpdateState.updateAvailable
+    && remoteModeUi.startupAction === "handshake"
+    && remoteModeUi.pairing) {
     voiceRuntime.connect();
     globalThis.addEventListener("pagehide", () => voiceRuntime.close?.(), { once: true });
   }
