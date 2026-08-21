@@ -1464,9 +1464,9 @@ export class TutorialController {
       this.elements.downloadStatus.textContent = "保存済みデータを確認しています。";
     } else if (message.phase === "verified-cache") {
       this.elements.downloadSpeed.textContent = "キャッシュ済み";
-      this.elements.downloadStatus.textContent = "保存済みデータを利用できます。";
+      this.elements.downloadStatus.textContent = "しばらくお待ちください。動作中です。";
     } else if (message.phase === "verified") {
-      this.elements.downloadStatus.textContent = "ダウンロードしたデータを検証しました。";
+      this.elements.downloadStatus.textContent = "検証中です。";
     }
   }
 
