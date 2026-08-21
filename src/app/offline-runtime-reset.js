@@ -133,7 +133,7 @@ export class OfflineRuntimeResetUiController {
     this.modelProfileUi?.closeSettings?.();
     this.elements.status.textContent = "";
     this.backupVerified = false;
-    this.elements.dialogStatus.textContent = "バックアップの保存を確認すると、アンインストールボタンを押せるようになります。";
+    this.elements.dialogStatus.textContent = "バックアップを保存してください。保存後にアンインストールできます。";
     this.elements.backup.disabled = false;
     this.elements.backupConfirm.hidden = true;
     this.elements.backupConfirm.disabled = false;
@@ -184,7 +184,7 @@ export class OfflineRuntimeResetUiController {
         const backup = await this.app.createBackup();
         const filename = await writeApplicationBackupToFileHandle(fileHandle, backup);
         if (generation !== this.dialogGeneration) return;
-        this.#markBackupSaved(`${filename} を保存しました。アンインストールできるようになりました。`);
+        this.#markBackupSaved(`${filename} を保存しました。アンインストールできます。`);
         return;
       }
 
@@ -207,7 +207,7 @@ export class OfflineRuntimeResetUiController {
   #confirmBackupSaved() {
     if (this.elements.backupConfirm.hidden) return;
     this.elements.backupConfirm.disabled = true;
-    this.#markBackupSaved("バックアップファイルの保存確認を受け付けました。アンインストールできるようになりました。");
+    this.#markBackupSaved("バックアップファイルを確認しました。アンインストールできます。");
   }
 
   #markBackupSaved(message) {
