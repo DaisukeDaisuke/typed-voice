@@ -568,7 +568,7 @@ export class TutorialController {
     }
     const totalBytes = Math.max(0, Number(plan.fetchBytes || 0));
     const formatted = this.#formatBytes(totalBytes);
-    this.elements.sourceUpdateSize.textContent = totalBytes > 0 ? formatted : "追加ダウンロードなし";
+    this.elements.sourceUpdateSize.textContent = totalBytes > 0 ? formatted : "修復が必要です";
     this.elements.sourceUpdateProgress.value = 0;
     this.elements.sourceUpdatePercent.textContent = "0%";
     this.elements.sourceUpdateBytes.textContent = totalBytes > 0 ? `0 B / ${formatted}` : "保存済みデータを再利用";
@@ -604,7 +604,7 @@ export class TutorialController {
       this.elements.sourceUpdatePercent.textContent = "100%";
       this.elements.sourceUpdateBytes.textContent = expectedFetchBytes > 0
         ? `${this.#formatBytes(expectedFetchBytes)} / ${this.#formatBytes(expectedFetchBytes)}`
-        : "追加ダウンロードなし";
+        : "修復が必要です";
       this.elements.sourceUpdateSpeed.textContent = "完了";
       this.elements.sourceUpdateAck.textContent = "更新完了";
       this.elements.sourceUpdateStatus.textContent = "更新が完了しました。自動で再読み込みします。";
@@ -1321,7 +1321,7 @@ export class TutorialController {
       if ((totalBytes > 0 || sourcePending) && !this.downloadRunning && !this.downloadCompleted) {
         const formatted = this.#formatBytes(totalBytes);
         const device = await this.#getDeviceLabel();
-        this.elements.downloadSize.textContent = totalBytes > 0 ? formatted : "追加ダウンロードなし";
+        this.elements.downloadSize.textContent = totalBytes > 0 ? formatted : "修復が必要です";
         this.elements.downloadBytes.textContent = totalBytes > 0 ? `予定 ${formatted}` : "保存済みデータを再利用";
         this.elements.downloadAck.disabled = false;
         this.elements.downloadAck.textContent = totalBytes > 0
