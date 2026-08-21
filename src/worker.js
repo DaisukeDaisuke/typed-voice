@@ -616,6 +616,7 @@ async function synthesizeForServer(id, text, speed = 1) {
   try {
     const runtime = await loadWorkerRuntime();
     let synthesisText = text;
+    const language = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u.test(text) ? "ja" : "en";
     if (runtime.hasKanalizerCandidate(synthesisText)) {
       setStatus("英字の読みをKanalizerで正規化しています。");
       const normalized = await runtime.normalizeAsciiLetterRuns(synthesisText, {
@@ -630,7 +631,7 @@ async function synthesizeForServer(id, text, speed = 1) {
       utteranceId: id,
       generation,
       text: synthesisText,
-      options: { language: "ja", speed, seed: OMNIVOICE_REFERENCE_SEED },
+      options: { language, speed, seed: OMNIVOICE_REFERENCE_SEED },
     });
     if (synthesisGenerations.get(id) !== generation) return;
     const audio = new Uint8Array(result.samples.buffer, result.samples.byteOffset, result.samples.byteLength);

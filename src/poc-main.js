@@ -113,11 +113,12 @@ speakButton.addEventListener("click", async () => {
       }
       const utteranceId = crypto.randomUUID();
       const startedAt = performance.now();
+      const language = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u.test(text) ? "ja" : "en";
       const result = await client.synthesize({
         utteranceId,
         generation: 1,
         text: synthesisText,
-        options: { language: "ja", speed, seed: 2026081601 },
+        options: { language, speed, seed: 2026081601 },
       });
       const elapsed = performance.now() - startedAt;
       await playFloat32(audioContext, result.samples, result.sampleRate);

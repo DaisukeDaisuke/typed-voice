@@ -209,7 +209,8 @@ export class VoiceRuntimeAdapter {
     }
     try {
       let synthesisText = text;
-      if (/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u.test(text) && /[A-Za-z]+/.test(text)) {
+      const language = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u.test(text) ? "ja" : "en";
+      if (language === "ja" && /[A-Za-z]+/.test(text)) {
         this.#emitProgress({ stage: "normalize", phase: "kanalizer", utteranceId, generation, completed: 0, totalSteps: 1 });
         const { normalizeAsciiLetterRuns } = await import("../text/kanalizer-normalizer.js");
         const normalized = await normalizeAsciiLetterRuns(text);
@@ -221,7 +222,7 @@ export class VoiceRuntimeAdapter {
         generation,
         text: synthesisText,
         options: {
-          language: "ja",
+          language,
           speed: this.speed,
           
           // 検証済みPoCと同じCPython random.Random互換seedを本番でも使う。
