@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  clearTypedVoiceAssetMetadata,
   clearTypedVoiceCacheStorage,
   findTypedVoiceServiceWorkerRegistration,
   isTypedVoiceOwnedCacheName,
@@ -13,20 +12,24 @@ function createDb() {
   const stores = {
     assets: [{ key: "voice:model" }],
     sessions: [{ id: "conversation-1" }],
-    settings: [{ key: "speechSpeed", value: 1 }],
+    settings: [
+      { key: "speechSpeed", value: 1 },
+      { key: "tutorialCompleteV1", value: "1" },
+    ],
   };
   const objectStoreNames = Object.keys(stores);
   objectStoreNames.contains = (name) => Object.hasOwn(stores, name);
   return {
     stores,
     objectStoreNames,
-    transaction(name) {
+    transaction(names) {
+      const transactionStoreNames = Array.isArray(names) ? names : [names];
       const transaction = {
         error: null,
         oncomplete: null,
         onerror: null,
         onabort: null,
-        objectStore() {
+        objectStore(name = transactionStoreNames[0]) {
           return {
             clear() {
               stores[name] = [];
@@ -66,14 +69,6 @@ test("Cache Storage削除はdesmume_webassemblyなど他アプリを巻き込ま
   assert.equal(names.has("other-app-cache"), true);
 });
 
-test("assets metadataだけを消して会話や設定を保持する", async () => {
-  const db = createDb();
-  await clearTypedVoiceAssetMetadata(db);
-  assert.deepEqual(db.stores.assets, []);
-  assert.deepEqual(db.stores.sessions, [{ id: "conversation-1" }]);
-  assert.deepEqual(db.stores.settings, [{ key: "speechSpeed", value: 1 }]);
-});
-
 test("typed-voiceのService Workerだけを登録解除対象にする", async () => {
   const registration = {
     active: { scriptURL: "https://example.test/typed-voice/app-service-worker.js?source-cache=x" },
@@ -96,12 +91,23 @@ test("typed-voiceのService Workerだけを登録解除対象にする", async (
   }), /typed-voice以外/);
 });
 
-test("高度な削除はService Worker・typed-voice Cache・assets metadataだけを削除する", async () => {
+test("アンインストールはService Worker・typed-voice Cache・保存データを削除する", async () => {
   const db = createDb();
   const names = new Set(["typed-voice-model-assets-v2", "desmume_webassembly-cache-v1"]);
+  const storageData = new Map([
+    ["typed-voice-tutorial-v1-complete", "1"],
+    ["typed-voice-ui-model-profile-v1", "fp16"],
+    ["other-app", "keep"],
+  ]);
+  const storage = {
+    get length() { return storageData.size; },
+    key(index) { return [...storageData.keys()][index] ?? null; },
+    removeItem(key) { storageData.delete(key); },
+  };
   let unregistered = false;
   const result = await resetTypedVoiceOfflineRuntime({
     db,
+    storage,
     baseUrl: "https://example.test/typed-voice/",
     cachesImpl: {
       async keys() { return [...names]; },
@@ -111,7 +117,12 @@ test("高度な削除はService Worker・typed-voice Cache・assets metadataだ�
       async getRegistration() {
         return {
           active: { scriptURL: "https://example.test/typed-voice/app-service-worker.js?source-cache=x" },
-          async unregister() { unregistered = true; return true; },
+          async unregister() {
+            assert.deepEqual(db.stores.sessions, []);
+            assert.deepEqual(db.stores.settings, []);
+            unregistered = true;
+            return true;
+          },
         };
       },
     },
@@ -119,7 +130,11 @@ test("高度な削除はService Worker・typed-voice Cache・assets metadataだ�
   assert.equal(unregistered, true);
   assert.deepEqual(result.deletedCaches, ["typed-voice-model-assets-v2"]);
   assert.deepEqual(db.stores.assets, []);
-  assert.deepEqual(db.stores.sessions, [{ id: "conversation-1" }]);
+  assert.deepEqual(db.stores.sessions, []);
+  assert.deepEqual(db.stores.settings, []);
+  assert.equal(storageData.has("typed-voice-tutorial-v1-complete"), false);
+  assert.equal(storageData.has("typed-voice-ui-model-profile-v1"), false);
+  assert.equal(storageData.get("other-app"), "keep");
   assert.equal(names.has("desmume_webassembly-cache-v1"), true);
 });
 
@@ -128,6 +143,8 @@ test("フリーズUIだけを表示するとアプリ本体をinertにして再�
   const status = { textContent: "" };
   const dialog = { hidden: true, addEventListener() {} };
   const dialogStatus = { textContent: "" };
+  const backup = { addEventListener() {} };
+  const backupConfirm = { addEventListener() {} };
   const confirm = { addEventListener() {} };
   const cancel = { addEventListener() {} };
   const reload = {
@@ -142,6 +159,8 @@ test("フリーズUIだけを表示するとアプリ本体をinertにして再�
     ["offline-runtime-reset-status", status],
     ["offline-runtime-reset-dialog", dialog],
     ["offline-runtime-reset-dialog-status", dialogStatus],
+    ["offline-runtime-reset-backup", backup],
+    ["offline-runtime-reset-backup-confirm", backupConfirm],
     ["offline-runtime-reset-confirm", confirm],
     ["offline-runtime-reset-cancel", cancel],
     ["offline-reset-freeze", freeze],
@@ -178,11 +197,13 @@ function createInteractiveElement({ hidden = false } = {}) {
   };
 }
 
-test("高度の削除ボタンは確認画面を開くだけで、明示確認まではService WorkerやCacheを変更しない", async () => {
+test("アンインストールボタンはバックアップ画面を開くだけで、保存確認まではService WorkerやCacheを変更しない", async () => {
   const reset = createInteractiveElement();
   const status = createInteractiveElement();
   const dialog = createInteractiveElement({ hidden: true });
   const dialogStatus = createInteractiveElement();
+  const backup = createInteractiveElement();
+  const backupConfirm = createInteractiveElement({ hidden: true });
   const confirm = createInteractiveElement();
   const cancel = createInteractiveElement();
   const freeze = createInteractiveElement({ hidden: true });
@@ -192,6 +213,8 @@ test("高度の削除ボタンは確認画面を開くだけで、明示確認�
     ["offline-runtime-reset-status", status],
     ["offline-runtime-reset-dialog", dialog],
     ["offline-runtime-reset-dialog-status", dialogStatus],
+    ["offline-runtime-reset-backup", backup],
+    ["offline-runtime-reset-backup-confirm", backupConfirm],
     ["offline-runtime-reset-confirm", confirm],
     ["offline-runtime-reset-cancel", cancel],
     ["offline-reset-freeze", freeze],
@@ -225,7 +248,8 @@ test("高度の削除ボタンは確認画面を開くだけで、明示確認�
   await Promise.resolve();
 
   assert.equal(dialog.hidden, false);
-  assert.equal(cancel.focused, true);
+  assert.equal(backup.focused, true);
+  assert.equal(confirm.disabled, true);
   assert.equal(settingsClosed, 1);
   assert.equal(serviceWorkerQueries, 0);
   assert.equal(cacheQueries, 0);

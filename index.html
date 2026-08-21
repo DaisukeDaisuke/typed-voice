@@ -108,13 +108,12 @@
       <summary>高度</summary>
       <div class="settings-advanced-warning">
         <ul>
-          <li><strong>会話・設定・統計などのデータは削除しません。</strong></li>
-          <li>モデルやソースコードなどの保存領域が解放されます。実行後はオンライン接続で再ダウンロードが必要です。</li>
-          <li>登録解除後、再登録を防ぐため、再読み込みするまで操作できなくなります。</li>
-          <li>モデルやソースコードに変更があった場合は、次回オンライン利用時に自動的に更新されるため、通常は実行する必要はありません。</li>
-          <li>これを実行しても、バグが修正されるわけではありません。</li>
+          <li><strong>会話・履歴・読み上げ待ち・設定・統計などの保存データを削除します。</strong></li>
+          <li>音声モデルやソースコードなど、typed-voiceが保存したキャッシュも削除します。</li>
+          <li>実行前に会話・設定のバックアップ保存が必須です。</li>
+          <li>アンインストール後、再読み込みするまで操作できなくなります。</li>
         </ul>
-        <button id="offline-runtime-reset" class="quiet-button settings-advanced-reset" type="button">サービスワーカを登録解除する（キャッシュも削除）</button>
+        <button id="offline-runtime-reset" class="quiet-button settings-advanced-reset" type="button">アプリケーションをデバイスからアンインストールする</button>
         <p id="offline-runtime-reset-status" class="settings-advanced-status" aria-live="polite"></p>
       </div>
     </details>
@@ -179,22 +178,27 @@
 
   <section id="offline-runtime-reset-dialog" class="backup-dialog-backdrop" hidden>
     <div class="backup-dialog-card" role="dialog" aria-modal="true" aria-labelledby="offline-runtime-reset-dialog-title" aria-describedby="offline-runtime-reset-dialog-description">
-      <h2 id="offline-runtime-reset-dialog-title">サービスワーカを登録解除する前に</h2>
+      <h2 id="offline-runtime-reset-dialog-title">アプリケーションをアンインストールする前に</h2>
       <div id="offline-runtime-reset-dialog-description">
         <ul class="backup-dialog-points">
-          <li><strong>会話・履歴・読み上げ待ち・設定・統計は削除しません。</strong></li>
-          <li>音声モデルやソースコードなど、typed-voiceが保存したキャッシュを削除します。</li>
-          <li>実行後は、オンライン接続した状態で再読み込みし、必要なデータを再ダウンロードする必要があります。</li>
-          <li>ソースコードはオンライン利用時に自動更新されるため、普段はこれを実行する必要はありません。</li>
-          <li>これを実行すると、次回オンラインでダウンロードするまで、オフラインで利用できなくなります。</li>
-          <li>モデルが更新されると、再ダウンロードダイアログが表示されるため、通常はこれを実行する必要はありません。</li>
-          <li>これを実行しても、バグが修正されるわけではありません。</li>
+          <li>会話・履歴・読み上げ待ち・設定・統計は削除されます。</li>
+          <li>音声モデルやソースコードなど、typed-voiceが保存したキャッシュも削除されます。</li>
+          <li>チュートリアルの完了状態も初期化されます。</li>
+          <li class="backup-dialog-danger"><strong>削除したデータは、バックアップがないと元に戻せません。</strong></li>
         </ul>
       </div>
-      <p id="offline-runtime-reset-dialog-status" class="backup-dialog-status" aria-live="polite"></p>
-      <button id="offline-runtime-reset-confirm" class="danger-button backup-dialog-reset-action" type="button">
-        <strong>登録解除してキャッシュを削除する</strong>
-        <span>実行すると、再読み込みするまでこのページを利用できなくなります</span>
+      <button id="offline-runtime-reset-backup" class="quiet-button backup-dialog-download backup-dialog-main-action" type="button">
+        <strong>バックアップを保存する</strong>
+        <span>アンインストールする前に必須です</span>
+      </button>
+      <button id="offline-runtime-reset-backup-confirm" class="quiet-button backup-dialog-download backup-dialog-main-action" type="button" hidden>
+        <strong>保存したバックアップファイルを確認しました</strong>
+        <span>このブラウザでは保存完了を自動確認できないため、確認が必要です</span>
+      </button>
+      <p id="offline-runtime-reset-dialog-status" class="backup-dialog-status" aria-live="polite">バックアップの保存を確認すると、アンインストールボタンを押せるようになります。</p>
+      <button id="offline-runtime-reset-confirm" class="danger-button backup-dialog-reset-action" type="button" disabled>
+        <strong>このアプリケーションをデバイスからアンインストールする</strong>
+        <span>保存データとオフライン用データを削除します</span>
       </button>
       <div class="backup-dialog-actions">
         <button id="offline-runtime-reset-cancel" class="quiet-button" type="button">やめる</button>
@@ -204,9 +208,9 @@
 
   <section id="offline-reset-freeze" class="offline-reset-freeze" role="alertdialog" aria-modal="true" aria-labelledby="offline-reset-freeze-title" hidden>
     <div class="offline-reset-freeze-card">
-      <h1 id="offline-reset-freeze-title">実行に必要なコードを削除したため、再読み込みするまでは利用できなくなりました</h1>
-      <p>会話や設定などのデータは残っています。オンライン接続した状態で再読み込みすると、必要なコードを再登録・再ダウンロードします。</p>
-      <button id="offline-reset-reload" class="primary-button offline-reset-reload" type="button">やっぱり再登録する</button>
+      <h1 id="offline-reset-freeze-title">typed-voiceをアンインストールしました</h1>
+      <p>オンライン接続した状態で再読み込みすると、typed-voiceをもう一度利用できます。</p>
+      <button id="offline-reset-reload" class="primary-button offline-reset-reload" type="button">もう一度利用する</button>
     </div>
   </section>
 

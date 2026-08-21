@@ -189,6 +189,7 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
   });
   const offlineRuntimeResetUi = initializeOfflineRuntimeResetUi(document, {
     db: app.repository?.db,
+    app,
     modelProfileUi,
   });
   globalThis.typedVoiceDebug = Object.assign(globalThis.typedVoiceDebug ?? {}, {

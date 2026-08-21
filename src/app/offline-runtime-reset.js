@@ -1,8 +1,14 @@
+import {
+  clearTypedVoiceLocalStorage,
+  createApplicationBackupFilename,
+  downloadApplicationBackup,
+  writeApplicationBackupToFileHandle,
+} from "./application-backup.js";
+
 const MODEL_CACHE_NAME = "typed-voice-model-assets-v2";
 const KANALIZER_MODEL_CACHE_NAME = "typed-voice-kanalizer-model-v1";
 const SOURCE_CACHE_PREFIX = "typed-voice-source-";
 const HUGGINGFACE_RESOLVE_CACHE_PREFIX = "typed-voice-huggingface-resolve-";
-const ASSET_STORE_NAME = "assets";
 
 export function isTypedVoiceOwnedCacheName(name) {
   return name === MODEL_CACHE_NAME
@@ -19,13 +25,15 @@ function transactionDone(transaction) {
   });
 }
 
-export async function clearTypedVoiceAssetMetadata(db) {
-  if (!db?.objectStoreNames?.contains?.(ASSET_STORE_NAME)) return false;
-  const transaction = db.transaction(ASSET_STORE_NAME, "readwrite");
+export async function clearTypedVoiceDatabase(db) {
+  if (!db) throw new Error("IndexedDB connection is unavailable.");
+  const storeNames = [...db.objectStoreNames];
+  if (storeNames.length === 0) return [];
+  const transaction = db.transaction(storeNames, "readwrite");
   const done = transactionDone(transaction);
-  transaction.objectStore(ASSET_STORE_NAME).clear();
+  for (const storeName of storeNames) transaction.objectStore(storeName).clear();
   await done;
-  return true;
+  return storeNames;
 }
 
 export async function clearTypedVoiceCacheStorage(cachesImpl = globalThis.caches) {
@@ -60,26 +68,23 @@ export async function findTypedVoiceServiceWorkerRegistration({
 
 export async function resetTypedVoiceOfflineRuntime({
   db,
+  storage = globalThis.localStorage,
   cachesImpl = globalThis.caches,
   serviceWorkerContainer = globalThis.navigator?.serviceWorker,
   baseUrl = globalThis.document?.baseURI,
 } = {}) {
   const registration = await findTypedVoiceServiceWorkerRegistration({ serviceWorkerContainer, baseUrl });
+  const [deletedCaches, clearedStores] = await Promise.all([
+    clearTypedVoiceCacheStorage(cachesImpl),
+    clearTypedVoiceDatabase(db),
+  ]);
+  clearTypedVoiceLocalStorage(storage);
   let serviceWorkerUnregistered = false;
   if (registration) {
     serviceWorkerUnregistered = await registration.unregister();
     if (!serviceWorkerUnregistered) throw new Error("Service Workerの登録解除に失敗しました。");
   }
-  try {
-    const [deletedCaches, metadataCleared] = await Promise.all([
-      clearTypedVoiceCacheStorage(cachesImpl),
-      clearTypedVoiceAssetMetadata(db),
-    ]);
-    return { serviceWorkerUnregistered, deletedCaches, metadataCleared };
-  } catch (error) {
-    if (serviceWorkerUnregistered && error && typeof error === "object") error.requiresReload = true;
-    throw error;
-  }
+  return { serviceWorkerUnregistered, deletedCaches, clearedStores };
 }
 
 export class OfflineRuntimeResetUiController {
@@ -89,6 +94,8 @@ export class OfflineRuntimeResetUiController {
     serviceWorkerContainer = globalThis.navigator?.serviceWorker,
     locationRef = globalThis.location,
     modelProfileUi = null,
+    app = null,
+    storage = globalThis.localStorage,
   } = {}) {
     this.document = documentRef;
     this.db = db;
@@ -96,12 +103,18 @@ export class OfflineRuntimeResetUiController {
     this.serviceWorkerContainer = serviceWorkerContainer;
     this.location = locationRef;
     this.modelProfileUi = modelProfileUi;
+    this.app = app;
+    this.storage = storage;
     this.running = false;
+    this.backupVerified = false;
+    this.dialogGeneration = 0;
     this.elements = this.#resolveElements();
   }
 
   initialize() {
     this.elements.reset.addEventListener("click", () => this.#openDialog());
+    this.elements.backup.addEventListener("click", () => void this.#downloadBackup());
+    this.elements.backupConfirm.addEventListener("click", () => this.#confirmBackupSaved());
     this.elements.confirm.addEventListener("click", () => void this.#reset());
     this.elements.cancel.addEventListener("click", () => this.#closeDialog());
     this.elements.dialog.addEventListener("pointerdown", (event) => {
@@ -116,20 +129,92 @@ export class OfflineRuntimeResetUiController {
 
   #openDialog() {
     if (this.running) return;
+    this.dialogGeneration += 1;
     this.modelProfileUi?.closeSettings?.();
     this.elements.status.textContent = "";
-    this.elements.dialogStatus.textContent = "";
-    this.elements.confirm.disabled = false;
+    this.backupVerified = false;
+    this.elements.dialogStatus.textContent = "バックアップの保存を確認すると、アンインストールボタンを押せるようになります。";
+    this.elements.backup.disabled = false;
+    this.elements.backupConfirm.hidden = true;
+    this.elements.backupConfirm.disabled = false;
+    this.elements.confirm.disabled = true;
     this.elements.cancel.disabled = false;
     this.elements.dialog.hidden = false;
-    this.elements.cancel.focus({ preventScroll: true });
+    this.elements.backup.focus({ preventScroll: true });
   }
 
   #closeDialog() {
     if (this.running) return;
+    this.dialogGeneration += 1;
     this.elements.dialog.hidden = true;
-    this.elements.dialogStatus.textContent = "";
+    this.backupVerified = false;
+    this.elements.confirm.disabled = true;
+    this.elements.backupConfirm.hidden = true;
     this.elements.reset.focus({ preventScroll: true });
+  }
+
+  async #downloadBackup() {
+    const generation = this.dialogGeneration;
+    this.backupVerified = false;
+    this.elements.confirm.disabled = true;
+    this.elements.backupConfirm.hidden = true;
+    this.elements.backupConfirm.disabled = false;
+    this.elements.backup.disabled = true;
+    try {
+      if (!this.app?.createBackup) throw new Error("バックアップを作成できません。");
+      if (typeof globalThis.showSaveFilePicker === "function") {
+        let fileHandle;
+        try {
+          fileHandle = await globalThis.showSaveFilePicker({
+            suggestedName: createApplicationBackupFilename(),
+            types: [{
+              description: "typed-voice バックアップ",
+              accept: { "application/json": [".json"] },
+            }],
+          });
+        } catch (error) {
+          if (generation !== this.dialogGeneration) return;
+          if (error?.name === "AbortError") {
+            this.elements.dialogStatus.textContent = "バックアップの保存をキャンセルしました。アンインストールはまだできません。";
+            return;
+          }
+          throw error;
+        }
+        this.elements.dialogStatus.textContent = "バックアップを作成して保存しています。";
+        const backup = await this.app.createBackup();
+        const filename = await writeApplicationBackupToFileHandle(fileHandle, backup);
+        if (generation !== this.dialogGeneration) return;
+        this.#markBackupSaved(`${filename} を保存しました。アンインストールできるようになりました。`);
+        return;
+      }
+
+      const backup = await this.app.createBackup();
+      const filename = downloadApplicationBackup(this.document, backup);
+      if (generation !== this.dialogGeneration) return;
+      this.elements.backupConfirm.hidden = false;
+      this.elements.dialogStatus.textContent = `${filename} のダウンロードを開始しました。保存されたバックアップファイルを確認してください。`;
+      this.elements.backupConfirm.focus({ preventScroll: true });
+    } catch (error) {
+      if (generation !== this.dialogGeneration) return;
+      this.backupVerified = false;
+      this.elements.confirm.disabled = true;
+      this.elements.dialogStatus.textContent = error instanceof Error ? error.message : String(error);
+    } finally {
+      if (generation === this.dialogGeneration) this.elements.backup.disabled = false;
+    }
+  }
+
+  #confirmBackupSaved() {
+    if (this.elements.backupConfirm.hidden) return;
+    this.elements.backupConfirm.disabled = true;
+    this.#markBackupSaved("バックアップファイルの保存確認を受け付けました。アンインストールできるようになりました。");
+  }
+
+  #markBackupSaved(message) {
+    this.backupVerified = true;
+    this.elements.confirm.disabled = false;
+    this.elements.dialogStatus.textContent = message;
+    this.elements.confirm.focus({ preventScroll: true });
   }
 
   showFreeze() {
@@ -142,15 +227,17 @@ export class OfflineRuntimeResetUiController {
   }
 
   async #reset() {
-    if (this.running) return;
+    if (this.running || !this.backupVerified || this.elements.confirm.disabled) return;
     this.running = true;
     this.elements.reset.disabled = true;
     this.elements.confirm.disabled = true;
     this.elements.cancel.disabled = true;
-    this.elements.dialogStatus.textContent = "サービスワーカの登録とtyped-voiceのキャッシュを削除しています。";
+    this.elements.backup.disabled = true;
+    this.elements.dialogStatus.textContent = "typed-voiceの保存データとオフライン用データを削除しています。";
     try {
       await resetTypedVoiceOfflineRuntime({
         db: this.db,
+        storage: this.storage,
         cachesImpl: this.cachesImpl,
         serviceWorkerContainer: this.serviceWorkerContainer,
         baseUrl: this.document.baseURI,
@@ -158,16 +245,12 @@ export class OfflineRuntimeResetUiController {
       this.elements.dialog.hidden = true;
       this.showFreeze();
     } catch (error) {
-      if (error?.requiresReload) {
-        this.elements.dialog.hidden = true;
-        this.showFreeze();
-        return;
-      }
       const message = error instanceof Error ? error.message : String(error);
       this.elements.dialogStatus.textContent = message;
       this.elements.status.textContent = message;
       this.elements.reset.disabled = false;
-      this.elements.confirm.disabled = false;
+      this.elements.backup.disabled = false;
+      this.elements.confirm.disabled = !this.backupVerified;
       this.elements.cancel.disabled = false;
       this.running = false;
     }
@@ -184,6 +267,8 @@ export class OfflineRuntimeResetUiController {
       status: byId("offline-runtime-reset-status"),
       dialog: byId("offline-runtime-reset-dialog"),
       dialogStatus: byId("offline-runtime-reset-dialog-status"),
+      backup: byId("offline-runtime-reset-backup"),
+      backupConfirm: byId("offline-runtime-reset-backup-confirm"),
       confirm: byId("offline-runtime-reset-confirm"),
       cancel: byId("offline-runtime-reset-cancel"),
       freeze: byId("offline-reset-freeze"),
