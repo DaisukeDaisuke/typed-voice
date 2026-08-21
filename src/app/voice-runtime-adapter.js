@@ -209,7 +209,7 @@ export class VoiceRuntimeAdapter {
     }
     try {
       let synthesisText = text;
-      if (/[A-Za-z]+/.test(text)) {
+      if (/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u.test(text) && /[A-Za-z]+/.test(text)) {
         this.#emitProgress({ stage: "normalize", phase: "kanalizer", utteranceId, generation, completed: 0, totalSteps: 1 });
         const { normalizeAsciiLetterRuns } = await import("../text/kanalizer-normalizer.js");
         const normalized = await normalizeAsciiLetterRuns(text);

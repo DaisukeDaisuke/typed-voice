@@ -15,7 +15,8 @@ const MODEL_METADATA_CACHE_URL = new URL("__typed_voice_kanalizer/model-metadata
 let runtimePromise = null;
 
 export function hasKanalizerCandidate(text) {
-  return /[A-Za-z]+/.test(text);
+  return /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u.test(text)
+    && /[A-Za-z]+/.test(text);
 }
 
 export async function prepareKanalizerOffline({ onStatus = () => {}, signal = null } = {}) {

@@ -190,7 +190,7 @@ function normalizeProfile(profile) {
 
 async function normalizeForPoc(text) {
   if (!hasKanalizerCandidate(text)) {
-    kanalizerStatus.textContent = "正規化対象の英字列はありません。Kanalizerモデルは読み込みません。";
+    kanalizerStatus.textContent = "Kanalizer正規化をスキップしました。";
     normalizedText.textContent = text;
     return { text, replacements: [], modelRevision: null };
   }
