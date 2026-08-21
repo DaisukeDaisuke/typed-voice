@@ -123,9 +123,14 @@ export function createTutorialProfileDefinition(name, definition, availableStepI
   });
 }
 
-export function resolveStartupTutorialProfile({ tutorialComplete, selectedModelCached, sourceUpdateAvailable = false }) {
+export function resolveStartupTutorialProfile({
+  tutorialComplete,
+  selectedModelCached,
+  sourceUpdateAvailable = false,
+  sourceFetchBytes = 0,
+}) {
   if (!tutorialComplete) return "full";
-  if (sourceUpdateAvailable) return "source-update";
+  if (sourceUpdateAvailable || Number(sourceFetchBytes || 0) > 0) return "source-update";
   return selectedModelCached ? "end" : "model-picker-required";
 }
 

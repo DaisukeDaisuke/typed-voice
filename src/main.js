@@ -76,6 +76,8 @@ const sourceUpdateState = await blocking.registerBlockingAsync("更新確認", a
   });
   return planSourceAssets(sourceAssetGroups);
 });
+const sourceAssetsPending = Boolean(sourceUpdateState.updateAvailable)
+  || Number(sourceUpdateState.fetchBytes || 0) > 0;
 const sourceUpdate = {
   plan: { ...sourceUpdateState },
   async prepare({ signal = null, onProgress = () => {} } = {}) {
@@ -366,7 +368,7 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
   });
 
   if (remoteModeUi.isServerMode) {
-    const serverStartupProfile = sourceUpdateState.updateAvailable
+    const serverStartupProfile = sourceAssetsPending
       ? "source-update"
       : remoteModeUi.shouldRunServerTutorialAtStartup()
         ? shouldShowServerOfflineTutorial()
@@ -379,6 +381,7 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
       tutorialComplete: tutorialState.complete,
       selectedModelCached,
       sourceUpdateAvailable: sourceUpdateState.updateAvailable,
+      sourceFetchBytes: sourceUpdateState.fetchBytes,
     }));
   }
 
@@ -393,7 +396,7 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
   });
   await remoteModeUi.activateStoredConnection();
   if (remoteModeUi.isServerMode
-    && !sourceUpdateState.updateAvailable
+    && !sourceAssetsPending
     && remoteModeUi.startupAction === "handshake"
     && remoteModeUi.pairing) {
     voiceRuntime.connect();
@@ -412,7 +415,7 @@ blocking.finish();
 if (!remoteModeUi.isServerMode
   && tutorialState.complete
   && selectedModelCached
-  && !sourceUpdateState.updateAvailable) {
+  && !sourceAssetsPending) {
   void app.initializePreparedVoice(modelProfileUi.profile, { enableAudio: false }).catch(() => {});
 }
 
