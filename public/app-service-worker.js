@@ -1050,6 +1050,7 @@ function createModelChunkStream(cache, virtualUrl, chunkCount) {
 async function readShellAsset(request) {
   const sourcePath = sourcePathForRequest(request);
   if (sourcePath) {
+    const approvalFreeSource = sourcePath === "poc.html" || sourcePath === "worker.html";
     const newerBootstrap = await readNewerBootstrapSource(request, sourcePath);
     if (newerBootstrap) return isolatedResponse(newerBootstrap);
     if (isOnDemandPairingSource(sourcePath)) {
@@ -1062,14 +1063,14 @@ async function readShellAsset(request) {
       // The minimal bootstrap must remain loadable so it can present the
       // update/repair consent UI. It is returned from the network without being
       // written into the accepted cache; deferred engine assets remain blocked.
-      if (!await isBootstrapSource(sourcePath)) {
+      if (!approvalFreeSource && !await isBootstrapSource(sourcePath)) {
         return isolatedResponse(new Response("Accepted source asset is unavailable until the update is approved", {
           status: 503,
           headers: { "content-type": "text/plain; charset=utf-8" },
         }));
       }
     }
-    if (await isUnapprovedCandidateSource(sourcePath)) {
+    if (!approvalFreeSource && await isUnapprovedCandidateSource(sourcePath)) {
       return isolatedResponse(new Response("New source asset is unavailable until the update is approved", {
         status: 503,
         headers: { "content-type": "text/plain; charset=utf-8" },
