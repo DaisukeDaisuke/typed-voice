@@ -295,6 +295,11 @@ export async function requireServiceWorker({ reloadKey = "typed-voice-coi-reload
     return;
   }
   if (sessionStorage.getItem(reloadKey) === "1") {
+    const controller = await waitForServiceWorkerController(5000);
+    if (controller) {
+      location.reload();
+      return new Promise(() => {});
+    }
     showServiceWorkerRequired();
     throw new Error("Service Worker registration completed, but this page is not controlled by it.");
   }
