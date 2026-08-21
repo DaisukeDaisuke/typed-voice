@@ -507,25 +507,7 @@ async function applySourceAssets({ groups, signal = null, onProgress = () => {} 
     }
     const response = await fetch(sourceAssetUrl(path), { cache: "no-cache", signal });
     if (!response.ok) throw new Error(`Source asset fetch failed: ${response.status} ${path}`);
-    let loadedForEntry = 0;
-    const cacheResponse = response.body
-      ? new Response(response.body.pipeThrough(new TransformStream({
-          transform(chunk, controller) {
-            loadedForEntry += chunk.byteLength;
-            onProgress({
-              path,
-              loadedBytes: networkBytes + loadedForEntry,
-              totalBytes: fetchBytes,
-            });
-            controller.enqueue(chunk);
-          },
-        })), {
-          status: response.status,
-          statusText: response.statusText,
-          headers: response.headers,
-        })
-      : response.clone();
-    await targetCache.put(sourceAssetUrl(path), cacheResponse);
+    await targetCache.put(sourceAssetUrl(path), response.clone());
     state.locations[reuseKey] = { cacheName: targetCacheName, path };
     delete state.invalidated[reuseKey];
     await saveSourceState(state);
@@ -632,15 +614,6 @@ async function readNewerBootstrapSource(request, path) {
   }
 }
 
-async function isUnapprovedCandidateSource(path) {
-  const state = await loadSourceState();
-  if (!state.acceptedGeneration) return false;
-  const candidate = await getCandidateSourceAssetMap({ allowCachedFallback: false }).catch(() => null);
-  if (!candidate || candidate.generation === state.acceptedGeneration) return false;
-  const entry = candidate.assets?.[path];
-  return Boolean(entry && entry.group !== "core");
-}
-
 function isOnDemandPairingSource(path) {
   return path === "pairing.html"
     || /^assets\/pairing-[^/]+\.(?:js|css)$/i.test(String(path || ""));
@@ -666,16 +639,6 @@ async function readOnDemandPairingSource(path) {
   if (!response.ok) return response;
   await cache.put(sourceAssetUrl(path), response.clone());
   return response;
-}
-
-async function isBootstrapSource(path) {
-  const state = await loadSourceState();
-  if (state.acceptedGeneration) {
-    const accepted = await loadSourceAssetMap(state.acceptedGeneration);
-    if (accepted?.assets?.[path]?.group === "core") return true;
-  }
-  const candidate = await getCandidateSourceAssetMap().catch(() => null);
-  return candidate?.assets?.[path]?.group === "core";
 }
 
 self.addEventListener("message", (event) => {
@@ -1052,7 +1015,6 @@ function createModelChunkStream(cache, virtualUrl, chunkCount) {
 async function readShellAsset(request) {
   const sourcePath = sourcePathForRequest(request);
   if (sourcePath) {
-    const approvalFreeSource = sourcePath === "poc.html" || sourcePath === "worker.html";
     if (isOnDemandPairingSource(sourcePath)) {
       const onDemand = await readOnDemandPairingSource(sourcePath).catch(() => null);
       if (onDemand) return isolatedResponse(onDemand);
@@ -1061,23 +1023,6 @@ async function readShellAsset(request) {
     if (accepted.response) return isolatedResponse(accepted.response);
     const newerBootstrap = await readNewerBootstrapSource(request, sourcePath);
     if (newerBootstrap) return isolatedResponse(newerBootstrap);
-    if (accepted.repairRequired) {
-      // The minimal bootstrap must remain loadable so it can present the
-      // update/repair consent UI. It is returned from the network without being
-      // written into the accepted cache; deferred engine assets remain blocked.
-      if (!approvalFreeSource && !await isBootstrapSource(sourcePath)) {
-        return isolatedResponse(new Response("Accepted source asset is unavailable until the update is approved", {
-          status: 503,
-          headers: { "content-type": "text/plain; charset=utf-8" },
-        }));
-      }
-    }
-    if (!approvalFreeSource && await isUnapprovedCandidateSource(sourcePath)) {
-      return isolatedResponse(new Response("New source asset is unavailable until the update is approved", {
-        status: 503,
-        headers: { "content-type": "text/plain; charset=utf-8" },
-      }));
-    }
   }
 
   if (isExplicitlyOffline()) {

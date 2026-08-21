@@ -1368,21 +1368,22 @@ export class TutorialController {
 
     try {
       const profile = this.modelProfileUi?.profile ?? "fp16";
-      const voiceTask = this.downloadModelCached
-        ? Promise.resolve(null)
-        : this.app.prepareOfflineVoice(profile, {
+      const task = (async () => {
+        if (!this.sourceUpdateCompleted && this.sourceUpdate?.prepare) {
+          await this.sourceUpdate.prepare({ signal: this.downloadAbortController.signal });
+          this.sourceUpdateCompleted = true;
+        }
+        if (!this.downloadModelCached) {
+          await this.app.prepareOfflineVoice(profile, {
             onKanalizerStatus: () => {
               this.elements.downloadStatus.textContent = "オフラインで使うための仕上げをしています。";
             },
             signal: this.downloadAbortController.signal,
           });
-      const sourceTask = this.sourceUpdateCompleted || !this.sourceUpdate?.prepare
-        ? Promise.resolve(null)
-        : this.sourceUpdate.prepare({ signal: this.downloadAbortController.signal });
-      const task = Promise.all([voiceTask, sourceTask]);
+        }
+      })();
       this.downloadTask = task;
       await task;
-      this.sourceUpdateCompleted = true;
       this.downloadCompleted = true;
       this.elements.downloadProgress.value = 100;
       this.elements.downloadPercent.textContent = "100%";
