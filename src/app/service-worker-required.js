@@ -16,6 +16,15 @@ export function readStoredSourceGeneration(storage = globalThis.localStorage) {
   return readStorageValue(SOURCE_UPDATE_STORAGE_KEY, storage);
 }
 
+export async function readServiceWorkerRequestLog() {
+  try {
+    const entries = await requestServiceWorker("typed-voice:request-log", {}, "entries", 750);
+    return Array.isArray(entries) ? entries : [];
+  } catch {
+    return [];
+  }
+}
+
 export function markSourceUpdateAcknowledged(generation, storage = globalThis.localStorage) {
   const value = String(generation || "");
   if (!/^[0-9a-f]{32}$/i.test(value)) return false;

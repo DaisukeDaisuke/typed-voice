@@ -5,6 +5,7 @@ import {
   planSourceAssets,
   refreshTypedVoiceServiceWorker,
   requireServiceWorker,
+  readServiceWorkerRequestLog,
   verifyStoredSourceAssets,
 } from "./app/service-worker-required.js";
 import { initializeModelProfileUi } from "./app/model-profile-ui.js";
@@ -48,6 +49,7 @@ async function renderRuntimeDebug(output) {
   const generation = /^[0-9a-f]{32}$/i.test(String(manifest?.generation || ""))
     ? String(manifest.generation).toLowerCase()
     : null;
+  const requestLog = await readServiceWorkerRequestLog();
 
   const lines = [
     "typed-voice cache debug",
@@ -70,6 +72,10 @@ async function renderRuntimeDebug(output) {
     const requests = await cache.keys();
     lines.push(`CACHE ${name} (${requests.length} keys)`);
     for (const request of requests) lines.push(`  ${request.method} ${request.url}`);
+  }
+  lines.push("", "[Service Worker requests]");
+  for (const entry of requestLog) {
+    lines.push(`${entry.time || "?"} ${entry.method || "?"} ${entry.status ?? "?"} route=${entry.route || "?"} mode=${entry.mode || "?"} destination=${entry.destination || "-"} ${entry.url || ""}${entry.reason ? ` | ${entry.reason}` : ""}`);
   }
   output.value = lines.join("\n");
 }

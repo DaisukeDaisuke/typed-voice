@@ -29,7 +29,34 @@ const sourceApplyControllers = new Map();
 const sourceClientGenerations = new Map();
 const directWorkerRuntimeClients = new Set();
 const DEV_MODE = new URL(self.location.href).searchParams.get("dev") === "1";
+const REQUEST_LOG_LIMIT = 512;
+const requestLog = [];
 let candidateSourceAssetMapPromise = null;
+
+function recordRequest(request, route, status, reason = "") {
+  requestLog.push({
+    time: new Date().toISOString(),
+    method: request.method,
+    url: request.url,
+    destination: request.destination || "",
+    mode: request.mode,
+    route,
+    status,
+    reason,
+  });
+  if (requestLog.length > REQUEST_LOG_LIMIT) requestLog.splice(0, requestLog.length - REQUEST_LOG_LIMIT);
+}
+
+async function tracedResponse(request, route, responsePromise, reason = "") {
+  try {
+    const response = await responsePromise;
+    recordRequest(request, route, response.status, reason || response.statusText || "");
+    return response;
+  } catch (error) {
+    recordRequest(request, route, "ERROR", error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+}
 
 function isExplicitlyOffline() {
   return self.navigator?.onLine === false;
@@ -692,6 +719,10 @@ self.addEventListener("message", (event) => {
     event.ports?.[0]?.postMessage({ ok: true, version: SOURCE_PROTOCOL_VERSION });
     return;
   }
+  if (message?.type === "typed-voice:request-log") {
+    event.ports?.[0]?.postMessage({ ok: true, entries: requestLog.slice() });
+    return;
+  }
 
   if (message?.type === "typed-voice:plan-source-assets") {
     const port = event.ports?.[0];
@@ -868,42 +899,53 @@ function releaseModelDownloadLock(event, message) {
 }
 
 self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET") return;
-  const url = new URL(event.request.url);
+  const request = event.request;
+  if (request.method !== "GET") {
+    recordRequest(request, "passthrough:method", "PASSTHROUGH");
+    return;
+  }
+  const url = new URL(request.url);
   if (url.origin === self.location.origin && url.pathname === DIRECT_WORKER_RUNTIME_REGISTER_URL.pathname) {
     if (event.clientId) directWorkerRuntimeClients.add(event.clientId);
-    event.respondWith(Promise.resolve(isolatedResponse(new Response(null, { status: 204 }))));
+    event.respondWith(tracedResponse(request, "direct-worker-register", Promise.resolve(isolatedResponse(new Response(null, { status: 204 })))));
     return;
   }
   if (url.origin === self.location.origin && url.pathname === SOURCE_VERIFY_URL.pathname) {
-    event.respondWith(readSourceVerificationAsset(event.request).then(isolatedResponse));
+    event.respondWith(tracedResponse(request, "source-verify", readSourceVerificationAsset(request).then(isolatedResponse)));
     return;
   }
   if (url.origin === self.location.origin && url.pathname.startsWith(MODEL_PREFIX)) {
-    event.respondWith(readPreparedModelAsset(event.request));
+    event.respondWith(tracedResponse(request, "model-cache", readPreparedModelAsset(request)));
     return;
   }
-  if (url.protocol === "https:" && url.hostname.endsWith(".trycloudflare.com")) return;
-  if (isHuggingFaceResolveUrl(url) && event.request.cache !== "no-store") {
-    event.respondWith(readHuggingFaceResolveAsset(event.request));
+  if (url.protocol === "https:" && url.hostname.endsWith(".trycloudflare.com")) {
+    recordRequest(request, "passthrough:trycloudflare", "PASSTHROUGH");
     return;
   }
-  if (url.origin !== self.location.origin) return;
+  if (isHuggingFaceResolveUrl(url) && request.cache !== "no-store") {
+    event.respondWith(tracedResponse(request, "huggingface-cache", readHuggingFaceResolveAsset(request)));
+    return;
+  }
+  if (url.origin !== self.location.origin) {
+    recordRequest(request, "passthrough:cross-origin", "PASSTHROUGH");
+    return;
+  }
   if (DEV_MODE) {
-    event.respondWith(fetch(event.request).then(isolatedResponse));
+    event.respondWith(tracedResponse(request, "dev-network", fetch(request).then(isolatedResponse)));
     return;
   }
   event.respondWith(readPageAsset(event));
 });
 
 async function readPageAsset(event) {
+  const request = event.request;
   if (event.clientId && directWorkerRuntimeClients.has(event.clientId)) {
     if (isExplicitlyOffline()) {
-      const cached = await caches.match(event.request);
-      if (cached) return isolatedResponse(cached);
-      return isolatedResponse(new Response("Asset is unavailable offline", { status: 503 }));
+      const cached = await caches.match(request);
+      if (cached) return tracedResponse(request, "direct-worker:offline-cache", Promise.resolve(isolatedResponse(cached)), "cache hit");
+      return tracedResponse(request, "direct-worker:offline-miss", Promise.resolve(isolatedResponse(new Response("Asset is unavailable offline", { status: 503 }))), "offline cache miss");
     }
-    return isolatedResponse(await fetch(event.request));
+    return tracedResponse(request, "direct-worker:network", fetch(request).then(isolatedResponse), "network");
   }
   const client = event.clientId ? await self.clients.get(event.clientId) : null;
   if (client?.url) {
@@ -912,15 +954,16 @@ async function readPageAsset(event) {
     const workerUrl = new URL("worker.html", self.registration.scope);
     if (clientUrl.origin === self.location.origin
       && (clientUrl.pathname === pocUrl.pathname || clientUrl.pathname === workerUrl.pathname)) {
+      const clientKind = clientUrl.pathname === pocUrl.pathname ? "poc" : "worker";
       if (isExplicitlyOffline()) {
-        const cached = await caches.match(event.request);
-        if (cached) return isolatedResponse(cached);
-        return isolatedResponse(new Response("Asset is unavailable offline", { status: 503 }));
+        const cached = await caches.match(request);
+        if (cached) return tracedResponse(request, `${clientKind}:offline-cache`, Promise.resolve(isolatedResponse(cached)), "cache hit");
+        return tracedResponse(request, `${clientKind}:offline-miss`, Promise.resolve(isolatedResponse(new Response("Asset is unavailable offline", { status: 503 }))), "offline cache miss");
       }
-      return isolatedResponse(await fetch(event.request));
+      return tracedResponse(request, `${clientKind}:network`, fetch(request).then(isolatedResponse), "network");
     }
   }
-  return readShellAsset(event.request);
+  return tracedResponse(request, "shell", readShellAsset(request));
 }
 
 function isHuggingFaceResolveUrl(url) {
@@ -1074,8 +1117,8 @@ async function readShellAsset(request) {
       canonicalUrl.search = "";
       canonicalUrl.hash = "";
       response = await caches.match(canonicalUrl.href);
-      if (!response) response = await caches.match(new URL("./index.html", self.registration.scope).href);
-      if (!response) {
+      if (!response && sourcePath !== "poc.html") response = await caches.match(new URL("./index.html", self.registration.scope).href);
+      if (!response && sourcePath !== "poc.html") {
         const offlineTutorialCache = await caches.open(OFFLINE_TUTORIAL_CACHE);
         response = await offlineTutorialCache.match(OFFLINE_TUTORIAL_URL);
       }
@@ -1101,7 +1144,7 @@ async function readShellAsset(request) {
       canonicalUrl.search = "";
       canonicalUrl.hash = "";
       response = await caches.match(canonicalUrl.href);
-      if (!response) response = await caches.match(new URL("./index.html", self.registration.scope).href);
+      if (!response && sourcePath !== "poc.html") response = await caches.match(new URL("./index.html", self.registration.scope).href);
     }
     if (!response) throw error;
     return isolatedResponse(response);
