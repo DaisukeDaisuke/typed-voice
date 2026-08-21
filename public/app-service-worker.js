@@ -8,8 +8,10 @@ const MODEL_CACHE = "typed-voice-model-assets-v2";
 const KANALIZER_MODEL_CACHE = "typed-voice-kanalizer-model-v1";
 const SOURCE_CACHE_PREFIX = "typed-voice-source-";
 const SOURCE_METADATA_CACHE = "typed-voice-source-metadata-v1";
+const OFFLINE_TUTORIAL_CACHE = "typed-voice-offline-tutorial-v1";
 const PAIRING_ON_DEMAND_CACHE_PREFIX = "typed-voice-pairing-on-demand-";
 const HUGGINGFACE_RESOLVE_CACHE = "typed-voice-huggingface-resolve-v1";
+const OFFLINE_TUTORIAL_URL = new URL("offline-tutorial-required.html", self.registration.scope).href;
 const SOURCE_ASSET_MAP_URL = new URL("source-asset-map.json", self.registration.scope).href;
 const SOURCE_STATE_URL = new URL("__typed_voice_source/state-v1.json", self.registration.scope).href;
 const SOURCE_VERIFY_URL = new URL("__typed_voice_source/verify", self.registration.scope);
@@ -31,7 +33,13 @@ function isExplicitlyOffline() {
 }
 
 self.addEventListener("install", (event) => {
-  self.skipWaiting();
+  event.waitUntil((async () => {
+    const response = await fetch(OFFLINE_TUTORIAL_URL, { cache: "reload" });
+    if (!response.ok) throw new Error(`Offline tutorial page fetch failed: ${response.status}`);
+    const cache = await caches.open(OFFLINE_TUTORIAL_CACHE);
+    await cache.put(OFFLINE_TUTORIAL_URL, response);
+    await self.skipWaiting();
+  })());
 });
 
 self.addEventListener("activate", (event) => {
@@ -1077,6 +1085,10 @@ async function readShellAsset(request) {
       canonicalUrl.hash = "";
       response = await caches.match(canonicalUrl.href);
       if (!response) response = await caches.match(new URL("./index.html", self.registration.scope).href);
+      if (!response) {
+        const offlineTutorialCache = await caches.open(OFFLINE_TUTORIAL_CACHE);
+        response = await offlineTutorialCache.match(OFFLINE_TUTORIAL_URL);
+      }
     }
     if (response) return isolatedResponse(response);
     return isolatedResponse(new Response("Asset is unavailable offline", {
