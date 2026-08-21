@@ -182,7 +182,7 @@ UI側で現在維持する確定事項:
 - 入力後もキーボード・focusを維持して連続入力できること。
 - PCデバッグ、スマートフォンを阻害しないresponsive設計。
 
-production buildでは製品UIの `index.html` と、受入試験資産として残す `poc.html` の両方を生成する。`main` branchへのpushでGitHub Pagesを自動build/deployし、PoCの公開先は `https://daisukedaisuke.github.io/typed-voice/poc.html` を想定する。
+production buildでは製品UIの `index.html` と、受入試験資産として残す `poc.html` の両方を生成する。`main` branchへのpushでGitHub Pagesを自動build/deployし、PoCの公開先は `https://rabbitdaisuke.github.io/typed-voice/poc.html` を想定する。
 
 ## 12. 現在の完成判定
 
