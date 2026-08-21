@@ -85,7 +85,11 @@ export class UiOrchestrator {
           const id = change?.message?.id ?? change?.id;
           if (id) this.synthesisProgress.delete(id);
         }
-        void this.refreshAll();
+        if (change?.type === "message-committed") {
+          void this.refreshAll();
+        } else {
+          void this.refreshPending();
+        }
       },
     });
     this.voiceProgressUnsubscribe = this.voiceRuntime?.subscribeProgress?.((message) => this.#handleVoiceProgress(message)) ?? null;
@@ -514,6 +518,12 @@ export class UiOrchestrator {
     this.elements.conversationTitle.textContent = this.currentSession.firstMessagePreview || "新しい会話";
 
   }
+
+  async refreshPending() {
+    const session = await this.ensureCurrentConversation();
+    const pending = await this.repository.listPending(session.id);
+    this.#renderPending(pending);
+  }
   
 
   async refreshConversationList() {
@@ -621,49 +631,53 @@ export class UiOrchestrator {
   #updatePendingTimers() {
     const currentTime = Date.now();
     for (const node of this.elements.pendingList.querySelectorAll(".pending-card")) {
-      const job = this.utterances.jobs.get(node.dataset.pendingId);
-      if (!job) continue;
-      const remaining = Math.max(0, job.reasoningDeadline - currentTime) / 1000;
-      const synthesis = this.synthesisProgress.get(job.id);
-      const synthesisRunning = job.state === "reasoning"
-        && (synthesis?.status === "running" || (Boolean(this.voiceRuntime?.ready) && !synthesis));
-      const timer = node.querySelector(".pending-timer");
-      const timerText = remaining > 0
-        ? `あと ${remaining.toFixed(1)} 秒で読み上げ`
-        : synthesis?.phase === "waiting-for-model"
-          ? "モデルロード中のため遅延中"
-          : synthesis?.phase === "waiting-for-audio"
-            ? "音声の有効化待ち"
-            : synthesisRunning
-          ? "合成中のため遅延中"
-          : "読み上げを開始します";
-      if (timer.textContent !== timerText) timer.textContent = timerText;
-      this.#renderSynthesisProgress(node, job, synthesis);
-      if (job.state === "editing") {
-        const state = node.querySelector(".pending-state");
-        if (state.dataset.renderKey !== "editing") {
-          state.textContent = "訂正中";
-          state.dataset.renderKey = "editing";
-        }
-        if (timer.textContent !== "入力待ち") timer.textContent = "入力待ち";
-      } else {
-        const state = node.querySelector(".pending-state");
-        if (job.state === "voice-error") {
-          if (state.dataset.renderKey !== "voice-error") {
-            state.textContent = "音声エラー";
-            state.dataset.renderKey = "voice-error";
-          }
-        } else if (state.dataset.renderKey !== "submitted") {
-          state.replaceChildren();
-          const dot = document.createElement("i");
-          dot.className = "pending-dot";
-          dot.setAttribute("aria-hidden", "true");
-          state.append(dot, document.createTextNode("送信済み"));
-          state.dataset.renderKey = "submitted";
-        }
-      }
+      this.#updatePendingCard(node, currentTime);
     }
     this.#syncPendingTicker();
+  }
+
+  #updatePendingCard(node, currentTime = Date.now()) {
+    const job = this.utterances.jobs.get(node.dataset.pendingId);
+    if (!job) return;
+    const remaining = Math.max(0, job.reasoningDeadline - currentTime) / 1000;
+    const synthesis = this.synthesisProgress.get(job.id);
+    const synthesisRunning = job.state === "reasoning"
+      && (synthesis?.status === "running" || (Boolean(this.voiceRuntime?.ready) && !synthesis));
+    const timer = node.querySelector(".pending-timer");
+    const timerText = remaining > 0
+      ? `あと ${remaining.toFixed(1)} 秒で読み上げ`
+      : synthesis?.phase === "waiting-for-model"
+        ? "モデルロード中のため遅延中"
+        : synthesis?.phase === "waiting-for-audio"
+          ? "音声の有効化待ち"
+          : synthesisRunning
+        ? "合成中のため遅延中"
+        : "読み上げを開始します";
+    if (timer.textContent !== timerText) timer.textContent = timerText;
+    this.#renderSynthesisProgress(node, job, synthesis);
+    if (job.state === "editing") {
+      const state = node.querySelector(".pending-state");
+      if (state.dataset.renderKey !== "editing") {
+        state.textContent = "訂正中";
+        state.dataset.renderKey = "editing";
+      }
+      if (timer.textContent !== "入力待ち") timer.textContent = "入力待ち";
+    } else {
+      const state = node.querySelector(".pending-state");
+      if (job.state === "voice-error") {
+        if (state.dataset.renderKey !== "voice-error") {
+          state.textContent = "音声エラー";
+          state.dataset.renderKey = "voice-error";
+        }
+      } else if (state.dataset.renderKey !== "submitted") {
+        state.replaceChildren();
+        const dot = document.createElement("i");
+        dot.className = "pending-dot";
+        dot.setAttribute("aria-hidden", "true");
+        state.append(dot, document.createTextNode("送信済み"));
+        state.dataset.renderKey = "submitted";
+      }
+    }
   }
 
   #updateReasoningCountdowns() {
@@ -708,7 +722,10 @@ export class UiOrchestrator {
     const visible = Boolean(job && job.sessionId === this.currentSession?.id);
     if (message.stage === "synthesis-cancelled") {
       this.synthesisProgress.delete(utteranceId);
-      if (visible) this.#updatePendingTimers();
+      if (visible) {
+        const node = this.elements.pendingList.querySelector(`[data-pending-id="${utteranceId}"]`);
+        if (node) this.#updatePendingCard(node);
+      }
       return;
     }
     const previous = this.synthesisProgress.get(utteranceId) ?? {};
@@ -749,7 +766,10 @@ export class UiOrchestrator {
         total,
       });
     }
-    if (visible) this.#updatePendingTimers();
+    if (visible) {
+      const node = this.elements.pendingList.querySelector(`[data-pending-id="${utteranceId}"]`);
+      if (node) this.#updatePendingCard(node);
+    }
   }
 
   #renderSynthesisProgress(node, job, synthesis) {
@@ -789,16 +809,22 @@ export class UiOrchestrator {
         : `${value} / ${total}`;
     if (label.textContent !== labelText) label.textContent = labelText;
     const renderKey = `${synthesis?.status || ""}|${synthesis?.phase || ""}|${value}|${total}`;
-    if (cells.dataset.renderKey === renderKey) return;
-    const fragment = document.createDocumentFragment();
-    for (let index = 0; index < total; index += 1) {
-      const cell = document.createElement("i");
-      cell.className = "pending-synthesis-cell";
-      if (synthesis?.status === "done" || index < value) cell.classList.add("is-done");
-      else if (index === value) cell.classList.add("is-running");
-      fragment.append(cell);
+    if (cells.dataset.renderKey === renderKey && cells.childElementCount === total) return;
+    if (cells.childElementCount !== total) {
+      const fragment = document.createDocumentFragment();
+      for (let index = 0; index < total; index += 1) {
+        const cell = document.createElement("i");
+        cell.className = "pending-synthesis-cell";
+        fragment.append(cell);
+      }
+      cells.replaceChildren(fragment);
     }
-    cells.replaceChildren(fragment);
+    const complete = synthesis?.status === "done";
+    for (let index = 0; index < cells.children.length; index += 1) {
+      const cell = cells.children[index];
+      cell.classList.toggle("is-done", complete || index < value);
+      cell.classList.toggle("is-running", !complete && index === value);
+    }
     cells.dataset.renderKey = renderKey;
   }
 
