@@ -288,6 +288,16 @@ https://tyc.rei-yumesaki.net
       <p id="app-status" class="app-status" aria-live="polite">会話を準備しています。</p>
       <p id="voice-status" class="voice-status" aria-live="polite">音声は未有効です。会話機能はこのまま利用できます。</p>
       <p class="minor-stat">利用日数 <strong id="stat-days">0</strong>日</p>
+      <details id="runtime-debug" class="runtime-debug">
+        <summary>実行環境のデバッグ情報</summary>
+        <div class="runtime-debug-body">
+          <div class="runtime-debug-actions">
+            <span>現在使っているソースとCache Storageの状態</span>
+            <button id="runtime-debug-copy" class="quiet-button small" type="button">コピー</button>
+          </div>
+          <textarea id="runtime-debug-output" rows="16" readonly spellcheck="false">開くと取得します。</textarea>
+        </div>
+      </details>
     </section>
 
     <section class="secondary-panel" aria-label="履歴と会話一覧">

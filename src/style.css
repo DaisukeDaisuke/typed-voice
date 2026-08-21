@@ -434,6 +434,12 @@ body.remote-mode-locked main { filter: saturate(0.65) opacity(0.72); }
 .massive:disabled { opacity: 0.42; cursor: not-allowed; }
 .minor-stat { margin: 12px 2px 0; color: #91897e; font-size: 0.74rem; text-align: right; }
 .minor-stat strong { color: #6f675e; font-variant-numeric: tabular-nums; }
+.runtime-debug { margin-top: 14px; border: 1px solid #d7d0c6; border-radius: 14px; background: #f7f5f1; overflow: hidden; }
+.runtime-debug summary { padding: 11px 13px; color: #665e55; font-size: 0.78rem; font-weight: 750; cursor: pointer; user-select: none; }
+.runtime-debug[open] summary { border-bottom: 1px solid #ddd6cc; }
+.runtime-debug-body { padding: 11px; }
+.runtime-debug-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; color: #7b7268; font-size: 0.72rem; }
+#runtime-debug-output { display: block; width: 100%; min-height: 240px; max-height: 55vh; resize: vertical; padding: 11px 12px; border: 1px solid #cbc3b8; border-radius: 11px; background: #22201e; color: #eee9e3; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; tab-size: 2; white-space: pre; overflow: auto; }
 
 .message-list { display: grid; gap: 12px; padding-bottom: 24px; }
 .message-card { max-width: 92%; margin-left: auto; padding: 13px 15px; border-radius: 18px 18px 5px 18px; background: #ebe7e0; }

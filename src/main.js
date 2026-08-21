@@ -35,7 +35,75 @@ const FULL_TUTORIAL_ROUTE = Object.freeze([
   "offline-ready",
 ]);
 
+async function renderRuntimeDebug(output) {
+  const scopeUrl = new URL(import.meta.env.BASE_URL, document.baseURI);
+  const cacheNames = (await caches.keys()).sort();
+  const metadataCache = cacheNames.includes("typed-voice-source-metadata-v1")
+    ? await caches.open("typed-voice-source-metadata-v1")
+    : null;
+  const reviewResponse = metadataCache
+    ? await metadataCache.match(new URL("__typed_voice_source/latest-review.json", scopeUrl).href)
+    : null;
+  const manifest = await reviewResponse?.json().catch(() => null);
+  const generation = /^[0-9a-f]{32}$/i.test(String(manifest?.generation || ""))
+    ? String(manifest.generation).toLowerCase()
+    : null;
+
+  const lines = [
+    "typed-voice cache debug",
+    `Latest review cache key: ${new URL("__typed_voice_source/latest-review.json", scopeUrl).href}`,
+    `Latest review generation: ${generation || "不明"}`,
+    `GitHub Actions build: ${/^\d+$/.test(String(manifest?.buildNumber || "")) ? `#${manifest.buildNumber}` : "不明"}`,
+    "",
+    "[Latest review source assets]",
+  ];
+  for (const [path, entry] of Object.entries(manifest?.assets || {})) {
+    const originals = Array.isArray(entry?.originalFiles) && entry.originalFiles.length > 0
+      ? entry.originalFiles.join(", ")
+      : "不明";
+    lines.push(`${path} <- ${originals} | group=${entry?.group || "不明"} | xxh3=${entry?.xxh3_128 || "不明"}`);
+  }
+  lines.push("", "[Cache Storage full keys]");
+  for (const name of cacheNames) {
+    const cache = await caches.open(name);
+    const requests = await cache.keys();
+    lines.push(`CACHE ${name} (${requests.length} keys)`);
+    for (const request of requests) lines.push(`  ${request.method} ${request.url}`);
+  }
+  output.value = lines.join("\n");
+}
+
+function initializeRuntimeDebugUi() {
+  const details = document.getElementById("runtime-debug");
+  const output = document.getElementById("runtime-debug-output");
+  const copy = document.getElementById("runtime-debug-copy");
+  if (!details || !output || !copy) return;
+  const refresh = async () => {
+    output.value = "取得中…";
+    try {
+      await renderRuntimeDebug(output);
+    } catch (error) {
+      output.value = `デバッグ情報の取得に失敗しました。\n${error instanceof Error ? error.message : String(error)}`;
+    }
+  };
+  details.addEventListener("toggle", () => {
+    if (details.open) void refresh();
+  });
+  copy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(output.value);
+      copy.textContent = "コピーしました";
+      globalThis.setTimeout(() => { copy.textContent = "コピー"; }, 1200);
+    } catch {
+      output.focus();
+      output.select();
+      document.execCommand?.("copy");
+    }
+  });
+}
+
 const blocking = createBlockingTaskOrchestrator(document);
+initializeRuntimeDebugUi();
 const remoteModeUi = await blocking.registerBlockingAsync("接続モード", async ({ report }) => {
   report({ detail: "クライアントモードの保存状態を確認しています。" });
   return initializeRemoteModeUi(document);

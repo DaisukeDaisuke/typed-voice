@@ -13,6 +13,7 @@ const PAIRING_ON_DEMAND_CACHE_PREFIX = "typed-voice-pairing-on-demand-";
 const HUGGINGFACE_RESOLVE_CACHE = "typed-voice-huggingface-resolve-v1";
 const OFFLINE_TUTORIAL_URL = new URL("offline-tutorial-required.html", self.registration.scope).href;
 const SOURCE_ASSET_MAP_URL = new URL("source-asset-map.json", self.registration.scope).href;
+const SOURCE_LATEST_REVIEW_URL = new URL("__typed_voice_source/latest-review.json", self.registration.scope).href;
 const QUICK_FIX_URL = new URL("quick-fix.js", self.registration.scope).href;
 const SOURCE_STATE_URL = new URL("__typed_voice_source/state-v1.json", self.registration.scope).href;
 const SOURCE_VERIFY_URL = new URL("__typed_voice_source/verify", self.registration.scope);
@@ -87,17 +88,21 @@ function normalizeSourceAssetMap(raw) {
     throw new Error("Source asset map is invalid");
   }
   const assets = Object.create(null);
+  const buildNumber = /^\d+$/.test(String(raw?.buildNumber || "")) ? String(raw.buildNumber) : null;
   for (const [path, entry] of Object.entries(raw.assets)) {
     const normalizedPath = normalizeSourcePath(path);
     const xxh3_128 = String(entry?.xxh3_128 || "").toLowerCase();
     const byteSize = Number(entry?.byteSize);
     const extension = String(entry?.extension || "").toLowerCase();
     const group = ["core", "client", "engine", "optional"].includes(entry?.group) ? entry.group : "optional";
+    const originalFiles = Array.isArray(entry?.originalFiles)
+      ? entry.originalFiles.map((item) => String(item || "")).filter(Boolean)
+      : [];
     if (!normalizedPath || !/^[0-9a-f]{32}$/.test(xxh3_128)) continue;
     if (!Number.isSafeInteger(byteSize) || byteSize < 0) continue;
-    assets[normalizedPath] = Object.freeze({ xxh3_128, byteSize, extension, group });
+    assets[normalizedPath] = Object.freeze({ xxh3_128, byteSize, extension, group, originalFiles: Object.freeze(originalFiles) });
   }
-  return Object.freeze({ version: 2, algorithm: "xxh3-128", generation, assets: Object.freeze(assets) });
+  return Object.freeze({ version: 2, algorithm: "xxh3-128", buildNumber, generation, assets: Object.freeze(assets) });
 }
 
 function normalizeSourcePath(path) {
@@ -163,6 +168,7 @@ async function storeSourceAssetMap(manifest) {
   });
   await Promise.all([
     cache.put(sourceMapMetadataUrl(manifest.generation), response.clone()),
+    cache.put(SOURCE_LATEST_REVIEW_URL, response.clone()),
     // source-asset-map.json cannot be part of the hashed asset list because it
     // contains the generation derived from that list. Keep the manifest itself
     // as bootstrap metadata at its public URL so an accepted source cache does
@@ -665,6 +671,7 @@ self.addEventListener("message", (event) => {
     event.ports?.[0]?.postMessage({ ok: true, version: SOURCE_PROTOCOL_VERSION });
     return;
   }
+
   if (message?.type === "typed-voice:plan-source-assets") {
     const port = event.ports?.[0];
     if (!port) return;

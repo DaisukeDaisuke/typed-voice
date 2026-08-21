@@ -13,6 +13,26 @@ const excludedFiles = new Set([
 ]);
 
 const viteManifestPath = join(outputDirectory, ".vite", "manifest.json");
+const projectDirectory = resolve(".");
+const buildNumber = /^\d+$/.test(String(process.env.GITHUB_RUN_NUMBER || ""))
+  ? String(process.env.GITHUB_RUN_NUMBER)
+  : null;
+
+async function fallbackOriginalFiles(relativePath) {
+  if (/^ort-wasm.*\.(?:mjs|wasm)$/i.test(relativePath)) {
+    return [`node_modules/onnxruntime-web/dist/${relativePath}`];
+  }
+  if (["index.html", "worker.html", "pairing.html", "poc.html", "licenses.html"].includes(relativePath)) {
+    return [relativePath];
+  }
+  try {
+    const info = await stat(join(projectDirectory, "public", relativePath));
+    if (info.isFile()) return [`public/${relativePath}`];
+  } catch {
+    // Unknown build origin is represented by an empty list.
+  }
+  return [];
+}
 
 function collectManifestFiles(viteManifest, rootKey, { includeDynamic = false } = {}) {
   const files = new Set();
@@ -74,6 +94,9 @@ function portablePath(path) {
 }
 
 const viteManifest = JSON.parse(await readFile(viteManifestPath, "utf8"));
+const outputOrigins = new Map(Object.entries(viteManifest)
+  .filter(([, entry]) => entry?.file)
+  .map(([key, entry]) => [entry.file, [String(entry.src || key)]]));
 const indexKey = findManifestKey(viteManifest, "index.html");
 const workerKey = findManifestKey(viteManifest, "worker.html");
 const engineKey = findManifestKey(viteManifest, "src/app/voice-runtime-adapter.js");
@@ -107,21 +130,30 @@ const files = (await listFiles(outputDirectory))
 
 for (const file of files) {
   const info = await stat(file.path);
+  const originalFiles = outputOrigins.get(file.relativePath) || [];
   assets[file.relativePath] = {
     byteSize: info.size,
     extension: extname(file.relativePath).toLowerCase(),
     group: classifyAsset(file.relativePath, groups),
     xxh3_128: await xxh3_128File(file.path),
+    originalFiles: originalFiles.length > 0 ? originalFiles : await fallbackOriginalFiles(file.relativePath),
   };
 }
 
 const generationHasher = await createXXHash128();
-generationHasher.update(new TextEncoder().encode(JSON.stringify(assets)));
+const generationAssets = Object.fromEntries(Object.entries(assets).map(([path, entry]) => [path, {
+  byteSize: entry.byteSize,
+  extension: entry.extension,
+  group: entry.group,
+  xxh3_128: entry.xxh3_128,
+}]));
+generationHasher.update(new TextEncoder().encode(JSON.stringify(generationAssets)));
 const generation = generationHasher.digest();
 
 const manifest = {
   version: 2,
   algorithm: "xxh3-128",
+  buildNumber,
   generation,
   assets,
 };
