@@ -920,9 +920,9 @@ body.tutorial-window-dragging * { cursor: grabbing !important; }
 .tutorial-guide-arrow-arc {
   position: absolute;
   left: -50px;
-  top: 15px;
+  top: 26px;
   width: 140px;
-  height: 180px;
+  height: 169px;
   border: 7px solid var(--tutorial-arrow-ink);
   border-radius: 50%;
   clip-path: inset(0 0 0 50%);
