@@ -903,8 +903,10 @@ async function readPageAsset(event) {
   const client = event.clientId ? await self.clients.get(event.clientId) : null;
   if (client?.url) {
     const clientUrl = new URL(client.url);
+    const pocUrl = new URL("poc.html", self.registration.scope);
     const workerUrl = new URL("worker.html", self.registration.scope);
-    if (clientUrl.origin === self.location.origin && clientUrl.pathname === workerUrl.pathname) {
+    if (clientUrl.origin === self.location.origin
+      && (clientUrl.pathname === pocUrl.pathname || clientUrl.pathname === workerUrl.pathname)) {
       if (isExplicitlyOffline()) {
         const cached = await caches.match(event.request);
         if (cached) return isolatedResponse(cached);
