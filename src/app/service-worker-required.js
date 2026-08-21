@@ -2,7 +2,6 @@ import { createXXHash128 } from "hash-wasm";
 
 export const SOURCE_UPDATE_STORAGE_KEY = "typed-voice-source-cache-key-v2";
 const PREVIOUS_SOURCE_UPDATE_STORAGE_KEY = "typed-voice-source-cache-key-v1";
-const SERVICE_WORKER_REREGISTRATION_MIGRATION_KEY = "typed-voice-sw-reregister-20260821-v1";
 const SOURCE_PROTOCOL_VERSION = 2;
 
 function readStorageValue(key, storage = globalThis.localStorage) {
@@ -258,17 +257,6 @@ export async function requireServiceWorker({ reloadKey = "typed-voice-coi-reload
   const serviceWorkerUrl = new URL("app-service-worker.js", scopeUrl);
   if (import.meta.env.DEV) serviceWorkerUrl.searchParams.set("dev", "1");
 
-  if (navigator.onLine && readStorageValue(SERVICE_WORKER_REREGISTRATION_MIGRATION_KEY) !== "done") {
-    const registration = await navigator.serviceWorker.getRegistration(scopeUrl.href).catch(() => null);
-    if (registration) {
-      const unregistered = await registration.unregister().catch(() => false);
-      if (!unregistered) throw new Error("Service Workerの移行再登録に失敗しました。");
-      globalThis.localStorage?.setItem?.(SERVICE_WORKER_REREGISTRATION_MIGRATION_KEY, "done");
-      location.reload();
-      return new Promise(() => {});
-    }
-    globalThis.localStorage?.setItem?.(SERVICE_WORKER_REREGISTRATION_MIGRATION_KEY, "done");
-  }
 
   // An already-controlled page must remain usable with no network at all.
   // Refreshing the worker is an online maintenance operation, not an offline startup dependency.

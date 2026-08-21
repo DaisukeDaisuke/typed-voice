@@ -8,6 +8,7 @@ const outputFileName = "source-asset-map.json";
 const excludedFiles = new Set([
   outputFileName,
   "app-service-worker.js",
+  "quick-fix.js",
   ".vite/manifest.json",
 ]);
 

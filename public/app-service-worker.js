@@ -13,6 +13,7 @@ const PAIRING_ON_DEMAND_CACHE_PREFIX = "typed-voice-pairing-on-demand-";
 const HUGGINGFACE_RESOLVE_CACHE = "typed-voice-huggingface-resolve-v1";
 const OFFLINE_TUTORIAL_URL = new URL("offline-tutorial-required.html", self.registration.scope).href;
 const SOURCE_ASSET_MAP_URL = new URL("source-asset-map.json", self.registration.scope).href;
+const QUICK_FIX_URL = new URL("quick-fix.js", self.registration.scope).href;
 const SOURCE_STATE_URL = new URL("__typed_voice_source/state-v1.json", self.registration.scope).href;
 const SOURCE_VERIFY_URL = new URL("__typed_voice_source/verify", self.registration.scope);
 const MODEL_PREFIX = new URL("__typed_voice_assets/", self.registration.scope).pathname;
@@ -21,6 +22,7 @@ const MODEL_CHUNK_QUERY = "__typed_voice_part";
 const MODEL_DOWNLOAD_LOCK_LEASE_MS = 2 * 60 * 1000;
 const MODEL_DOWNLOAD_LOCK_RETRY_MS = 500;
 const SOURCE_PROTOCOL_VERSION = 2;
+const KNOWN_QUICK_FIX_VERSIONS = Object.freeze([]);
 const modelDownloadLocks = new Map();
 const sourceApplyControllers = new Map();
 const sourceClientGenerations = new Map();
@@ -34,6 +36,13 @@ function isExplicitlyOffline() {
 
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
+    let sourceManifestFetchFailed = false;
+    try {
+      await fetch(SOURCE_ASSET_MAP_URL, { cache: "no-store" });
+    } catch {
+      sourceManifestFetchFailed = true;
+    }
+    if (!sourceManifestFetchFailed) importScripts(QUICK_FIX_URL);
     const response = await fetch(OFFLINE_TUTORIAL_URL, { cache: "reload" });
     if (!response.ok) throw new Error(`Offline tutorial page fetch failed: ${response.status}`);
     const cache = await caches.open(OFFLINE_TUTORIAL_CACHE);
@@ -43,7 +52,12 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil((async () => {
+    await self.clients.claim();
+    if (typeof self.__typedVoiceQuickFixActivate === "function") {
+      await self.__typedVoiceQuickFixActivate(KNOWN_QUICK_FIX_VERSIONS);
+    }
+  })());
 });
 
 function sourceCacheName(generation) {
@@ -1019,10 +1033,10 @@ async function readShellAsset(request) {
       const onDemand = await readOnDemandPairingSource(sourcePath).catch(() => null);
       if (onDemand) return isolatedResponse(onDemand);
     }
-    const accepted = await acceptedSourceResponse(sourcePath).catch(() => ({ managed: false, response: null, repairRequired: false }));
-    if (accepted.response) return isolatedResponse(accepted.response);
     const newerBootstrap = await readNewerBootstrapSource(request, sourcePath);
     if (newerBootstrap) return isolatedResponse(newerBootstrap);
+    const accepted = await acceptedSourceResponse(sourcePath).catch(() => ({ managed: false, response: null, repairRequired: false }));
+    if (accepted.response) return isolatedResponse(accepted.response);
   }
 
   if (isExplicitlyOffline()) {
