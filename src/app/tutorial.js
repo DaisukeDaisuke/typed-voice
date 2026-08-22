@@ -870,13 +870,21 @@ export class TutorialController {
     this.#renderModelLoadCells(this.elements.modelLoadPrimaryCells, 0, 12);
     this.#renderModelLoadCells(this.elements.modelLoadSecondaryCells, 0, 1);
     try {
+      const profile = this.modelProfileUi?.profile ?? "fp16";
+      if (this.app?.isVoiceProfileCached && !await this.app.isVoiceProfileCached(profile)) {
+        visitState.modelLoadStarted = false;
+        if (this.activeProfile?.name !== "model-picker-required") {
+          await this.openProfile("model-picker-required");
+          return;
+        }
+        throw new Error("保存済みモデルが見つかりません。ダウンロードへ戻ってください");
+      }
       if (visitState.modelLoadAudioUnlock) {
         const audioUnlockError = await visitState.modelLoadAudioUnlock;
         if (audioUnlockError) throw audioUnlockError;
       } else {
         await this.app?.unlockVoiceAudio?.();
       }
-      const profile = this.modelProfileUi?.profile ?? "fp16";
       await this.app?.initializePreparedVoice?.(profile, {
         enableAudio: true,
         showPanel: false,
