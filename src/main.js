@@ -24,14 +24,12 @@ globalThis.debug = (name, result) => {
   debugLogLines.push(`${time} ${String(name)} ${String(result)}`);
 };
 
-const RELOAD_REPAIR_KEY = "typed-voice-reload-repair";
-const navigationType = performance.getEntriesByType("navigation")[0]?.type;
-if (localStorage.getItem(RELOAD_REPAIR_KEY) === "1") {
-  localStorage.removeItem(RELOAD_REPAIR_KEY);
-} else if (navigationType === "reload") {
-  localStorage.setItem(RELOAD_REPAIR_KEY, "1");
-  location.replace(location.href);
-  await new Promise(() => {});
+const LOAD_REPAIR_KEY = "typed-voice-load-repair";
+const loadRepairRequired = localStorage.getItem(LOAD_REPAIR_KEY) !== "1";
+if (!loadRepairRequired) {
+  localStorage.removeItem(LOAD_REPAIR_KEY);
+} else {
+  localStorage.setItem(LOAD_REPAIR_KEY, "1");
 }
 
 const sourceUpdateCloseChannel = "BroadcastChannel" in globalThis
@@ -150,6 +148,10 @@ const serviceWorkerState = await blocking.registerBlockingAsync("Service Worker"
   report({ detail: "オフライン実行の準備を確認しています。" });
   return requireServiceWorker({ reloadKey: "typed-voice-app-coi-reloaded" });
 });
+if (loadRepairRequired) {
+  navigator.serviceWorker.controller?.postMessage({ type: "typed-voice:reload-windows" });
+  await new Promise(() => {});
+}
 const sourceIntegrityState = await blocking.registerBlockingAsync("ソース検証", async ({ report }) => {
   if (serviceWorkerState?.repairRequired) {
     report({ detail: "Service Workerの自己ハッシュが審査書類と一致しないため、更新修復が必要です。" });

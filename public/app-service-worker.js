@@ -64,6 +64,22 @@ function isExplicitlyOffline() {
   return self.navigator?.onLine === false;
 }
 
+self.reloadTypedVoiceWindows = async function reloadTypedVoiceWindows() {
+  const scopeUrl = new URL(self.registration.scope);
+  const indexPath = new URL("index.html", scopeUrl).pathname;
+  const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: false });
+  await Promise.all(windows.map(async (client) => {
+    try {
+      const clientUrl = new URL(client.url);
+      if (clientUrl.origin !== scopeUrl.origin) return;
+      if (clientUrl.pathname !== scopeUrl.pathname && clientUrl.pathname !== indexPath) return;
+      await client.navigate(client.url);
+    } catch {
+      // Best-effort emergency reload only.
+    }
+  }));
+};
+
 async function readAppliedQuickFixVersions() {
   const cache = await caches.open(SOURCE_METADATA_CACHE);
   const response = await cache.match(QUICK_FIX_APPLIED_URL);
@@ -756,6 +772,10 @@ async function readOnDemandPairingSource(path) {
 
 self.addEventListener("message", (event) => {
   const message = event.data;
+  if (message?.type === "typed-voice:reload-windows") {
+    event.waitUntil(self.reloadTypedVoiceWindows());
+    return;
+  }
   if (message?.type === "typed-voice:claim-clients") {
     event.waitUntil(self.clients.claim());
     return;
