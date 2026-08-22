@@ -333,6 +333,7 @@ const selectedModelCached = remoteModeUi.isServerMode
       report({ detail: "選択中の音声モデルがこの端末に保存済みかService Workerへ確認しています。" });
       return app.isVoiceProfileCached(modelProfileUi.profile);
     });
+let tutorial = null;
 await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
   report({ detail: "バックアップとチュートリアルを準備しています。" });
   initializeBackupUi(document, {
@@ -348,7 +349,7 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
   globalThis.typedVoiceDebug = Object.assign(globalThis.typedVoiceDebug ?? {}, {
     showOfflineResetFreeze: () => offlineRuntimeResetUi.showFreeze(),
   });
-  const tutorial = new TutorialController(document, {
+  tutorial = new TutorialController(document, {
     modelProfileUi,
     app,
     tutorialComplete: tutorialState.complete,
@@ -439,6 +440,15 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
     onComplete: modelPickerComplete,
   });
 
+  const memoryShortageProfile = Object.freeze({
+    route: Object.freeze([
+      Object.freeze({ step: "memory-shortage", id: "memory-shortage" }),
+    ]),
+    headerBrand: "モデル読み込みエラー",
+    completeTo: "end",
+    closeOnBackAtStart: false,
+  });
+
   const serverModeProfile = Object.freeze({
     route: Object.freeze([
       Object.freeze({ step: "server-mode-about", id: "server-mode-about", nextLabel: "次へ" }),
@@ -499,6 +509,7 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
     .registerProfile("full", fullTutorialProfile)
     .registerProfile("model-picker", modelPickerProfile)
     .registerProfile("model-picker-required", requiredModelPickerProfile)
+    .registerProfile("memory-shortage", memoryShortageProfile)
     .registerProfile("server-offline", serverOfflineProfile)
     .registerProfile("server-mode", serverModeProfile)
     .registerProfile("server-reconnect", serverReconnectProfile);
@@ -561,6 +572,15 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
     modelProfileUi.closeSettings();
     void tutorial.openProfile("model-picker");
   });
+  document.getElementById("tutorial-memory-model-picker")?.addEventListener("click", () => {
+    void tutorial.openProfile("model-picker");
+  });
+  document.getElementById("tutorial-memory-reload")?.addEventListener("click", () => {
+    location.reload();
+  });
+  globalThis.typedVoiceDebug = Object.assign(globalThis.typedVoiceDebug ?? {}, {
+    showMemoryShortageTutorial: () => tutorial.openProfile("memory-shortage"),
+  });
 });
 blocking.finish();
 if (!remoteModeUi.isServerMode
@@ -568,15 +588,19 @@ if (!remoteModeUi.isServerMode
   && selectedModelCached
   && !sourceAssetsPending) {
   debug("model-load-delay", "pass");
-  globalThis.setTimeout(() => {
+  globalThis.setTimeout(async () => {
+    const requestLogStart = (await readServiceWorkerRequestLog()).length;
     debug("model-load-start", "pass");
     void app.initializePreparedVoice(modelProfileUi.profile, { enableAudio: false })
       .then(() => debug("model-load", "pass"))
-      .catch((error) => {
+      .catch(async (error) => {
         const message = error instanceof Error
           ? `${error.name}: ${error.message}${error.stack ? ` | ${error.stack.replace(/\s*\n\s*/g, " | ")}` : ""}`
           : String(error);
         debug("model-load", `fail ${message}`);
+        const requestLog = await readServiceWorkerRequestLog();
+        const has404Or503 = requestLog.slice(requestLogStart).some((entry) => entry.status === 404 || entry.status === 503);
+        if (!has404Or503) void tutorial?.openProfile("memory-shortage");
       });
   }, 250);//勝手に変えるな
 }

@@ -524,6 +524,7 @@ export class TutorialController {
           ?? (this.stepIndex === this.activePages.length - 1 ? this.activeProfile?.completionLabel ?? "使い始める" : "次へ");
     this.elements.next.disabled = (page.dataset.tutorialStep === "download" && !this.downloadCompleted)
       || page.dataset.tutorialStep === "source-update"
+      || page.dataset.tutorialStep === "memory-shortage"
       || (page.dataset.tutorialStep === "conversations" && !this.conversationTutorialCompleted && this.conversationPracticeCount === 0)
       || (page.dataset.tutorialStep === "conversation-open" && !this.conversationOpenCompleted)
       || (page.dataset.tutorialStep === "model-load" && !visitState.modelLoadComplete);

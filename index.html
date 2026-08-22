@@ -734,6 +734,20 @@ https://tyc.rei-yumesaki.net
           <p id="tutorial-model-load-status" class="tutorial-demo-status" aria-live="polite">保存済みモデルを確認しています。</p>
         </section>
 
+        <section class="tutorial-page" data-tutorial-step="memory-shortage" hidden>
+          <p class="tutorial-kicker">モデルを読み込めませんでした</p>
+          <h3>おーっと、このモデルを読み込むには、メモリが足りないようです。</h3>
+          <p>大変申し訳ございません。このモデルを読み込もうとしましたが、あなたのデバイスではメモリが足りないようです。</p>
+          <p>下記のことをしても解決しない場合は、低メモリモデルを再ダウンロードして試すか、サーバーでの合成をお勧めします。非推奨モデルはお勧めしません。</p>
+          <ul>
+            <li>他のタブを閉じる</li>
+            <li>他のアプリを閉じる</li>
+            <li>モデルを変更する</li>
+          </ul>
+          <button id="tutorial-memory-reload" class="primary-button" type="button">再読み込み</button>
+          <button id="tutorial-memory-model-picker" class="quiet-button" type="button">モデルを変更する</button>
+        </section>
+
         <section class="tutorial-page" data-tutorial-step="free" data-tutorial-live="true" hidden>
           <p class="tutorial-kicker">実際に使ってみる</p>
           <h3>自由に使ってみましょう！</h3>
