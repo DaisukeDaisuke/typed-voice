@@ -148,6 +148,7 @@ const serviceWorkerState = await blocking.registerBlockingAsync("Service Worker"
   report({ detail: "オフライン実行の準備を確認しています。" });
   return requireServiceWorker({ reloadKey: "typed-voice-app-coi-reloaded" });
 });
+debug("service-worker-review", serviceWorkerState?.reviewed && !serviceWorkerState?.repairRequired ? "pass" : "fail");
 if (loadRepairRequired) {
   navigator.serviceWorker.controller?.postMessage({ type: "typed-voice:reload-windows" });
   await new Promise(() => {});
@@ -552,7 +553,13 @@ if (!remoteModeUi.isServerMode
   && tutorialState.complete
   && selectedModelCached
   && !sourceAssetsPending) {
-  void app.initializePreparedVoice(modelProfileUi.profile, { enableAudio: false }).catch(() => {});
+  debug("model-load-delay", "pass");
+  globalThis.setTimeout(() => {
+    debug("model-load-start", "pass");
+    void app.initializePreparedVoice(modelProfileUi.profile, { enableAudio: false })
+      .then(() => debug("model-load", "pass"))
+      .catch(() => debug("model-load", "fail"));
+  }, 3000);
 }
 
 
