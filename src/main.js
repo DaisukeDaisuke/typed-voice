@@ -24,6 +24,16 @@ globalThis.debug = (name, result) => {
   debugLogLines.push(`${time} ${String(name)} ${String(result)}`);
 };
 
+const RELOAD_REPAIR_KEY = "typed-voice-reload-repair";
+const navigationType = performance.getEntriesByType("navigation")[0]?.type;
+if (localStorage.getItem(RELOAD_REPAIR_KEY) === "1") {
+  localStorage.removeItem(RELOAD_REPAIR_KEY);
+} else if (navigationType === "reload") {
+  localStorage.setItem(RELOAD_REPAIR_KEY, "1");
+  location.replace(location.href);
+  await new Promise(() => {});
+}
+
 const sourceUpdateCloseChannel = "BroadcastChannel" in globalThis
   ? new BroadcastChannel("typed-voice-source-update-close")
   : null;
