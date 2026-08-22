@@ -65,7 +65,10 @@ jobs:
         run: npm test
 
       - name: Build production app, Voice PoC, and source cache map
-        run: npm run build
+        run: |
+          npm run build
+          rm -f dist/assets/ort-wasm-simd-threaded.jsep-*.wasm
+          node scripts/generate-source-asset-map.mjs dist
 
       - name: Configure Pages
         uses: actions/configure-pages@v6
