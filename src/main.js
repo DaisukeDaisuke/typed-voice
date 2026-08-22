@@ -306,6 +306,9 @@ if (remoteModeUi.isServerMode && remoteModeUi.pairing) {
     ].filter(Boolean).join(" ");
     debug("engine-initialize", detail || "pass");
   });
+  globalThis.addEventListener("beforeunload", () => {
+    void voiceRuntime.dispose().catch(() => {});
+  }, { once: true });
   globalThis.addEventListener("pagehide", (event) => {
     if (!event.persisted) voiceRuntime.client?.abort();
   }, { once: true });
