@@ -71,7 +71,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
         uses: actions/checkout@v7
         with:
-          repository: RabbitDaisuke/typed-voice-cdn
+          repository: DaisukeDaisuke/typed-voice-cdn
           ref: main
           token: ${{ secrets.TYPED_VOICE_CDN_TOKEN }}
           path: typed-voice-cdn
