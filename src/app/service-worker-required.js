@@ -321,16 +321,6 @@ export async function requireServiceWorker({ reloadKey = "typed-voice-coi-reload
   // including a fully offline navigation from the application shell cache.
   const existing = await navigator.serviceWorker.getRegistration(scopeUrl.href).catch(() => null);
   if (existing?.active) {
-    let registration = existing;
-    if (navigator.onLine) {
-      try {
-        registration = await navigator.serviceWorker.register(serviceWorkerUrl, { scope: scopeUrl.pathname });
-        await registration.update().catch(() => {});
-      } catch (error) {
-        console.warn("Service Worker refresh before control failed; retrying with the installed worker", error);
-      }
-    }
-    requestClientClaim(registration);
     await navigator.serviceWorker.ready;
     // This document itself was loaded before the worker controlled navigation.
     // Once an active worker is available, reload so every later request starts
@@ -400,15 +390,6 @@ export async function queryPreparedModelCache(manifestUrl, { appBaseUrl = null }
       appBaseUrl,
     }, [channel.port2]);
   });
-}
-
-function requestClientClaim(registration) {
-  try {
-    registration?.active?.postMessage({ type: "typed-voice:claim-clients" });
-  } catch {
-    // Older workers may not know this message. The newly installed worker's
-    // clients.claim() still drives controllerchange once it becomes active.
-  }
 }
 
 export function showServiceWorkerRequired() {
