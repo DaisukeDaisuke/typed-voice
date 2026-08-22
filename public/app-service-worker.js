@@ -25,6 +25,39 @@ const MODEL_DOWNLOAD_LOCK_LEASE_MS = 2 * 60 * 1000;
 const MODEL_DOWNLOAD_LOCK_RETRY_MS = 500;
 const SOURCE_PROTOCOL_VERSION = 2;
 const SERVICE_WORKER_REVIEW_ID = "__TYPED_VOICE_SERVICE_WORKER_REVIEW_ID__";
+const LOAD_REPAIR_KEY = "typed-voice-load-repair";
+const LOAD_TRANSITION_HTML = `<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>typed-voice</title>
+  <style>
+    html,body{margin:0;min-height:100%;background:#f3f1ed;color:#2f2b27}
+    body{min-height:100vh;display:grid;place-items:center;text-align:center;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+    h1{margin:0;padding:24px;font-size:clamp(1.35rem,4vw,2rem)}
+  </style>
+</head>
+<body>
+  <h1>読み込み中です... しばらくお待ちください</h1>
+  <script>
+    const key = ${JSON.stringify(LOAD_REPAIR_KEY)};
+    const load = async () => {
+      const response = await fetch(location.href);
+      const html = await response.text();
+      document.open();
+      document.write(html);
+      document.close();
+    };
+    if (localStorage.getItem(key) === "1") {
+      void load();
+    } else {
+      localStorage.setItem(key, "1");
+      setTimeout(() => void load(), 300);
+    }
+  </script>
+</body>
+</html>`;
 
 const modelDownloadLocks = new Map();
 const sourceApplyControllers = new Map();
@@ -64,6 +97,7 @@ function isExplicitlyOffline() {
   return self.navigator?.onLine === false;
 }
 
+/*
 self.reloadTypedVoiceWindows = async function reloadTypedVoiceWindows() {
   const scopeUrl = new URL(self.registration.scope);
   const indexPath = new URL("index.html", scopeUrl).pathname;
@@ -79,6 +113,7 @@ self.reloadTypedVoiceWindows = async function reloadTypedVoiceWindows() {
     }
   }));
 };
+*/
 
 async function readAppliedQuickFixVersions() {
   const cache = await caches.open(SOURCE_METADATA_CACHE);
@@ -772,10 +807,12 @@ async function readOnDemandPairingSource(path) {
 
 self.addEventListener("message", (event) => {
   const message = event.data;
+  /*
   if (message?.type === "typed-voice:reload-windows") {
     event.waitUntil(self.reloadTypedVoiceWindows());
     return;
   }
+  */
   if (message?.type === "typed-voice:claim-clients") {
     event.waitUntil(self.clients.claim());
     return;
@@ -997,6 +1034,20 @@ self.addEventListener("fetch", (event) => {
   }
   if (url.origin !== self.location.origin) {
     recordRequest(request, "passthrough:cross-origin", "PASSTHROUGH");
+    return;
+  }
+  const scopeUrl = new URL(self.registration.scope);
+  const indexUrl = new URL("index.html", scopeUrl);
+  if (request.mode === "navigate"
+    && (url.pathname === scopeUrl.pathname || url.pathname === indexUrl.pathname)) {
+    event.respondWith(tracedResponse(
+      request,
+      "load-transition",
+      Promise.resolve(isolatedResponse(new Response(LOAD_TRANSITION_HTML, {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      })))
+    ));
     return;
   }
   if (DEV_MODE) {

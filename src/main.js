@@ -25,12 +25,7 @@ globalThis.debug = (name, result) => {
 };
 
 const LOAD_REPAIR_KEY = "typed-voice-load-repair";
-const loadRepairRequired = localStorage.getItem(LOAD_REPAIR_KEY) !== "1";
-if (!loadRepairRequired) {
-  localStorage.removeItem(LOAD_REPAIR_KEY);
-} else {
-  localStorage.setItem(LOAD_REPAIR_KEY, "1");
-}
+localStorage.removeItem(LOAD_REPAIR_KEY);
 
 const sourceUpdateCloseChannel = "BroadcastChannel" in globalThis
   ? new BroadcastChannel("typed-voice-source-update-close")
@@ -149,10 +144,12 @@ const serviceWorkerState = await blocking.registerBlockingAsync("Service Worker"
   return requireServiceWorker({ reloadKey: "typed-voice-app-coi-reloaded" });
 });
 debug("service-worker-review", `${serviceWorkerState?.reviewed && !serviceWorkerState?.repairRequired ? "pass" : "fail"} expected=${serviceWorkerState?.expectedReviewId ?? "-"} current=${serviceWorkerState?.currentReviewId ?? "-"}`);
+/*
 if (loadRepairRequired) {
   navigator.serviceWorker.controller?.postMessage({ type: "typed-voice:reload-windows" });
   await new Promise(() => {});
 }
+*/
 const sourceIntegrityState = await blocking.registerBlockingAsync("ソース検証", async ({ report }) => {
   if (serviceWorkerState?.repairRequired) {
     report({ detail: "Service Workerの自己ハッシュが審査書類と一致しないため、更新修復が必要です。" });
