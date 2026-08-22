@@ -15,6 +15,7 @@ const OFFLINE_TUTORIAL_URL = new URL("offline-tutorial-required.html", self.regi
 const SOURCE_ASSET_MAP_URL = new URL("source-asset-map.json", self.registration.scope).href;
 const SOURCE_LATEST_REVIEW_URL = new URL("__typed_voice_source/latest-review.json", self.registration.scope).href;
 const QUICK_FIX_URL = new URL("quick-fix.js", self.registration.scope).href;
+const QUICK_FIX_APPLIED_URL = new URL("__typed_voice_source/quick-fix-applied.json", self.registration.scope).href;
 const SOURCE_STATE_URL = new URL("__typed_voice_source/state-v1.json", self.registration.scope).href;
 const SOURCE_VERIFY_URL = new URL("__typed_voice_source/verify", self.registration.scope);
 const MODEL_PREFIX = new URL("__typed_voice_assets/", self.registration.scope).pathname;
@@ -24,7 +25,7 @@ const MODEL_DOWNLOAD_LOCK_LEASE_MS = 2 * 60 * 1000;
 const MODEL_DOWNLOAD_LOCK_RETRY_MS = 500;
 const SOURCE_PROTOCOL_VERSION = 2;
 const SERVICE_WORKER_REVIEW_ID = "__TYPED_VOICE_SERVICE_WORKER_REVIEW_ID__";
-const KNOWN_QUICK_FIX_VERSIONS = Object.freeze([]);
+
 const modelDownloadLocks = new Map();
 const sourceApplyControllers = new Map();
 const sourceClientGenerations = new Map();
@@ -63,6 +64,19 @@ function isExplicitlyOffline() {
   return self.navigator?.onLine === false;
 }
 
+async function readAppliedQuickFixVersions() {
+  const cache = await caches.open(SOURCE_METADATA_CACHE);
+  const response = await cache.match(QUICK_FIX_APPLIED_URL);
+  if (!response) return null;
+  const versions = await response?.json().catch(() => []);
+  return Array.isArray(versions) ? versions.filter((version) => typeof version === "string") : [];
+}
+
+async function writeAppliedQuickFixVersions(versions) {
+  const cache = await caches.open(SOURCE_METADATA_CACHE);
+  await cache.put(QUICK_FIX_APPLIED_URL, new Response(JSON.stringify([...new Set(versions)])));
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     let sourceManifestFetchFailed = false;
@@ -71,7 +85,14 @@ self.addEventListener("install", (event) => {
     } catch {
       sourceManifestFetchFailed = true;
     }
-    if (!sourceManifestFetchFailed) importScripts(QUICK_FIX_URL);
+    if (!sourceManifestFetchFailed) {
+      importScripts(QUICK_FIX_URL);
+      if (Array.isArray(self.__typedVoiceQuickFixVersions)) {
+        if (!self.registration.active) {
+          await writeAppliedQuickFixVersions(self.__typedVoiceQuickFixVersions);
+        }
+      }
+    }
     const response = await fetch(OFFLINE_TUTORIAL_URL, { cache: "reload" });
     if (!response.ok) throw new Error(`Offline tutorial page fetch failed: ${response.status}`);
     const cache = await caches.open(OFFLINE_TUTORIAL_CACHE);
@@ -84,7 +105,9 @@ self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     await self.clients.claim();
     if (typeof self.__typedVoiceQuickFixActivate === "function") {
-      await self.__typedVoiceQuickFixActivate(KNOWN_QUICK_FIX_VERSIONS);
+      const appliedVersions = await readAppliedQuickFixVersions() ?? [];
+      await self.__typedVoiceQuickFixActivate(appliedVersions);
+      await writeAppliedQuickFixVersions(appliedVersions);
     }
   })());
 });

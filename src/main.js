@@ -18,6 +18,12 @@ import { initializeOfflineRuntimeResetUi } from "./app/offline-runtime-reset.js"
 import { initializeRemoteModeUi } from "./app/remote-mode-ui.js";
 import { NoVoiceRuntime } from "./app/no-voice-runtime.js";
 
+const debugLogLines = [];
+globalThis.debug = (name, result) => {
+  const time = new Date().toTimeString().slice(0, 8);
+  debugLogLines.push(`${time} ${String(name)} ${String(result)}`);
+};
+
 const sourceUpdateCloseChannel = "BroadcastChannel" in globalThis
   ? new BroadcastChannel("typed-voice-source-update-close")
   : null;
@@ -89,6 +95,8 @@ async function renderRuntimeDebug(output) {
   for (const entry of requestLog) {
     lines.push(`${entry.time || "?"} ${entry.method || "?"} ${entry.status ?? "?"} route=${entry.route || "?"} mode=${entry.mode || "?"} destination=${entry.destination || "-"} ${entry.url || ""}${entry.reason ? ` | ${entry.reason}` : ""}`);
   }
+  lines.push("", "[debug]");
+  lines.push(...debugLogLines);
   output.value = lines.join("\n");
 }
 
