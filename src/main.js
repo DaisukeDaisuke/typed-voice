@@ -274,6 +274,7 @@ if (remoteModeUi.isServerMode && remoteModeUi.pairing) {
       voiceStatus.textContent = message;
     },
   });
+  globalThis.addEventListener("pagehide", () => voiceRuntime.client?.abort(), { once: true });
 }
 const modelProfileUi = await blocking.registerBlockingAsync("画面設定", async ({ report }) => {
   report({ detail: "保存済みの音声設定を読み込んでいます。" });
