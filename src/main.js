@@ -442,7 +442,7 @@ await blocking.registerBlockingAsync("操作画面", async ({ report }) => {
 
   const memoryShortageProfile = Object.freeze({
     route: Object.freeze([
-      Object.freeze({ step: "memory-shortage", id: "memory-shortage" }),
+      Object.freeze({ step: "memory-shortage", id: "memory-shortage", nextLabel: "次へ" }),
     ]),
     headerBrand: "モデル読み込みエラー",
     completeTo: "end",
