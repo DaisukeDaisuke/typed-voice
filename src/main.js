@@ -18,6 +18,17 @@ import { initializeOfflineRuntimeResetUi } from "./app/offline-runtime-reset.js"
 import { initializeRemoteModeUi } from "./app/remote-mode-ui.js";
 import { NoVoiceRuntime } from "./app/no-voice-runtime.js";
 
+const sourceUpdateCloseChannel = "BroadcastChannel" in globalThis
+  ? new BroadcastChannel("typed-voice-source-update-close")
+  : null;
+sourceUpdateCloseChannel?.addEventListener("message", (event) => {
+  if (event.data === "close") globalThis.close();
+});
+
+function closeOtherTabsForSourceUpdate() {
+  sourceUpdateCloseChannel?.postMessage("close");
+}
+
 const FULL_TUTORIAL_ROUTE = Object.freeze([
   "about",
   "model",
@@ -178,6 +189,7 @@ const sourceAssetsPending = Boolean(sourceUpdateState.updateAvailable)
 const sourceUpdate = {
   plan: { ...sourceUpdateState },
   async prepare({ signal = null, onProgress = () => {} } = {}) {
+    closeOtherTabsForSourceUpdate();
     if (this.plan.serviceWorkerRepairRequired) {
       await unregisterTypedVoiceServiceWorker();
       return { generation: this.plan.generation, serviceWorkerRepairRequired: true };
