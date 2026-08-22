@@ -148,7 +148,7 @@ const serviceWorkerState = await blocking.registerBlockingAsync("Service Worker"
   report({ detail: "オフライン実行の準備を確認しています。" });
   return requireServiceWorker({ reloadKey: "typed-voice-app-coi-reloaded" });
 });
-debug("service-worker-review", serviceWorkerState?.reviewed && !serviceWorkerState?.repairRequired ? "pass" : "fail");
+debug("service-worker-review", `${serviceWorkerState?.reviewed && !serviceWorkerState?.repairRequired ? "pass" : "fail"} expected=${serviceWorkerState?.expectedReviewId ?? "-"} current=${serviceWorkerState?.currentReviewId ?? "-"}`);
 if (loadRepairRequired) {
   navigator.serviceWorker.controller?.postMessage({ type: "typed-voice:reload-windows" });
   await new Promise(() => {});
@@ -294,6 +294,20 @@ if (remoteModeUi.isServerMode && remoteModeUi.pairing) {
     onStatus(message) {
       voiceStatus.textContent = message;
     },
+  });
+  voiceRuntime.subscribeProgress((message) => {
+    if (message?.stage !== "initialize") return;
+    const detail = [
+      message.phase ? `phase=${message.phase}` : null,
+      message.backend ? `backend=${message.backend}` : null,
+      message.sessionName ? `session=${message.sessionName}` : null,
+      message.message ? `message=${message.message}` : null,
+      Number.isFinite(message.loadedBytes) ? `loaded=${message.loadedBytes}` : null,
+      Number.isFinite(message.totalBytes) ? `total=${message.totalBytes}` : null,
+      Number.isFinite(message.engineLoaded) ? `engineLoaded=${message.engineLoaded}` : null,
+      Number.isFinite(message.engineTotal) ? `engineTotal=${message.engineTotal}` : null,
+    ].filter(Boolean).join(" ");
+    debug("engine-initialize", detail || "pass");
   });
   globalThis.addEventListener("pagehide", (event) => {
     if (!event.persisted) voiceRuntime.client?.abort();
@@ -558,8 +572,13 @@ if (!remoteModeUi.isServerMode
     debug("model-load-start", "pass");
     void app.initializePreparedVoice(modelProfileUi.profile, { enableAudio: false })
       .then(() => debug("model-load", "pass"))
-      .catch(() => debug("model-load", "fail"));
-  }, 3000);
+      .catch((error) => {
+        const message = error instanceof Error
+          ? `${error.name}: ${error.message}${error.stack ? ` | ${error.stack.replace(/\s*\n\s*/g, " | ")}` : ""}`
+          : String(error);
+        debug("model-load", `fail ${message}`);
+      });
+  }, 250);//勝手に変えるな
 }
 
 
