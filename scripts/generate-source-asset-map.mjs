@@ -5,9 +5,11 @@ import { createXXHash128 } from "hash-wasm";
 
 const outputDirectory = resolve(process.argv[2] || "dist");
 const outputFileName = "source-asset-map.json";
+const serviceWorkerFileName = "app-service-worker.js";
+const serviceWorkerReviewPlaceholder = "__TYPED_VOICE_SERVICE_WORKER_REVIEW_ID__";
 const excludedFiles = new Set([
   outputFileName,
-  "app-service-worker.js",
+  serviceWorkerFileName,
   "quick-fix.js",
   ".vite/manifest.json",
 ]);
@@ -89,6 +91,24 @@ async function xxh3_128File(path) {
   return hasher.digest();
 }
 
+async function buildServiceWorkerReview() {
+  const path = join(outputDirectory, serviceWorkerFileName);
+  const source = await readFile(path, "utf8");
+  const placeholderCount = source.split(serviceWorkerReviewPlaceholder).length - 1;
+  if (placeholderCount !== 1) throw new Error(`Expected one Service Worker review placeholder, found ${placeholderCount}.`);
+  const hasher = await createXXHash128();
+  hasher.update(new TextEncoder().encode(source));
+  const reviewId = hasher.digest();
+  const rendered = source.replace(serviceWorkerReviewPlaceholder, reviewId);
+  await writeFile(path, rendered, "utf8");
+  return Object.freeze({
+    path: serviceWorkerFileName,
+    byteSize: Buffer.byteLength(rendered),
+    xxh3_128: reviewId,
+    buildNumber,
+  });
+}
+
 function portablePath(path) {
   return path.split(sep).join("/");
 }
@@ -150,12 +170,14 @@ const generationAssets = Object.fromEntries(Object.entries(assets).map(([path, e
 }]));
 generationHasher.update(new TextEncoder().encode(JSON.stringify(generationAssets)));
 const generation = generationHasher.digest();
+const serviceWorker = await buildServiceWorkerReview();
 
 const manifest = {
   version: 2,
   algorithm: "xxh3-128",
   buildNumber,
   generation,
+  serviceWorker,
   assets,
 };
 

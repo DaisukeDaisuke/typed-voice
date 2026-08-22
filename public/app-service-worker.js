@@ -23,6 +23,7 @@ const MODEL_CHUNK_QUERY = "__typed_voice_part";
 const MODEL_DOWNLOAD_LOCK_LEASE_MS = 2 * 60 * 1000;
 const MODEL_DOWNLOAD_LOCK_RETRY_MS = 500;
 const SOURCE_PROTOCOL_VERSION = 2;
+const SERVICE_WORKER_REVIEW_ID = "__TYPED_VOICE_SERVICE_WORKER_REVIEW_ID__";
 const KNOWN_QUICK_FIX_VERSIONS = Object.freeze([]);
 const modelDownloadLocks = new Map();
 const sourceApplyControllers = new Map();
@@ -115,6 +116,17 @@ function normalizeSourceAssetMap(raw) {
     throw new Error("Source asset map is invalid");
   }
   const assets = Object.create(null);
+  const serviceWorkerReviewId = String(raw?.serviceWorker?.xxh3_128 || "").toLowerCase();
+  const serviceWorker = /^[0-9a-f]{32}$/.test(serviceWorkerReviewId)
+    ? Object.freeze({
+        path: "app-service-worker.js",
+        xxh3_128: serviceWorkerReviewId,
+        byteSize: Number(raw?.serviceWorker?.byteSize) || 0,
+        buildNumber: /^\d+$/.test(String(raw?.serviceWorker?.buildNumber || ""))
+          ? String(raw.serviceWorker.buildNumber)
+          : null,
+      })
+    : null;
   const buildNumber = /^\d+$/.test(String(raw?.buildNumber || "")) ? String(raw.buildNumber) : null;
   for (const [path, entry] of Object.entries(raw.assets)) {
     const normalizedPath = normalizeSourcePath(path);
@@ -130,7 +142,7 @@ function normalizeSourceAssetMap(raw) {
     if (!Number.isSafeInteger(byteSize) || byteSize < 0) continue;
     assets[normalizedPath] = Object.freeze({ xxh3_128, byteSize, extension, group, buildNumber: assetBuildNumber, originalFiles: Object.freeze(originalFiles) });
   }
-  return Object.freeze({ version: 2, algorithm: "xxh3-128", buildNumber, generation, assets: Object.freeze(assets) });
+  return Object.freeze({ version: 2, algorithm: "xxh3-128", buildNumber, generation, serviceWorker, assets: Object.freeze(assets) });
 }
 
 function normalizeSourcePath(path) {
@@ -201,6 +213,14 @@ async function storeSourceAssetMap(manifest) {
       const previous = normalizeSourceAssetMap(await previousLatestReview.json());
       latestReview = {
         ...manifest,
+        serviceWorker: manifest.serviceWorker
+          ? {
+              ...manifest.serviceWorker,
+              buildNumber: previous.serviceWorker?.xxh3_128 === manifest.serviceWorker.xxh3_128
+                ? previous.serviceWorker.buildNumber
+                : manifest.serviceWorker.buildNumber,
+            }
+          : null,
         assets: Object.fromEntries(Object.entries(manifest.assets).map(([path, entry]) => {
           const previousEntry = previous.assets[path];
           const unchanged = previousEntry && sourceReuseKey(path, previousEntry) === sourceReuseKey(path, entry);
@@ -333,7 +353,9 @@ async function sourceLocationResponse(state, reuseKey) {
     const response = await cache.match(sourceAssetUrl(location.path));
     if (response) return response;
   } catch {
-    // A stale location is removed below.
+    // A transient CacheStorage read failure is not proof that the payload is
+    // gone. Keep the location so repair/pruning cannot silently delete data.
+    return null;
   }
   delete state.locations[reuseKey];
   return null;
@@ -717,6 +739,10 @@ self.addEventListener("message", (event) => {
   }
   if (message?.type === "typed-voice:source-protocol") {
     event.ports?.[0]?.postMessage({ ok: true, version: SOURCE_PROTOCOL_VERSION });
+    return;
+  }
+  if (message?.type === "typed-voice:service-worker-review") {
+    event.ports?.[0]?.postMessage({ ok: true, reviewId: SERVICE_WORKER_REVIEW_ID });
     return;
   }
   if (message?.type === "typed-voice:request-log") {

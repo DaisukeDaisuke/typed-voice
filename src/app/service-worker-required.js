@@ -3,6 +3,7 @@ import { createXXHash128 } from "hash-wasm";
 export const SOURCE_UPDATE_STORAGE_KEY = "typed-voice-source-cache-key-v2";
 const PREVIOUS_SOURCE_UPDATE_STORAGE_KEY = "typed-voice-source-cache-key-v1";
 const SOURCE_PROTOCOL_VERSION = 2;
+const SERVICE_WORKER_REVIEW_TIMEOUT_MS = 750;
 
 function readStorageValue(key, storage = globalThis.localStorage) {
   try {
@@ -23,6 +24,46 @@ export async function readServiceWorkerRequestLog() {
   } catch {
     return [];
   }
+}
+
+async function readControllerServiceWorkerReview(controller, timeoutMs = SERVICE_WORKER_REVIEW_TIMEOUT_MS) {
+  if (!controller) return null;
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    let settled = false;
+    const finish = (reviewId) => {
+      if (settled) return;
+      settled = true;
+      globalThis.clearTimeout(timeout);
+      channel.port1.close();
+      resolve(/^[0-9a-f]{32}$/i.test(String(reviewId || "")) ? String(reviewId).toLowerCase() : null);
+    };
+    const timeout = globalThis.setTimeout(() => finish(null), timeoutMs);
+    channel.port1.onmessage = (event) => finish(event.data?.ok ? event.data?.reviewId : null);
+    controller.postMessage({ type: "typed-voice:service-worker-review" }, [channel.port2]);
+  });
+}
+
+async function reviewControlledServiceWorker(scopeUrl) {
+  let response;
+  try {
+    response = await fetch(new URL("source-asset-map.json", scopeUrl), { cache: "no-store" });
+  } catch {
+    return Object.freeze({ reviewed: false, repairRequired: false });
+  }
+  if (!response.ok) throw new Error(`Service Worker審査書類を取得できませんでした (${response.status})`);
+  const manifest = await response.json();
+  const expectedReviewId = String(manifest?.serviceWorker?.xxh3_128 || "").toLowerCase();
+  if (!/^[0-9a-f]{32}$/.test(expectedReviewId)) {
+    throw new Error("Service Worker審査書類に自己ハッシュがありません。");
+  }
+  const currentReviewId = await readControllerServiceWorkerReview(navigator.serviceWorker?.controller);
+  return Object.freeze({
+    reviewed: true,
+    repairRequired: currentReviewId !== expectedReviewId,
+    expectedReviewId,
+    currentReviewId,
+  });
 }
 
 export function markSourceUpdateAcknowledged(generation, storage = globalThis.localStorage) {
@@ -271,8 +312,8 @@ export async function requireServiceWorker({ reloadKey = "typed-voice-coi-reload
   // Refreshing the worker is an online maintenance operation, not an offline startup dependency.
   if (navigator.serviceWorker.controller) {
     sessionStorage.removeItem(reloadKey);
-    if (navigator.onLine) await refreshServiceWorker(serviceWorkerUrl, scopeUrl);
-    return;
+    if (navigator.onLine) return reviewControlledServiceWorker(scopeUrl);
+    return Object.freeze({ reviewed: false, repairRequired: false });
   }
 
   // A previously installed active worker is persisted by the browser independently of Cache Storage.
@@ -321,6 +362,23 @@ export async function requireServiceWorker({ reloadKey = "typed-voice-coi-reload
   return new Promise(() => {});
 }
 
+export async function unregisterTypedVoiceServiceWorker() {
+  const scopeUrl = new URL(import.meta.env.BASE_URL, document.baseURI);
+  const expectedWorkerUrl = new URL("app-service-worker.js", scopeUrl);
+  const registration = await navigator.serviceWorker?.getRegistration?.(scopeUrl.href);
+  if (!registration) return true;
+  const workers = [registration.active, registration.waiting, registration.installing].filter(Boolean);
+  if (workers.some((worker) => {
+    const actual = new URL(worker.scriptURL);
+    return actual.origin !== expectedWorkerUrl.origin || actual.pathname !== expectedWorkerUrl.pathname;
+  })) {
+    throw new Error("typed-voice以外のService Workerは登録解除しません。");
+  }
+  const unregistered = await registration.unregister();
+  if (!unregistered) throw new Error("古いService Workerの登録解除に失敗しました。");
+  return true;
+}
+
 export async function queryPreparedModelCache(manifestUrl, { appBaseUrl = null } = {}) {
   const controller = navigator.serviceWorker?.controller;
   if (!controller) return false;
@@ -341,57 +399,6 @@ export async function queryPreparedModelCache(manifestUrl, { appBaseUrl = null }
       manifestUrl,
       appBaseUrl,
     }, [channel.port2]);
-  });
-}
-
-export async function refreshTypedVoiceServiceWorker() {
-  if (!("serviceWorker" in navigator) || !navigator.onLine) return false;
-  const scopeUrl = new URL(import.meta.env.BASE_URL, document.baseURI);
-  const serviceWorkerUrl = new URL("app-service-worker.js", scopeUrl);
-  if (import.meta.env.DEV) serviceWorkerUrl.searchParams.set("dev", "1");
-  return refreshServiceWorker(serviceWorkerUrl, scopeUrl);
-}
-
-async function refreshServiceWorker(serviceWorkerUrl, scopeUrl) {
-  try {
-    const registration = await navigator.serviceWorker.register(serviceWorkerUrl, { scope: scopeUrl.pathname });
-    const previousController = navigator.serviceWorker.controller;
-    let updateFound = false;
-    const onUpdateFound = () => { updateFound = true; };
-    registration.addEventListener("updatefound", onUpdateFound);
-    try {
-      await registration.update().catch(() => {});
-    } finally {
-      registration.removeEventListener("updatefound", onUpdateFound);
-    }
-    if (updateFound || registration.installing || registration.waiting) {
-      await waitForServiceWorkerControllerChange(previousController, 5000);
-    }
-    return supportsSourceProtocol(navigator.serviceWorker.controller);
-  } catch (error) {
-    console.warn("Service Worker update check failed; continuing with the installed offline worker", error);
-    return false;
-  }
-}
-
-function waitForServiceWorkerControllerChange(previousController, timeoutMs = 5000) {
-  if (navigator.serviceWorker.controller && navigator.serviceWorker.controller !== previousController) {
-    return Promise.resolve(navigator.serviceWorker.controller);
-  }
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      globalThis.clearTimeout(timeout);
-      navigator.serviceWorker.removeEventListener("controllerchange", changed);
-      resolve(navigator.serviceWorker.controller ?? null);
-    };
-    const changed = () => {
-      if (navigator.serviceWorker.controller !== previousController) finish();
-    };
-    const timeout = globalThis.setTimeout(finish, timeoutMs);
-    navigator.serviceWorker.addEventListener("controllerchange", changed);
   });
 }
 

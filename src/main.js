@@ -3,9 +3,10 @@ import { UiOrchestrator } from "./app/ui-orchestrator.js";
 import {
   applySourceAssets,
   planSourceAssets,
-  refreshTypedVoiceServiceWorker,
+  readStoredSourceGeneration,
   requireServiceWorker,
   readServiceWorkerRequestLog,
+  unregisterTypedVoiceServiceWorker,
   verifyStoredSourceAssets,
 } from "./app/service-worker-required.js";
 import { initializeModelProfileUi } from "./app/model-profile-ui.js";
@@ -116,11 +117,15 @@ const remoteModeUi = await blocking.registerBlockingAsync("接続モード", asy
   return initializeRemoteModeUi(document);
 });
 const sourceAssetGroups = remoteModeUi.isServerMode ? ["core", "client"] : ["core", "engine"];
-await blocking.registerBlockingAsync("Service Worker", async ({ report }) => {
+const serviceWorkerState = await blocking.registerBlockingAsync("Service Worker", async ({ report }) => {
   report({ detail: "オフライン実行の準備を確認しています。" });
-  await requireServiceWorker({ reloadKey: "typed-voice-app-coi-reloaded" });
+  return requireServiceWorker({ reloadKey: "typed-voice-app-coi-reloaded" });
 });
 const sourceIntegrityState = await blocking.registerBlockingAsync("ソース検証", async ({ report }) => {
+  if (serviceWorkerState?.repairRequired) {
+    report({ detail: "Service Workerの自己ハッシュが審査書類と一致しないため、更新修復が必要です。" });
+    return { corruptCount: 0, corruptBytes: 0, missingCount: 0, missingBytes: 0 };
+  }
   report({ detail: "保存済みのアプリファイルをXXH3-128で検証しています。" });
   return verifyStoredSourceAssets(sourceAssetGroups, {
     onProgress(progress) {
@@ -145,6 +150,22 @@ const tutorialState = await blocking.registerBlockingAsync("保存状態", async
   return reconcileTutorialPersistence();
 });
 const sourceUpdateState = await blocking.registerBlockingAsync("更新確認", async ({ report }) => {
+  if (serviceWorkerState?.repairRequired) {
+    report({ detail: "古いService Workerを登録解除して最新化する必要があります。保存済みキャッシュは保持されます。" });
+    return {
+      generation: readStoredSourceGeneration(),
+      acceptedGeneration: readStoredSourceGeneration(),
+      updateAvailable: true,
+      totalBytes: 0,
+      fetchBytes: 0,
+      reusableBytes: 0,
+      assetCount: 0,
+      fetchCount: 0,
+      repairRequired: true,
+      serviceWorkerRepairRequired: true,
+      sourceAssetMapNetworkAvailable: true,
+    };
+  }
   report({
     detail: Number(sourceIntegrityState?.corruptCount || 0) > 0
       ? "破損した保存済みファイルを削除しました。再取得が必要なファイルを判定しています。"
@@ -157,7 +178,10 @@ const sourceAssetsPending = Boolean(sourceUpdateState.updateAvailable)
 const sourceUpdate = {
   plan: { ...sourceUpdateState },
   async prepare({ signal = null, onProgress = () => {} } = {}) {
-    await refreshTypedVoiceServiceWorker();
+    if (this.plan.serviceWorkerRepairRequired) {
+      await unregisterTypedVoiceServiceWorker();
+      return { generation: this.plan.generation, serviceWorkerRepairRequired: true };
+    }
     const result = await applySourceAssets(sourceAssetGroups, { signal, onProgress });
     this.plan = {
       ...this.plan,
